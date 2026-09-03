@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "glossary": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "glossary-mcp==${GLOSSARY_MCP_VERSION}"
+      ],
+      "env": {
+        "GLOSSARY_PATH": "${BAKOBO_GLOSSARY}"
+      }
+    }
+  }
+}

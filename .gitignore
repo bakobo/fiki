@@ -1,0 +1,6 @@
+
+# Rendered doc artifacts are derived from the markdown next to them; the
+# markdown is the only tracked source of truth. Render into docs/, never the root.
+# See dev/standards/repo-layout.md, "Rendered doc artifacts".
+docs/**/*.pdf
+docs/**/*.html
