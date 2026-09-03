@@ -13,13 +13,17 @@ from . import errors
 from .base import DEFAULT_COVERED, DERIVED, signature_base
 from .errors import FikiError
 from .keys import Key, verifying_key
+from .messages import Verdict, sign_request, verify_request
 
 __all__ = [
     "DEFAULT_COVERED",
     "DERIVED",
     "FikiError",
     "Key",
+    "Verdict",
     "errors",
+    "sign_request",
     "signature_base",
+    "verify_request",
     "verifying_key",
 ]

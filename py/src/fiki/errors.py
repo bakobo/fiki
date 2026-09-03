@@ -47,3 +47,7 @@ class DigestMismatch(FikiError):
 
 class SignatureMismatch(FikiError):
     """The signature does not verify over the request under the signer's key."""
+
+
+class UnsupportedAlgorithm(FikiError):
+    """The signature names an algorithm fiki does not verify."""

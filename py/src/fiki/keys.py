@@ -32,7 +32,7 @@ _PAD = b"\x00"
 _QB64_LEN = 44
 
 
-def _to_aid(raw: bytes) -> str:
+def to_aid(raw: bytes) -> str:
     """Render a raw 32-byte Ed25519 public key as a non-transferable AID."""
     return _CODE + base64.urlsafe_b64encode(_PAD + raw).decode("ascii")[1:]
 
@@ -62,7 +62,7 @@ class Key:
     @property
     def aid(self) -> str:
         """The non-transferable AID — 44 characters, ``B`` prefixed, also the verifying key."""
-        return _to_aid(self._private_key.public_key().public_bytes_raw())
+        return to_aid(self._private_key.public_key().public_bytes_raw())
 
     @property
     def seed(self) -> bytes:

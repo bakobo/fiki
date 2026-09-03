@@ -73,6 +73,30 @@ def _component_value(component: str, method: str, parts, headers: Mapping[str, s
     return value
 
 
+def component_lines(
+    *,
+    method: str,
+    url: str,
+    headers: Mapping[str, str],
+    covered: Sequence[str],
+) -> list[str]:
+    """Every line of the signature base except the trailing ``@signature-params``.
+
+    Split out because the verify side cannot call :func:`signature_base`: it must reserialize the
+    parameters exactly as they arrived, in the order they arrived, rather than in fiki's own fixed
+    order — a verifier that reorders what it received computes a different base and rejects a good
+    signature.
+    """
+    parts = urlsplit(url)
+    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
+    # values are stripped of leading and trailing whitespace.
+    lowered = {name.lower(): value.strip() for name, value in headers.items()}
+    return [
+        f'"{component}": {_component_value(component.lower(), method, parts, lowered)}'
+        for component in covered
+    ]
+
+
 def signature_base(
     *,
     method: str,
@@ -95,16 +119,8 @@ def signature_base(
     :data:`DERIVED`, and :class:`~fiki.errors.MissingComponent` for a covered header the request
     does not carry.
     """
-    parts = urlsplit(url)
-    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-    # values are stripped of leading and trailing whitespace.
-    lowered = {name.lower(): value.strip() for name, value in headers.items()}
     covered = [component.lower() for component in covered]
-
-    lines = [
-        f'"{component}": {_component_value(component, method, parts, lowered)}'
-        for component in covered
-    ]
+    lines = component_lines(method=method, url=url, headers=headers, covered=covered)
 
     params = http_sfv.InnerList([http_sfv.Item(component) for component in covered])
     values = {
