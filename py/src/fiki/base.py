@@ -27,7 +27,7 @@ DERIVED = ("@method", "@authority", "@path", "@query")
 # This closes the query, host, and body gaps that heti's KERI dialect leaves open and structurally
 # cannot close. `created` is a signature parameter rather than a component, so it is not listed
 # here even though it is always covered.
-DEFAULT_COVERED = ("@method", "@authority", "@path", "@query")  # ~2ut3 — nothing consumes it yet
+DEFAULT_COVERED = ("@method", "@authority", "@path", "@query")
 
 CONTENT_DIGEST = "content-digest"
 
