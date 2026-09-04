@@ -1,0 +1,21 @@
+[package]
+name = "fiki"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.75"
+license = "Apache-2.0"
+description = "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies."
+repository = "https://github.com/bakobo/fiki"
+
+# Unlike the Go and JavaScript ports, this one CANNOT be dependency-free: Rust's standard library
+# has no cryptography at all, so Ed25519 and SHA-2 have to come from somewhere (`this.i`
+# @2tt6fmc0). These three are the whole of it, all widely used and audited, and the RFC 8941
+# subset is still hand-rolled for the reason every port hand-rolls it.
+[dependencies]
+ed25519-dalek = { version = "2", default-features = false, features = ["rand_core", "std"] }
+sha2 = "0.10"
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -33,6 +33,7 @@ vectors/    conformance vectors, shared and normative
 py/         the Python implementation
 js/         the JavaScript implementation, for browsers and Node
 go/         the Go implementation
+rust/       the Rust implementation
 ```
 
 A new port adds a directory here rather than a repository, so the vectors cannot fork and drift apart. See `this.i` for why that mattered enough to shape the layout.
@@ -43,7 +44,7 @@ Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakob
 
 ## Building
 
-Per-language instructions live with the implementation: [`py/README.md`](py/README.md) and [`js/README.md`](js/README.md). Both run the same vectors, and neither is the reference — the vectors are.
+Per-language instructions live with the implementation: [`py/`](py/README.md), [`js/`](js/README.md), [`go/`](go/README.md), and [`rust/`](rust/README.md). Both run the same vectors, and neither is the reference — the vectors are.
 
 ## License
 

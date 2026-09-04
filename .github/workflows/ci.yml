@@ -147,3 +147,26 @@ jobs:
           total=$(go tool cover -func=cover.out | awk '/^total:/ {print $3}')
           echo "statement coverage: $total"
           test "$total" = "100.0%"
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test
+      # This port takes three crates because Rust's standard library has no cryptography
+      # (`this.i` @2tt6fmc0). That is the exception, and the point of this step is that it stays
+      # an exception with a known size rather than growing quietly.
+      - name: Assert the dependency budget has not grown
+        run: |
+          declared=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(" ".join(sorted(d["name"] for d in json.load(sys.stdin)["packages"][0]["dependencies"] if d["kind"] is None)))')
+          echo "runtime dependencies: $declared"
+          test "$declared" = "ed25519-dalek rand_core sha2"
