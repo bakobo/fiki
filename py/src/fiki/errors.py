@@ -24,6 +24,23 @@ class FikiError(Exception):
     """Base for every error fiki raises about a request."""
 
 
+class _Detailed(FikiError):
+    """A base for errors that carry the value they are about, as an attribute.
+
+    A consumer translating fiki's errors into its own vocabulary needs the offending component
+    name, label, keyid or algorithm — and reading it back out of the message text would make
+    every reworded sentence a breaking change for that consumer. heti does exactly this
+    translation (heti @4n9m4xfz), so the values are structured rather than prose.
+    """
+
+    _fields: tuple[str, ...] = ()
+
+    def __init__(self, message: str, **fields: str):
+        super().__init__(message)
+        for name in self._fields:
+            setattr(self, name, fields[name])
+
+
 # --- something the request needs is absent ---
 
 class MissingSignature(FikiError):
@@ -34,16 +51,20 @@ class MissingSignatureInput(FikiError):
     """The request has no ``Signature-Input`` header, so no covered components are declared."""
 
 
-class MissingSignatureLabel(FikiError):
+class MissingSignatureLabel(_Detailed):
     """The two signature headers name different labels, so neither describes the other."""
+
+    _fields = ("label",)
 
 
 class MissingKey(FikiError):
     """The signature carries no keyid and the caller supplied no key."""
 
 
-class MissingComponent(FikiError):
+class MissingComponent(_Detailed):
     """A covered component has no value in the request, so the base cannot be rebuilt."""
+
+    _fields = ("component",)
 
 
 # --- something the request carries cannot be read ---
@@ -64,8 +85,10 @@ class MalformedSignatureValue(FikiError):
     """The ``Signature`` value is not an RFC 8941 byte sequence, so there is no signature."""
 
 
-class MalformedKey(FikiError):
+class MalformedKey(_Detailed):
     """A key, keyid, or AID is not a well-formed 32-byte Ed25519 public key."""
+
+    _fields = ("keyid",)
 
 
 class MalformedDigest(FikiError):
@@ -74,12 +97,16 @@ class MalformedDigest(FikiError):
 
 # --- fiki understood the request and will not handle it ---
 
-class UnsupportedComponent(FikiError):
+class UnsupportedComponent(_Detailed):
     """The covered set names a derived component fiki does not build."""
 
+    _fields = ("component", "supported")
 
-class UnsupportedAlgorithm(FikiError):
+
+class UnsupportedAlgorithm(_Detailed):
     """The signature names an algorithm fiki does not verify."""
+
+    _fields = ("alg",)
 
 
 class UncoveredBody(FikiError):

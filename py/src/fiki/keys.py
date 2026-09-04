@@ -55,7 +55,7 @@ class Key:
         """Recreate a key from its 32-byte Ed25519 seed."""
         if len(seed) != _RAW_LEN:
             raise MalformedKey(
-                f"An Ed25519 seed is {_RAW_LEN} bytes; this one is {len(seed)}."
+                f"An Ed25519 seed is {_RAW_LEN} bytes; this one is {len(seed)}.", keyid=""
             )
         return cls(Ed25519PrivateKey.from_private_bytes(seed), bytes(seed))
 
@@ -88,7 +88,8 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
         raise MalformedKey(
             f"A non-transferable AID is {_QB64_LEN} characters beginning with "
             f'"{_CODE}"; this one is {len(aid)} characters and begins with '
-            f'"{aid[:1]}".'
+            f'"{aid[:1]}".',
+            keyid=aid,
         )
     # validate=True rather than the default: without it, characters outside the alphabet are
     # silently DISCARDED, so a 44-character string of the right shape can decode to fewer bytes
@@ -98,7 +99,9 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
     try:
         decoded = base64.b64decode("A" + aid[1:], altchars=b"-_", validate=True)
     except binascii.Error as ex:
-        raise MalformedKey(f'The AID "{aid}" is not valid base64url.') from ex
+        raise MalformedKey(f'The AID "{aid}" is not valid base64url.', keyid=aid) from ex
     if len(decoded) != len(_PAD) + _RAW_LEN:
-        raise MalformedKey(f'The AID "{aid}" does not decode to a {_RAW_LEN}-byte key.')
+        raise MalformedKey(
+            f'The AID "{aid}" does not decode to a {_RAW_LEN}-byte key.', keyid=aid
+        )
     return Ed25519PublicKey.from_public_bytes(decoded[len(_PAD):])

@@ -83,3 +83,14 @@ def test_verifying_key_refuses_anything_that_is_not_a_non_transferable_aid(aid):
 def test_verifying_key_refuses_a_well_shaped_aid_that_is_not_base64url(aid):
     with pytest.raises(MalformedKey):
         verifying_key(aid)
+
+
+def test_a_refusal_carries_the_offending_value_as_an_attribute():
+    """heti reads these fields to fill its own message templates (heti @4n9m4xfz).
+
+    Reading them back out of the message text instead would make every reworded sentence a
+    breaking change for a consumer that translates fiki's errors into its own vocabulary.
+    """
+    with pytest.raises(MalformedKey) as caught:
+        verifying_key("D" + "A" * 43)
+    assert caught.value.keyid == "D" + "A" * 43

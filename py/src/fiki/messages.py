@@ -159,7 +159,8 @@ def verify_request(
     alg = inner.params.get("alg")
     if alg is not None and alg != ALG:
         raise UnsupportedAlgorithm(
-            f'This signature is made with "{alg}", and fiki verifies only {ALG} signatures.'
+            f'This signature is made with "{alg}", and fiki verifies only {ALG} signatures.',
+            alg=alg,
         )
 
     covered = tuple(item.value for item in inner)
@@ -215,7 +216,8 @@ def _read(found: Mapping[str, str]):
     if list(signatures.keys()) != labels:
         raise MissingSignatureLabel(
             f'The Signature header carries no entry labelled "{labels[0]}", so the covered '
-            "components describe a signature that is not here."
+            "components describe a signature that is not here.",
+            label=labels[0],
         )
 
     value = signatures[labels[0]].value
@@ -251,7 +253,8 @@ def _resolve(expected_aid: str | None, keyid: str | None) -> Ed25519PublicKey:
         return Ed25519PublicKey.from_public_bytes(raw)
     except Exception as ex:
         raise MalformedKey(
-            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key.'
+            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key.',
+            keyid=keyid,
         ) from ex
 
 

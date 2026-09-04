@@ -57,7 +57,8 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
     if host is None:
         raise MissingComponent(
             'The signature covers "@authority", but the URL carries no authority and the '
-            "request has no Host header, so there is nothing to derive it from."
+            "request has no Host header, so there is nothing to derive it from.",
+            component="@authority",
         )
     return host.lower()
 
@@ -77,13 +78,16 @@ def _component_value(component: str, method: str, parts, headers: Mapping[str, s
     if component.startswith("@"):
         raise UnsupportedComponent(
             f'fiki does not build the derived component "{component}"; it builds '
-            f"{', '.join(DERIVED)}."
+            f"{', '.join(DERIVED)}.",
+            component=component,
+            supported=", ".join(DERIVED),
         )
     value = headers.get(component)
     if value is None:
         raise MissingComponent(
             f'The signature covers "{component}", but the request carries no value for it, '
-            f"so the signature base cannot be built."
+            f"so the signature base cannot be built.",
+            component=component,
         )
     return value
 
