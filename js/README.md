@@ -9,7 +9,7 @@ cd js
 npm test
 ```
 
-There is nothing to install. The suite runs under `node:test` and holds the same 100% branch-coverage gate as the Python port, and it runs the shared `vectors/` at the repository root, so this implementation and that one are held to the same bytes.
+There is nothing to install. The suite runs under `node:test`, and `npm run test:coverage` adds the same 100% branch gate the Python port holds — separately, because Node's coverage thresholds need 22 or newer while the library itself runs on 20. Both commands run the shared `vectors/` at the repository root, so this implementation and the Python one are held to the same bytes.
 
 ## Signing a request
 

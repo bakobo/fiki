@@ -80,8 +80,24 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Run tests (100% branch coverage gate)
+      - name: Run tests
         run: npm test
+
+  # The coverage thresholds need Node 22+, and the port's floor is 20 because that is where the
+  # library works. Running the gate once on a version that has it keeps the two questions apart:
+  # the matrix above asks "does fiki run here", this asks "is fiki tested".
+  js-coverage:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Run tests (100% coverage gate)
+        run: npm run test:coverage
 
   # The JS port ships zero runtime dependencies (`this.i` @2q9gv70t), which is the whole reason a
   # browser can load it as one file with no supply chain. A lockfile check would only say what was
