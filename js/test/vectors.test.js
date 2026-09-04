@@ -97,3 +97,23 @@ describe('requests every implementation must refuse', () => {
     });
   }
 });
+
+describe('requests every implementation must accept', () => {
+  for (const c of load('accepts.json').cases) {
+    it(c.id, async () => {
+      // The positive half. signature-base.json pins what a signer produces and refusals.json what
+      // a verifier rejects; without these, a port could pass every vector while returning the
+      // wrong AID or the wrong covered set.
+      const verdict = await verifyRequest({
+        method: c.method,
+        url: c.url,
+        headers: c.headers,
+        body: c.body === null ? null : new TextEncoder().encode(c.body),
+        maxAge: c.max_age,
+        now: c.now,
+      });
+      assert.equal(verdict.aid, c.aid);
+      assert.deepEqual(verdict.covered, c.covered);
+    });
+  }
+});

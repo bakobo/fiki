@@ -98,3 +98,23 @@ def test_refusal_vectors(case):
             now=case.get("now"),
         )
     assert type(caught.value).__name__ == case["error"]
+
+
+@pytest.mark.parametrize("case", cases("accepts.json"))
+def test_accept_vectors(case):
+    """The positive half. A port that refuses these is not fiki either.
+
+    signature-base.json pins what a signer produces and refusals.json pins what a verifier
+    rejects; between them nothing said a well-formed request must VERIFY. A port could have
+    passed every other vector while returning the wrong AID or the wrong covered set.
+    """
+    verdict = verify_request(
+        method=case["method"],
+        url=case["url"],
+        headers=case["headers"],
+        body=None if case["body"] is None else case["body"].encode("utf-8"),
+        max_age=case["max_age"],
+        now=case["now"],
+    )
+    assert verdict.aid == case["aid"]
+    assert list(verdict.covered) == case["covered"]

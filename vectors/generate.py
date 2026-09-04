@@ -27,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "py" / "src"))
 
-from fiki import DEFAULT_COVERED, Key, sign_request, signature_base  # noqa: E402
+from fiki import DEFAULT_COVERED, Key, sign_request, signature_base, verify_request  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 RFC_SEED = base64.urlsafe_b64decode("n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU" + "=")
@@ -311,11 +311,78 @@ def refusals():
     }
 
 
+def accepts():
+    """Complete signed requests every implementation must ACCEPT, and the verdict each yields.
+
+    The gap this closes: signature-base.json pins what a signer produces and refusals.json pins
+    what a verifier rejects, and between them nothing said that a well-formed request VERIFIES.
+    A port could have passed every vector while its verify path returned the wrong AID, reported
+    the wrong covered set, or refused everything. With five implementations that is not a
+    theoretical hole.
+    """
+    key = Key.from_seed(SEED_A)
+    signed_at = 1700000000
+    body = b'{"hello": "world"}'
+    cases = []
+
+    def add(case_id, *, method, url, headers=None, body_text=None, covered=None, expires=None,
+            max_age=None, now=None, note=None):
+        payload = None if body_text is None else body_text.encode("utf-8")
+        sent = dict(headers or {})
+        sent.update(
+            sign_request(
+                key=key, method=method, url=url, headers=dict(sent), body=payload,
+                covered=covered, created=signed_at, expires=expires,
+            )
+        )
+        verdict = verify_request(
+            method=method, url=url, headers=sent, body=payload, max_age=max_age,
+            now=signed_at if now is None else now,
+        )
+        case = {
+            "id": case_id,
+            "method": method,
+            "url": url,
+            "headers": sent,
+            "body": body_text,
+            "max_age": max_age,
+            "now": signed_at if now is None else now,
+            "aid": verdict.aid,
+            "covered": list(verdict.covered),
+        }
+        if note:
+            case["note"] = note
+        cases.append(case)
+
+    add("default-covered-get", method="GET", url="https://api.example.com/things?limit=1&sort=name",
+        note="The shape a cron client actually sends.")
+    add("post-with-a-body", method="POST", url="https://api.example.com/things", body_text=body.decode(),
+        note="The digest is computed, covered, and recomputed on the way back in.")
+    add("relative-url-with-host-header", method="GET", url="/things?limit=1",
+        headers={"Host": "API.example.com"},
+        note="What a server-side verifier holds: a request target and a header block.")
+    add("no-query-at-all", method="GET", url="https://api.example.com/things",
+        note="@query binds 'no query' as a bare question mark rather than going uncovered.")
+    add("inside-max-age", method="GET", url="https://api.example.com/x", max_age=300,
+        now=signed_at + 120, note="A freshness policy that the request satisfies.")
+    add("before-its-expiry", method="GET", url="https://api.example.com/x",
+        expires=signed_at + 600, max_age=None, now=signed_at + 60)
+    add("chosen-covered-set", method="POST", url="https://api.example.com/x",
+        body_text=body.decode(), covered=["@method", "@path", "content-digest"],
+        note="A caller who names their own covered set, including the digest.")
+    add("non-default-port", method="GET", url="https://api.example.com:8443/x")
+
+    return {**HEADER,
+            "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
+            "cases": cases}
+
+
 def main() -> None:
     out = Path(__file__).resolve().parent
     for name, data in [
         ("aid-lens.json", aid_lens()),
         ("signature-base.json", signature_bases()),
+        ("accepts.json", accepts()),
         ("refusals.json", refusals()),
     ]:
         (out / name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

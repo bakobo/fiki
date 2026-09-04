@@ -1,0 +1,173 @@
+{
+  "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "default-covered-get",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "The shape a cron client actually sends."
+    },
+    {
+      "id": "post-with-a-body",
+      "method": "POST",
+      "url": "https://api.example.com/things",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:lDLyoqV/7/jRZET+EdNJb7JreTRsrBaII/YLAKuMgQLbB+iw7p9HbzoeryZUS1LWMOIAPeFp0XgMDhhy4L3QBA==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query",
+        "content-digest"
+      ],
+      "note": "The digest is computed, covered, and recomputed on the way back in."
+    },
+    {
+      "id": "relative-url-with-host-header",
+      "method": "GET",
+      "url": "/things?limit=1",
+      "headers": {
+        "Host": "API.example.com",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "What a server-side verifier holds: a request target and a header block."
+    },
+    {
+      "id": "no-query-at-all",
+      "method": "GET",
+      "url": "https://api.example.com/things",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:4+IaJoUIDzgjgkV3j49YGAsjfOC7l60VzkkUbLPpsY7ylqIi+dwBhCoHSGgboTGdorHxJmm1CVdjwlmb0jREBQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "@query binds 'no query' as a bare question mark rather than going uncovered."
+    },
+    {
+      "id": "inside-max-age",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": null,
+      "max_age": 300,
+      "now": 1700000120,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "A freshness policy that the request satisfies."
+    },
+    {
+      "id": "before-its-expiry",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;expires=1700000600;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:M/XIF2QpdSAhLNsYCHnaHozskxaCGG6dcBPzvAmznN2gyvbDfpntwISC+5OOUxU9vIGQOZGx2llG/2209uu0CQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000060,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ]
+    },
+    {
+      "id": "chosen-covered-set",
+      "method": "POST",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@path\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:Qkzdx3boEfjnoX+WBKWmHp9ApzHyJ5/rFSfOK/2e4gH/2Kj9JjsjeZVjB+L2+WLEBehDHxBoMxO4k2k0K4ZJAA==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@path",
+        "content-digest"
+      ],
+      "note": "A caller who names their own covered set, including the digest."
+    },
+    {
+      "id": "non-default-port",
+      "method": "GET",
+      "url": "https://api.example.com:8443/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:sA20AHdm2gB8/L7AXHQP8PCFv8eaW5ntSce/xRPbIrA9QRrnQK1S289HsCA25dlGUOYzvFZXV90/Oc+G3dX0DQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ]
+    }
+  ]
+}
