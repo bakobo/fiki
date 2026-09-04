@@ -32,6 +32,7 @@ vectors/    conformance vectors, shared and normative
   refusals.json       requests every implementation must refuse
 py/         the Python implementation
 js/         the JavaScript implementation, for browsers and Node
+go/         the Go implementation
 ```
 
 A new port adds a directory here rather than a repository, so the vectors cannot fork and drift apart. See `this.i` for why that mattered enough to shape the layout.

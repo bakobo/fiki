@@ -122,3 +122,28 @@ jobs:
             }
             console.log("no dependencies declared");
           '
+
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.22"
+      - name: Vet
+        run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      # 100% STATEMENT coverage, not branch: `go test -cover` measures statements only and Go has
+      # no branch mode, so this gate is weaker than the Python and JavaScript ones by the
+      # toolchain's choice rather than ours. Recorded here so nobody reads the number as the same
+      # number the other ports report.
+      - name: Run tests (100% statement coverage gate)
+        run: |
+          go test -coverprofile=cover.out ./...
+          total=$(go tool cover -func=cover.out | awk '/^total:/ {print $3}')
+          echo "statement coverage: $total"
+          test "$total" = "100.0%"
