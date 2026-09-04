@@ -1,0 +1,25 @@
+{
+  "name": "@bakobo/fiki",
+  "version": "0.0.0",
+  "description": "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies.",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/bakobo/fiki",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bakobo/fiki.git",
+    "directory": "js"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test --experimental-test-coverage --test-coverage-branches=100 --test-coverage-lines=100 --test-coverage-exclude='test/**' 'test/**/*.test.js'"
+  }
+}

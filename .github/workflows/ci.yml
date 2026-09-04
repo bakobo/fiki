@@ -63,3 +63,46 @@ jobs:
               exit 1
             fi
           done
+
+  js:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the floor because that is where WebCrypto's Ed25519 is dependable; the port has no
+        # other runtime requirement, and no dependencies to install.
+        node-version: ["20", "22", "24"]
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Run tests (100% branch coverage gate)
+        run: npm test
+
+  # The JS port ships zero runtime dependencies (`this.i` @2q9gv70t), which is the whole reason a
+  # browser can load it as one file with no supply chain. A lockfile check would only say what was
+  # installed; this says what is declared.
+  js-dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Assert no runtime or dev dependencies are declared
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            for (const field of ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"]) {
+              const count = Object.keys(pkg[field] ?? {}).length;
+              if (count > 0) {
+                console.error(`::error::${field} has ${count} entries; fiki-js declares none (this.i @2q9gv70t)`);
+                process.exit(1);
+              }
+            }
+            console.log("no dependencies declared");
+          '
