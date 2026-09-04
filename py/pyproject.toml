@@ -1,6 +1,6 @@
 [project]
 name = "fiki"
-version = "0.0.0"
+version = "0.5.0"
 description = "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies."
 readme = "README.md"
 # 3.11, not heti's 3.14. fiki's audience is the party for whom installing keripy is the obstacle —

@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { FikiError, Key, signatureBase, verifyRequest, verifyingKey } from '../src/index.js';
+import { FikiError, Key, VECTORS_FORMAT, signatureBase, verifyRequest, verifyingKey } from '../src/index.js';
 
 const VECTORS = new URL('../../vectors/', import.meta.url);
 
@@ -21,6 +21,17 @@ const load = (name) => JSON.parse(readFileSync(new URL(name, VECTORS), 'utf8'));
 const fromHex = (hex) => Uint8Array.from(hex.match(/../g).map((b) => parseInt(b, 16)));
 const toBase64 = (bytes) => Buffer.from(bytes).toString('base64');
 const toBase64Url = (bytes) => Buffer.from(bytes).toString('base64url');
+
+describe('the vectors format', () => {
+  for (const name of ['aid-lens.json', 'signature-base.json', 'accepts.json', 'refusals.json']) {
+    it(`${name} is the contract this port satisfies`, () => {
+      // A port running newer vectors fails here rather than passing a subset and reporting
+      // conformance it no longer has: the cases it never implemented would simply not be in the
+      // file it last read.
+      assert.equal(load(name).vectors_format, VECTORS_FORMAT);
+    });
+  }
+});
 
 describe('the vectors are reachable', () => {
   it('sits beside the other ports rather than under this one', () => {

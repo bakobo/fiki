@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from fiki import Key, signature_base, verify_request
+from fiki import VECTORS_FORMAT, Key, signature_base, verify_request
 from fiki.errors import FikiError
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
@@ -31,6 +31,17 @@ def load(name: str) -> dict:
 def cases(name: str):
     data = load(name)
     return [pytest.param(case, id=case["id"]) for case in data["cases"]]
+
+
+@pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json"])
+def test_this_port_satisfies_the_vectors_format_it_is_running(name):
+    """A port running newer vectors fails here rather than passing a subset (@4fhrre0m).
+
+    Without this, a vectors bump that added a required behaviour would leave every port quietly
+    reporting conformance to a contract it no longer meets — the cases it never implemented would
+    simply not be in the file it last read.
+    """
+    assert load(name)["vectors_format"] == VECTORS_FORMAT
 
 
 def test_the_vectors_are_where_every_port_can_reach_them():

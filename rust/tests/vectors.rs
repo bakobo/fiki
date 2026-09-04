@@ -8,7 +8,10 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use fiki::{signature_base, verify_request, verifying_key, Key, SignatureParams, VerifyOptions};
+use fiki::{
+    signature_base, verify_request, verifying_key, Key, SignatureParams, VerifyOptions,
+    VECTORS_FORMAT,
+};
 use serde::Deserialize;
 
 fn load<T: for<'de> Deserialize<'de>>(name: &str) -> T {
@@ -84,6 +87,27 @@ impl RequestCase {
             now: self.now,
             ..Default::default()
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct FormatHeader {
+    vectors_format: u32,
+}
+
+#[test]
+fn this_port_satisfies_the_vectors_format_it_is_running() {
+    // A port running newer vectors fails here rather than passing a subset and reporting
+    // conformance it no longer has: the cases it never implemented would simply not be in the file
+    // it last read.
+    for name in [
+        "aid-lens.json",
+        "signature-base.json",
+        "accepts.json",
+        "refusals.json",
+    ] {
+        let header: FormatHeader = load(name);
+        assert_eq!(header.vectors_format, VECTORS_FORMAT, "{name}");
     }
 }
 

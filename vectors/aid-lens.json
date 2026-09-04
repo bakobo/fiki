@@ -1,5 +1,6 @@
 {
   "about": "A seed to its non-transferable AID and to its keyid.",
+  "vectors_format": 1,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",

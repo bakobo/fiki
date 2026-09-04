@@ -1,6 +1,6 @@
 {
   "name": "@bakobo/fiki",
-  "version": "0.0.0",
+  "version": "0.5.0",
   "description": "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/bakobo/fiki",

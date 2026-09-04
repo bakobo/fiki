@@ -1,5 +1,6 @@
 {
   "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
+  "vectors_format": 1,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",

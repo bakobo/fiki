@@ -7,6 +7,15 @@ package fiki
 
 import "fmt"
 
+// VectorsFormat is the conformance contract this port satisfies (this.i @4fhrre0m). Two artifacts
+// interoperate when their declared vectors format matches, whatever their own version numbers say
+// — so this is the number to compare, not the release. Monotonic, because a conformance contract
+// has no meaningful minor: an implementation either satisfies the vectors or it does not.
+//
+// Go carries no version constant of its own: the module's version IS its tag, and duplicating it
+// here would give it somewhere to go stale.
+const VectorsFormat = 1
+
 // Error is every error fiki returns about a request. The Kind names the condition, and the NAMES
 // are a cross-language contract rather than an implementation detail: vectors/refusals.json
 // records the name fiki reports for each refusal, and every port asserts on it. So a port that

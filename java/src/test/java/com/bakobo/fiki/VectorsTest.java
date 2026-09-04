@@ -66,6 +66,19 @@ class VectorsTest {
     }
 
     @TestFactory
+    Stream<DynamicTest> vectorsFormat() {
+        List<DynamicTest> tests = new ArrayList<>();
+        for (String name : List.of("aid-lens.json", "signature-base.json", "accepts.json", "refusals.json")) {
+            tests.add(DynamicTest.dynamicTest(name, () -> {
+                // A port running newer vectors fails here rather than passing a subset and
+                // reporting conformance it no longer has.
+                assertEquals(Fiki.VECTORS_FORMAT, load(name).get("vectors_format").asInt());
+            }));
+        }
+        return tests.stream();
+    }
+
+    @TestFactory
     Stream<DynamicTest> aidLens() throws Exception {
         List<DynamicTest> tests = new ArrayList<>();
         for (JsonNode c : load("aid-lens.json").get("cases")) {

@@ -87,6 +87,23 @@ func mustHex(t *testing.T, text string) []byte {
 	return raw
 }
 
+func TestThisPortSatisfiesTheVectorsFormatItIsRunning(t *testing.T) {
+	// A port running newer vectors fails here rather than passing a subset and reporting
+	// conformance it no longer has: the cases it never implemented would simply not be in the
+	// file it last read.
+	for _, name := range []string{"aid-lens.json", "signature-base.json", "accepts.json", "refusals.json"} {
+		t.Run(name, func(t *testing.T) {
+			var file struct {
+				VectorsFormat int `json:"vectors_format"`
+			}
+			load(t, name, &file)
+			if file.VectorsFormat != VectorsFormat {
+				t.Errorf("%s declares vectors format %d; this port satisfies %d", name, file.VectorsFormat, VectorsFormat)
+			}
+		})
+	}
+}
+
 func TestAIDLens(t *testing.T) {
 	var file struct{ Cases []aidCase }
 	load(t, "aid-lens.json", &file)

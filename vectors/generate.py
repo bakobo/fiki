@@ -34,8 +34,18 @@ RFC_SEED = base64.urlsafe_b64decode("n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU
 SEED_A = bytes(range(32))
 SEED_B = bytes(range(1, 33))
 
+# The conformance contract's own version (`this.i` @4fhrre0m). A monotonic integer rather than a
+# semantic version, because there is no meaningful minor here: an implementation either satisfies
+# these vectors or it does not, and even ADDING a case is breaking for an implementation that
+# already shipped. Bump it whenever the behaviour these files require changes — a covered-set
+# default, an error name, a refusal that becomes an acceptance. Every port exports the format it
+# satisfies and asserts the two agree, so a port running newer vectors fails loudly rather than
+# passing a subset and reporting conformance it does not have.
+VECTORS_FORMAT = 1
+
 HEADER = {
     "about": "Shared conformance vectors for fiki. Every implementation runs these.",
+    "vectors_format": VECTORS_FORMAT,
     "generated_by": "vectors/generate.py",
     "default_covered": list(DEFAULT_COVERED),
 }

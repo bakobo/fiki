@@ -6,6 +6,14 @@
 //!
 //! See `this.i` @07wstqk7 in <https://github.com/bakobo/fiki> for why this is a library of its own.
 
+/// The conformance contract this port satisfies (`this.i` @4fhrre0m).
+///
+/// Two artifacts interoperate when their declared vectors format matches, whatever their own
+/// version numbers say — so this is the number to compare, not the release. Monotonic, because a
+/// conformance contract has no meaningful minor: an implementation either satisfies the vectors or
+/// it does not.
+pub const VECTORS_FORMAT: u32 = 1;
+
 mod base;
 mod errors;
 mod keys;

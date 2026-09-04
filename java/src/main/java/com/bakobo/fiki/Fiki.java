@@ -28,6 +28,16 @@ public final class Fiki {
 
     private Fiki() {}
 
+    /**
+     * The conformance contract this port satisfies (this.i @4fhrre0m).
+     *
+     * <p>Two artifacts interoperate when their declared vectors format matches, whatever their own
+     * version numbers say — so this is the number to compare, not the release. Monotonic, because
+     * a conformance contract has no meaningful minor: an implementation either satisfies the
+     * vectors or it does not.
+     */
+    public static final int VECTORS_FORMAT = 1;
+
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";
 

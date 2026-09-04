@@ -15,7 +15,14 @@ from .errors import FikiError
 from .keys import Key, to_aid, verifying_key
 from .messages import Verdict, sign_request, verify_request
 
+# The conformance contract this port satisfies (``this.i`` @4fhrre0m). Two artifacts interoperate
+# when their declared vectors format matches, whatever their own version numbers say — so this is
+# the number to compare, not the release. Monotonic, because a conformance contract has no
+# meaningful minor: an implementation either satisfies the vectors or it does not.
+VECTORS_FORMAT = 1
+
 __all__ = [
+    "VECTORS_FORMAT",
     "DEFAULT_COVERED",
     "DERIVED",
     "FikiError",

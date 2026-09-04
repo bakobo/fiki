@@ -1,5 +1,6 @@
 {
   "about": "Signature bases and the signatures over them, byte for byte.",
+  "vectors_format": 1,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",

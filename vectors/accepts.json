@@ -1,5 +1,6 @@
 {
   "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
+  "vectors_format": 1,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",

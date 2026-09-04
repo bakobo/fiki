@@ -39,6 +39,20 @@ java/       the Java implementation
 
 A new port adds a directory here rather than a repository, so the vectors cannot fork and drift apart. See `this.i` for why that mattered enough to shape the layout.
 
+## Versions, and which ones interoperate
+
+Each implementation versions independently — a fix in the Go port does not force an empty release of the other four. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
+
+```
+fiki (Python)      0.5.0    vectors format 1
+fiki (JavaScript)  0.5.0    vectors format 1
+fiki (Go)          0.5.0    vectors format 1
+fiki (Rust)        0.5.0    vectors format 1
+fiki (Java)        0.5.0    vectors format 1
+```
+
+Same format, interchangeable. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
+
 ## Conformance
 
 Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakobo party authored, pin the signature base and the signing algorithm — including on the signing side, since B.1.4 publishes the Ed25519 private key and Ed25519 is deterministic. The `vectors/` set pins what the RFC cannot: the AID lens, the default covered set, and the refusal to sign a body that nothing digests.
