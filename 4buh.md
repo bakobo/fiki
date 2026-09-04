@@ -1,0 +1,4 @@
+# The coverage gates are not uniform across the five ports, and the differences are the toolchains' rather than choices. Python and JavaScript hold 100% BRANCH coverage. Go holds 100% STATEMENT coverage, because go test -cover has no branch mode and getting one means a third-party tool this port would rather not acquire for a measurement. Rust and Java hold NO measured gate at all: Rust would need cargo-llvm-cov installed and Java would need a JaCoCo plugin plus the work to reach a threshold. The shared vectors carry most of the weight either way — 37 cases every port answers to — but a vector suite catches what it covers and a coverage gate catches what it does not. Decide whether to add JaCoCo and cargo-llvm-cov with real thresholds, or to say plainly in each README that the gate differs and why
+kind: debt
+created: 2026-09-04T17:53Z
+
