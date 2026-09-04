@@ -1,5 +1,7 @@
 # fiki (Rust)
 
+[![Rust](https://github.com/bakobo/fiki/actions/workflows/ci-rust.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-rust.yml)
+
 The Rust implementation of [fiki](../README.md). Requires Rust 1.75 or newer.
 
 ```sh

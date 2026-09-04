@@ -1,5 +1,7 @@
 # fiki (Java)
 
+[![Java](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml)
+
 The Java implementation of [fiki](../README.md). Requires JDK 17 or newer, and has **no runtime dependencies** — Ed25519 has been in the JDK since 15, SHA-2 since forever, and the RFC 8941 subset is hand-rolled in `Sfv.java`. JUnit and Jackson are test-scope only; a consumer of this artifact inherits neither.
 
 ```sh

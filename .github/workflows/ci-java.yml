@@ -1,0 +1,66 @@
+name: Java
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all five.
+on:
+  push:
+    branches: [main]
+    paths: ["java/**", "vectors/**", ".github/workflows/ci-java.yml"]
+  pull_request:
+    paths: ["java/**", "vectors/**", ".github/workflows/ci-java.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 17 is the floor the pom compiles to; 21 and 25 are the current LTS and latest. Ed25519
+        # arrived in 15, so the floor is the build's rather than the algorithm's.
+        java-version: ["17", "21", "25"]
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java-version }}
+          cache: maven
+      - name: Run tests
+        run: mvn -B test
+
+  # No RUNTIME dependencies (`this.i` @2tt6fmc0): JUnit and Jackson are test scope, and a consumer
+  # of the artifact inherits neither. This checks what the artifact actually declares rather than
+  # what the pom appears to say.
+
+  dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: java
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Assert the compile classpath is empty
+        run: |
+          mvn -B -q dependency:list -DincludeScope=runtime -DoutputFile=runtime.txt
+          echo "--- runtime dependencies ---"
+          cat runtime.txt
+          # Maven prints a literal "none" when there are no runtime dependencies, which is what
+          # this asserts. Grepping for the ABSENCE of dependency lines would pass on that word and
+          # also on an empty or missing file, which is the wrong shape for a check.
+          grep -qx '   none' runtime.txt

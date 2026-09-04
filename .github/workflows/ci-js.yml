@@ -1,0 +1,80 @@
+name: JavaScript
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all five.
+on:
+  push:
+    branches: [main]
+    paths: ["js/**", "vectors/**", ".github/workflows/ci-js.yml"]
+  pull_request:
+    paths: ["js/**", "vectors/**", ".github/workflows/ci-js.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20 is the floor because that is where WebCrypto's Ed25519 is dependable; the port has no
+        # other runtime requirement, and no dependencies to install.
+        node-version: ["20", "22", "24"]
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Run tests
+        run: npm test
+
+  # The coverage thresholds need Node 22+, and the port's floor is 20 because that is where the
+  # library works. Running the gate once on a version that has it keeps the two questions apart:
+  # the matrix above asks "does fiki run here", this asks "is fiki tested".
+
+  coverage:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+      - name: Run tests (100% coverage gate)
+        run: npm run test:coverage
+
+  # The JS port ships zero runtime dependencies (`this.i` @2q9gv70t), which is the whole reason a
+  # browser can load it as one file with no supply chain. A lockfile check would only say what was
+  # installed; this says what is declared.
+
+  dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: js
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Assert no runtime or dev dependencies are declared
+        run: |
+          node -e '
+            const pkg = require("./package.json");
+            for (const field of ["dependencies", "peerDependencies", "optionalDependencies", "devDependencies"]) {
+              const count = Object.keys(pkg[field] ?? {}).length;
+              if (count > 0) {
+                console.error(`::error::${field} has ${count} entries; fiki-js declares none (this.i @2q9gv70t)`);
+                process.exit(1);
+              }
+            }
+            console.log("no dependencies declared");
+          '

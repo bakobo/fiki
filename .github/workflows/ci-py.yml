@@ -1,0 +1,72 @@
+name: Python
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all five.
+on:
+  push:
+    branches: [main]
+    paths: ["py/**", "vectors/**", ".github/workflows/ci-py.yml"]
+  pull_request:
+    paths: ["py/**", "vectors/**", ".github/workflows/ci-py.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor is load-bearing rather than aspirational: fiki exists for the party that runs
+        # whatever Python its box has (`this.i` @07wstqk7), so 3.11 is tested on every push, not
+        # assumed to work. The ceiling tracks whatever heti is on, since heti is a consumer.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    defaults:
+      run:
+        working-directory: py
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Run tests (100% branch coverage gate)
+        run: uv run pytest
+
+  # fiki's dependency budget is a requirement, not an outcome (`this.i` @07wstqk7, @8zw78n0v): the
+  # library must install without keripy and without bakobo-errors, or the reason it was carved out
+  # of heti evaporates. A test asserting this inside the suite would only check what the suite
+  # imports; this checks what actually resolves.
+
+  dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: py
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          python-version: "3.11"
+      - name: Sync without dev dependencies
+        run: uv sync --frozen --no-dev
+      - name: Assert the forbidden dependencies are absent
+        run: |
+          resolved=$(uv pip list --format=freeze)
+          echo "$resolved"
+          for forbidden in keri keripy bakobo-errors; do
+            if echo "$resolved" | grep -iq "^${forbidden}=="; then
+              echo "::error::$forbidden resolved into fiki's runtime tree; see this.i @07wstqk7"
+              exit 1
+            fi
+          done

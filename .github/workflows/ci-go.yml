@@ -1,0 +1,44 @@
+name: Go
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all five.
+on:
+  push:
+    branches: [main]
+    paths: ["go/**", "vectors/**", ".github/workflows/ci-go.yml"]
+  pull_request:
+    paths: ["go/**", "vectors/**", ".github/workflows/ci-go.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.22"
+      - name: Vet
+        run: go vet ./...
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      # 100% STATEMENT coverage, not branch: `go test -cover` measures statements only and Go has
+      # no branch mode, so this gate is weaker than the Python and JavaScript ones by the
+      # toolchain's choice rather than ours. Recorded here so nobody reads the number as the same
+      # number the other ports report.
+      - name: Run tests (100% statement coverage gate)
+        run: |
+          go test -coverprofile=cover.out ./...
+          total=$(go tool cover -func=cover.out | awk '/^total:/ {print $3}')
+          echo "statement coverage: $total"
+          test "$total" = "100.0%"

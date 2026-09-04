@@ -1,0 +1,46 @@
+name: Rust
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all five.
+on:
+  push:
+    branches: [main]
+    paths: ["rust/**", "vectors/**", ".github/workflows/ci-rust.yml"]
+  pull_request:
+    paths: ["rust/**", "vectors/**", ".github/workflows/ci-rust.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Run tests
+        run: cargo test
+      # The user guide's samples, compiled and run. A guide whose code does not build is worse
+      # than no guide, so a rename that would break a reader's copy-paste breaks CI first.
+      - name: Run the user guide's samples
+        run: cargo run --example guide
+      # This port takes three crates because Rust's standard library has no cryptography
+      # (`this.i` @2tt6fmc0). That is the exception, and the point of this step is that it stays
+      # an exception with a known size rather than growing quietly.
+      - name: Assert the dependency budget has not grown
+        run: |
+          declared=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(" ".join(sorted(d["name"] for d in json.load(sys.stdin)["packages"][0]["dependencies"] if d["kind"] is None)))')
+          echo "runtime dependencies: $declared"
+          test "$declared" = "ed25519-dalek rand_core sha2"

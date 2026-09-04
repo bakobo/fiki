@@ -1,5 +1,7 @@
 # fiki (JavaScript)
 
+[![JavaScript](https://github.com/bakobo/fiki/actions/workflows/ci-js.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-js.yml)
+
 The JavaScript implementation of [fiki](../README.md). Runs in browsers and in Node 20 or newer, with **no dependencies at all** — Ed25519, SHA-256 and randomness come from WebCrypto, and the RFC 8941 structured-fields subset RFC 9421 needs is a few hundred lines in `src/sfv.js`.
 
 ## From a fresh clone to passing tests

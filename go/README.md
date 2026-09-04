@@ -1,5 +1,7 @@
 # fiki (Go)
 
+[![Go](https://github.com/bakobo/fiki/actions/workflows/ci-go.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-go.yml)
+
 The Go implementation of [fiki](../README.md). Requires Go 1.22 or newer, and has **no dependencies** — the standard library carries `crypto/ed25519` and `crypto/sha256`, and the RFC 8941 subset RFC 9421 needs is hand-rolled in `sfv.go` for the reason every port hand-rolls it.
 
 ```sh

@@ -1,5 +1,7 @@
 # fiki (Python)
 
+[![Python](https://github.com/bakobo/fiki/actions/workflows/ci-py.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-py.yml)
+
 The Python implementation of [fiki](../README.md). Requires Python 3.11 or newer, and depends on `cryptography` and `http-sfv` and on nothing else.
 
 ## From a fresh clone to passing tests
