@@ -16,14 +16,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "POST",
         url,
         &BTreeMap::new(),
-        &SignOptions { body: Some(body.to_vec()), ..Default::default() },
+        &SignOptions {
+            body: Some(body.to_vec()),
+            ..Default::default()
+        },
     )?;
 
     let verdict = verify_request(
         "POST",
         url,
         &headers,
-        &VerifyOptions { max_age: Some(300), body: Some(body.to_vec()), ..Default::default() },
+        &VerifyOptions {
+            max_age: Some(300),
+            body: Some(body.to_vec()),
+            ..Default::default()
+        },
     )?;
     assert_eq!(verdict.aid, key.aid());
     println!("rust guide samples: OK");
