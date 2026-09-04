@@ -94,5 +94,7 @@ def test_refusal_vectors(case):
             url=case["url"],
             headers=case["headers"],
             body=None if case["body"] is None else case["body"].encode("utf-8"),
+            max_age=case.get("max_age"),
+            now=case.get("now"),
         )
     assert type(caught.value).__name__ == case["error"]

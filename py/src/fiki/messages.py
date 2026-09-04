@@ -41,7 +41,9 @@ from .errors import (
     MissingSignature,
     MissingSignatureInput,
     MissingSignatureLabel,
+    SignatureExpired,
     SignatureMismatch,
+    SignatureTooOld,
     UncoveredBody,
     UnsupportedAlgorithm,
 )
@@ -53,6 +55,10 @@ ALG = "ed25519"
 # thing that will ever have signed a request it is asked to verify.
 _DIGEST_ALGORITHMS = {"sha-256": hashlib.sha256, "sha-512": hashlib.sha512}
 _DIGEST_OUT = "sha-256"
+
+# Two hosts disagreeing by a second is ordinary; a verifier that treats it as an attack is
+# unusable. Adjustable per call, because a satellite link and a rack are not the same problem.
+DEFAULT_SKEW = 5
 
 
 @dataclass(frozen=True)
@@ -145,13 +151,24 @@ def verify_request(
     method: str,
     url: str,
     headers: Mapping[str, str],
+    max_age: int | None,
     body: bytes | None = None,
     expected_aid: str | None = None,
+    skew: int = DEFAULT_SKEW,
+    now: int | None = None,
 ) -> Verdict:
     """Verify a signed request, returning a :class:`Verdict` or raising.
 
     ``expected_aid`` is authoritative when supplied — the preregistration case, where the verifier
     already knows whose request this should be and the inline key is only a claim.
+
+    ``max_age`` has no default and must be given: seconds of tolerance, or ``None`` to decline the
+    check. Both defaults would be wrong (@67shl6c5) — a value guesses at somebody else's clock
+    skew and replay window, and ``None`` reproduces the silent skip this argument exists to
+    remove — so the decision is written at the call site either way. An ``expires`` the signer
+    declared is enforced regardless, because ignoring one is selling a guarantee nobody bought.
+
+    ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     """
     found = {name.lower(): value for name, value in headers.items()}
     inner, signature = _read(found)
@@ -178,10 +195,61 @@ def verify_request(
             "cannot be treated as authentic."
         ) from ex
 
+    # AFTER the signature check, deliberately. created and expires are covered by the signature,
+    # so acting on them before verifying it would mean enforcing a policy against values an
+    # attacker could still have chosen — and it would tell that attacker their forgery at least
+    # parsed. The clock is read only if one of the two checks is actually live, which is what
+    # keeps a request declaring no freshness deterministic (@67shl6c5).
+    _check_freshness(inner.params, max_age=max_age, skew=skew, now=now)
+
     if CONTENT_DIGEST in covered:
         _check_digest(found.get(CONTENT_DIGEST), body)
 
     return Verdict(aid=to_aid(public_key.public_bytes_raw()), covered=covered)
+
+
+def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None) -> None:
+    """Enforce the signer's ``expires`` and the verifier's ``max_age``."""
+    expires = params.get("expires")
+    if expires is None and max_age is None:
+        return
+    stamp = int(time.time()) if now is None else now
+
+    if expires is not None and stamp > expires + skew:
+        raise SignatureExpired(
+            f"This signature expired at {expires} and it is now {stamp}, so the signer has "
+            "already declared it should not be accepted.",
+            expires=expires,
+            now=stamp,
+        )
+    if max_age is None:
+        return
+
+    created = params.get("created")
+    if created is None:
+        raise SignatureTooOld(
+            "This signature carries no created timestamp, so its age cannot be checked against "
+            f"the {max_age}-second limit you asked for.",
+            created=None,
+            now=stamp,
+            max_age=max_age,
+        )
+    if stamp - created > max_age + skew:
+        raise SignatureTooOld(
+            f"This signature was created at {created}, which is more than {max_age} seconds "
+            f"before {stamp}, so it is too old to accept.",
+            created=created,
+            now=stamp,
+            max_age=max_age,
+        )
+    if created - stamp > skew:
+        raise SignatureTooOld(
+            f"This signature claims to have been created at {created}, which is in the future "
+            f"relative to {stamp} by more than the {skew}-second skew allowance.",
+            created=created,
+            now=stamp,
+            max_age=max_age,
+        )
 
 
 def _keyid(aid: str) -> str:

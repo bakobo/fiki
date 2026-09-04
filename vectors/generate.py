@@ -212,13 +212,15 @@ def refusals():
     cases = []
 
     def add(case_id, error, *, method="POST", target=url, headers=None, body_text='{"hello": "world"}',
-            note=None):
+            note=None, max_age=None, now=None):
         case = {
             "id": case_id,
             "method": method,
             "url": target,
             "headers": headers,
             "body": body_text,
+            "max_age": max_age,
+            "now": now,
             "error": error,
         }
         if note:
@@ -285,6 +287,22 @@ def refusals():
 
     unknown_digest = signed(headers={"Content-Digest": "sha-1=:AAAA:"})
     add("content-digest-fiki-cannot-compute", "MalformedDigest", headers=unknown_digest)
+
+    # Freshness (@67shl6c5). These carry an explicit `now`, because a conformance vector cannot
+    # pin a check against a moving clock — a port that had to fake time to run them would be
+    # testing its own fake rather than fiki's rule.
+    signed_at = 1700000000
+    add("older-than-max-age", "SignatureTooOld", headers=signed(created=signed_at),
+        max_age=300, now=signed_at + 400,
+        note="The verifier's own policy, which it had to state to get: max_age has no default.")
+    add("created-in-the-future-beyond-skew", "SignatureTooOld",
+        headers=signed(created=signed_at), max_age=300, now=signed_at - 60,
+        note="A broken clock, or a signer buying themselves a longer window.")
+    add("past-the-signers-own-expires", "SignatureExpired",
+        headers=signed(created=signed_at, expires=signed_at + 60),
+        max_age=None, now=signed_at + 120,
+        note="Enforced even with max_age=None: expires is the SIGNER's declaration, and a "
+             "verifier that accepts one without checking it is selling a guarantee nobody bought.")
 
     return {
         **HEADER,

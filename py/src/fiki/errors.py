@@ -117,6 +117,28 @@ class UncoveredBody(FikiError):
     """
 
 
+# --- the request is well formed and signed, and a stated policy refuses it anyway ---
+#
+# Neither of these is a forgery and neither is malformed input, which is why they are their own
+# group: heti maps them into `e.rule.`, its third branch, rather than into `e.proof.` beside a
+# signature that did not verify (@67shl6c5).
+
+class SignatureExpired(_Detailed):
+    """The signature is past the ``expires`` its own signer declared."""
+
+    _fields = ("expires", "now")
+
+
+class SignatureTooOld(_Detailed):
+    """The signature's ``created`` is outside the verifier's stated ``max_age``.
+
+    Also raised for a ``created`` in the future beyond the skew allowance, which is either a
+    broken clock or a signer buying themselves a longer window.
+    """
+
+    _fields = ("created", "now", "max_age")
+
+
 # --- the request was read, and it does not hold up ---
 
 class DigestMismatch(FikiError):

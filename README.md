@@ -12,6 +12,8 @@ fiki exists for the party that needs to prove who it is and nothing else: an ESB
 
 By default a fiki signature binds the method, the host, the path, the query string, and — whenever you hand it a body — a digest of that body. That is deliberately more than [heti](https://github.com/bakobo/heti)'s KERI dialect covers and more than it structurally can: RFC 9421 stops `@path` at the question mark, so a signature that omits `@query` cannot tell `?limit=1` from `?limit=1000000`, and a signature that omits `Content-Digest` cannot tell one request body from another. Verification recomputes the digest over the body it receives rather than trusting the header, even though the header is itself signed.
 
+A verifier states its freshness policy and cannot avoid stating it: `verify_request` takes a required `max_age`, in seconds, or `None` to decline the check — both defaults would be wrong, since a value guesses at somebody else's clock skew and replay window and `None` skips silently. An `expires` the signer declared is enforced regardless, because accepting one without checking it sells a guarantee nobody bought.
+
 The bound worth stating plainly: **fiki cannot cover a body it was never given.** The guarantee is that if you hand fiki the body, it is covered or fiki refuses to sign — a caller who omits it gets a valid signature over a request whose body nothing protects, and no library can detect that from the inside. If you are wiring fiki into an HTTP client, pass the body at the same place you pass the URL.
 
 ## Status

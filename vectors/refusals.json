@@ -18,6 +18,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "SignatureMismatch",
       "note": "The headline case. heti's KERI dialect cannot see this at all."
     },
@@ -31,6 +33,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "SignatureMismatch"
     },
     {
@@ -43,6 +47,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "SignatureMismatch"
     },
     {
@@ -55,6 +61,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"goodbye\"}",
+      "max_age": null,
+      "now": null,
       "error": "DigestMismatch"
     },
     {
@@ -67,6 +75,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": null,
+      "max_age": null,
+      "now": null,
       "error": "DigestMismatch",
       "note": "Fail closed: a verifier that cannot check the digest has not checked the body."
     },
@@ -80,6 +90,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedSignatureLabel"
     },
     {
@@ -92,6 +104,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "UnsupportedAlgorithm"
     },
     {
@@ -104,6 +118,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedKey"
     },
     {
@@ -115,6 +131,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MissingSignature"
     },
     {
@@ -126,6 +144,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MissingSignatureInput"
     },
     {
@@ -138,6 +158,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedSignatureInput"
     },
     {
@@ -150,6 +172,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedSignature"
     },
     {
@@ -162,6 +186,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MissingSignatureLabel"
     },
     {
@@ -174,6 +200,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedSignatureValue"
     },
     {
@@ -186,6 +214,8 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MissingKey"
     },
     {
@@ -198,7 +228,54 @@
         "Signature": "sig=:rUEjZtF4UzkVTRYmgEt4jSmePOaHyHrXXEQ3lr82vH3mjZBlo6P8yX7WBVdJIEvEXimv4UaB0dvJqcfpp414Bg==:"
       },
       "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
       "error": "MalformedDigest"
+    },
+    {
+      "id": "older-than-max-age",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": 300,
+      "now": 1700000400,
+      "error": "SignatureTooOld",
+      "note": "The verifier's own policy, which it had to state to get: max_age has no default."
+    },
+    {
+      "id": "created-in-the-future-beyond-skew",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": 300,
+      "now": 1699999940,
+      "error": "SignatureTooOld",
+      "note": "A broken clock, or a signer buying themselves a longer window."
+    },
+    {
+      "id": "past-the-signers-own-expires",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;expires=1700000060;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:Tir/FVrmuLuRH3HVde8DWGdl8qTWEa8gr1tD02wytTLmnWFSAXyvx80g++nXWisRbsk5YMloJ5XRYH0LrxycDw==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": 1700000120,
+      "error": "SignatureExpired",
+      "note": "Enforced even with max_age=None: expires is the SIGNER's declaration, and a verifier that accepts one without checking it is selling a guarantee nobody bought."
     }
   ]
 }
