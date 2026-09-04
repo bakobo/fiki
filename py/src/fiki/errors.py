@@ -8,6 +8,13 @@ language port is a dependency every port has to reimplement, and the point of th
 a cron job can install it. heti maps these classes onto its own ``e.input.*`` and ``e.proof.*``
 codes at the boundary, with a test walking ``FikiError.__subclasses__()`` that fails if any class
 here has no mapping — so adding a class below is a change heti's suite will notice.
+
+The set is as FINE-GRAINED as heti's code taxonomy, which is why there are separate classes for
+conditions a coarser library would fold together — a missing ``Signature`` header against an
+unparsable one, a label that is absent against one that is duplicated. That taxonomy was built
+deliberately (heti @x2r7mv) so a sender can be told which header to fix rather than handed the
+pair, and a fiki that collapsed them would silently narrow heti's public error surface the moment
+heti delegated here. The granularity is a contract, not a preference.
 """
 
 from __future__ import annotations
@@ -17,12 +24,62 @@ class FikiError(Exception):
     """Base for every error fiki raises about a request."""
 
 
-class UnsupportedComponent(FikiError):
-    """The covered set names a derived component fiki does not build."""
+# --- something the request needs is absent ---
+
+class MissingSignature(FikiError):
+    """The request has no ``Signature`` header, so there is nothing to verify."""
+
+
+class MissingSignatureInput(FikiError):
+    """The request has no ``Signature-Input`` header, so no covered components are declared."""
+
+
+class MissingSignatureLabel(FikiError):
+    """The two signature headers name different labels, so neither describes the other."""
+
+
+class MissingKey(FikiError):
+    """The signature carries no keyid and the caller supplied no key."""
 
 
 class MissingComponent(FikiError):
     """A covered component has no value in the request, so the base cannot be rebuilt."""
+
+
+# --- something the request carries cannot be read ---
+
+class MalformedSignature(FikiError):
+    """The ``Signature`` header could not be parsed as an RFC 8941 dictionary."""
+
+
+class MalformedSignatureInput(FikiError):
+    """The ``Signature-Input`` header could not be parsed as an RFC 8941 dictionary."""
+
+
+class MalformedSignatureLabel(FikiError):
+    """The signature headers carry other than exactly one label."""
+
+
+class MalformedSignatureValue(FikiError):
+    """The ``Signature`` value is not an RFC 8941 byte sequence, so there is no signature."""
+
+
+class MalformedKey(FikiError):
+    """A key, keyid, or AID is not a well-formed 32-byte Ed25519 public key."""
+
+
+class MalformedDigest(FikiError):
+    """The ``Content-Digest`` header could not be parsed, or names no algorithm fiki computes."""
+
+
+# --- fiki understood the request and will not handle it ---
+
+class UnsupportedComponent(FikiError):
+    """The covered set names a derived component fiki does not build."""
+
+
+class UnsupportedAlgorithm(FikiError):
+    """The signature names an algorithm fiki does not verify."""
 
 
 class UncoveredBody(FikiError):
@@ -33,13 +90,7 @@ class UncoveredBody(FikiError):
     """
 
 
-class MalformedKey(FikiError):
-    """A key or AID is not a well-formed 32-byte Ed25519 public key."""
-
-
-class MalformedSignature(FikiError):
-    """The ``Signature`` or ``Signature-Input`` header could not be parsed."""
-
+# --- the request was read, and it does not hold up ---
 
 class DigestMismatch(FikiError):
     """The received body does not hash to the covered ``Content-Digest``."""
@@ -47,7 +98,3 @@ class DigestMismatch(FikiError):
 
 class SignatureMismatch(FikiError):
     """The signature does not verify over the request under the signer's key."""
-
-
-class UnsupportedAlgorithm(FikiError):
-    """The signature names an algorithm fiki does not verify."""

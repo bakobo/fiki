@@ -238,7 +238,7 @@ def refusals():
     two_labels = signed()
     _, rest = two_labels["Signature-Input"].split("=", 1)
     two_labels["Signature-Input"] = f"{two_labels['Signature-Input']},other={rest}"
-    add("two-signature-labels", "MalformedSignature", headers=two_labels)
+    add("two-signature-labels", "MalformedSignatureLabel", headers=two_labels)
 
     wrong_alg = signed()
     wrong_alg["Signature-Input"] = wrong_alg["Signature-Input"].replace(
@@ -249,7 +249,42 @@ def refusals():
     bad_keyid = signed()
     keyid = bad_keyid["Signature-Input"].split('keyid="')[1].split('"')[0]
     bad_keyid["Signature-Input"] = bad_keyid["Signature-Input"].replace(keyid, "not-a-key")
-    add("keyid-that-is-not-a-key", "MalformedSignature", headers=bad_keyid)
+    add("keyid-that-is-not-a-key", "MalformedKey", headers=bad_keyid)
+
+    # The header-level distinctions. They exist because heti publishes a separate code for each
+    # (fiki @8zw78n0v), so a port that folds them together is not interchangeable with this one.
+    no_sig = signed()
+    del no_sig["Signature"]
+    add("no-signature-header", "MissingSignature", headers=no_sig)
+
+    no_input = signed()
+    del no_input["Signature-Input"]
+    add("no-signature-input-header", "MissingSignatureInput", headers=no_input)
+
+    bad_input = signed()
+    bad_input["Signature-Input"] = "not a dictionary ((("
+    add("unparsable-signature-input", "MalformedSignatureInput", headers=bad_input)
+
+    bad_sig = signed()
+    bad_sig["Signature"] = "not a dictionary ((("
+    add("unparsable-signature", "MalformedSignature", headers=bad_sig)
+
+    mismatched = signed()
+    mismatched["Signature"] = "other=" + mismatched["Signature"].split("=", 1)[1]
+    add("signature-labelled-differently-from-its-input", "MissingSignatureLabel", headers=mismatched)
+
+    not_bytes = signed()
+    not_bytes["Signature"] = 'sig="a string, not a byte sequence"'
+    add("signature-that-is-not-a-byte-sequence", "MalformedSignatureValue", headers=not_bytes)
+
+    no_keyid = signed()
+    no_keyid["Signature-Input"] = (
+        no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
+    )
+    add("no-keyid-and-no-preregistered-aid", "MissingKey", headers=no_keyid)
+
+    unknown_digest = signed(headers={"Content-Digest": "sha-1=:AAAA:"})
+    add("content-digest-fiki-cannot-compute", "MalformedDigest", headers=unknown_digest)
 
     return {
         **HEADER,

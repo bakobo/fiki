@@ -80,7 +80,7 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
-      "error": "MalformedSignature"
+      "error": "MalformedSignatureLabel"
     },
     {
       "id": "algorithm-other-than-ed25519",
@@ -104,7 +104,101 @@
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
       "body": "{\"hello\": \"world\"}",
+      "error": "MalformedKey"
+    },
+    {
+      "id": "no-signature-header",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MissingSignature"
+    },
+    {
+      "id": "no-signature-input-header",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MissingSignatureInput"
+    },
+    {
+      "id": "unparsable-signature-input",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "not a dictionary (((",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MalformedSignatureInput"
+    },
+    {
+      "id": "unparsable-signature",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "not a dictionary (((",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
       "error": "MalformedSignature"
+    },
+    {
+      "id": "signature-labelled-differently-from-its-input",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "other=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MissingSignatureLabel"
+    },
+    {
+      "id": "signature-that-is-not-a-byte-sequence",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=\"a string, not a byte sequence\"",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MalformedSignatureValue"
+    },
+    {
+      "id": "no-keyid-and-no-preregistered-aid",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";alg=\"ed25519\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MissingKey"
+    },
+    {
+      "id": "content-digest-fiki-cannot-compute",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Content-Digest": "sha-1=:AAAA:",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:rUEjZtF4UzkVTRYmgEt4jSmePOaHyHrXXEQ3lr82vH3mjZBlo6P8yX7WBVdJIEvEXimv4UaB0dvJqcfpp414Bg==:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MalformedDigest"
     }
   ]
 }

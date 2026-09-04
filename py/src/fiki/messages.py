@@ -31,7 +31,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from .base import CONTENT_DIGEST, DEFAULT_COVERED, component_lines, signature_base
 from .errors import (
     DigestMismatch,
+    MalformedDigest,
+    MalformedKey,
     MalformedSignature,
+    MalformedSignatureInput,
+    MalformedSignatureLabel,
+    MalformedSignatureValue,
+    MissingKey,
+    MissingSignature,
+    MissingSignatureInput,
+    MissingSignatureLabel,
     SignatureMismatch,
     UncoveredBody,
     UnsupportedAlgorithm,
@@ -185,43 +194,45 @@ def _read(found: Mapping[str, str]):
     raw_input = found.get("signature-input")
     raw_signature = found.get("signature")
     if not raw_input:
-        raise MalformedSignature(
+        raise MissingSignatureInput(
             "This request has no Signature-Input header, so there is no way to know which "
             "components a signature would cover."
         )
     if not raw_signature:
-        raise MalformedSignature("This request has no Signature header, so there is nothing to verify.")
+        raise MissingSignature(
+            "This request has no Signature header, so there is nothing to verify."
+        )
 
-    inputs = _parse(raw_input, "Signature-Input")
-    signatures = _parse(raw_signature, "Signature")
+    inputs = _parse(raw_input, "Signature-Input", MalformedSignatureInput)
+    signatures = _parse(raw_signature, "Signature", MalformedSignature)
 
     labels = list(inputs.keys())
     if len(labels) != 1:
-        raise MalformedSignature(
-            f"fiki verifies a request carrying exactly one signature; this one carries "
+        raise MalformedSignatureLabel(
+            f"fiki verifies a request carrying exactly one signature; this one declares "
             f"{len(labels)}."
         )
     if list(signatures.keys()) != labels:
-        raise MalformedSignature(
+        raise MissingSignatureLabel(
             f'The Signature header carries no entry labelled "{labels[0]}", so the covered '
             "components describe a signature that is not here."
         )
 
     value = signatures[labels[0]].value
     if not isinstance(value, (bytes, bytearray)):
-        raise MalformedSignature(
+        raise MalformedSignatureValue(
             "RFC 9421 carries the signature as an RFC 8941 byte sequence, wrapped in colons; "
             "this one is something else."
         )
     return inputs[labels[0]], bytes(value)
 
 
-def _parse(raw: str, name: str) -> http_sfv.Dictionary:
+def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
     parsed = http_sfv.Dictionary()
     try:
         parsed.parse(raw.encode("utf-8"))
     except Exception as ex:
-        raise MalformedSignature(
+        raise error(
             f"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary."
         ) from ex
     return parsed
@@ -231,7 +242,7 @@ def _resolve(expected_aid: str | None, keyid: str | None) -> Ed25519PublicKey:
     if expected_aid is not None:
         return verifying_key(expected_aid)
     if not keyid:
-        raise MalformedSignature(
+        raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "
             "key to verify it against."
         )
@@ -239,7 +250,7 @@ def _resolve(expected_aid: str | None, keyid: str | None) -> Ed25519PublicKey:
         raw = base64.urlsafe_b64decode(keyid + "=" * (-len(keyid) % 4))
         return Ed25519PublicKey.from_public_bytes(raw)
     except Exception as ex:
-        raise MalformedSignature(
+        raise MalformedKey(
             f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key.'
         ) from ex
 
@@ -255,7 +266,7 @@ def _check_digest(header: str | None, body: bytes | None) -> None:
             "The signature covers content-digest, but no body was supplied to check it against, "
             "so the body is unverified."
         )
-    parsed = _parse(header, "Content-Digest")
+    parsed = _parse(header, "Content-Digest", MalformedDigest)
     for name, item in parsed.items():
         algorithm = _DIGEST_ALGORITHMS.get(name.lower())
         if algorithm is None:
@@ -266,7 +277,7 @@ def _check_digest(header: str | None, body: bytes | None) -> None:
                 "the one that was signed."
             )
         return
-    raise DigestMismatch(
+    raise MalformedDigest(
         "The Content-Digest header names no algorithm fiki computes; it computes "
         f"{' and '.join(sorted(_DIGEST_ALGORITHMS))}."
     )

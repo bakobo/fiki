@@ -21,7 +21,16 @@ from fiki import DEFAULT_COVERED, Key, sign_request, verify_request, verifying_k
 from fiki.messages import content_digest
 from fiki.errors import (
     DigestMismatch,
+    MalformedDigest,
+    MalformedKey,
     MalformedSignature,
+    MalformedSignatureInput,
+    MalformedSignatureLabel,
+    MalformedSignatureValue,
+    MissingKey,
+    MissingSignature,
+    MissingSignatureInput,
+    MissingSignatureLabel,
     SignatureMismatch,
     UncoveredBody,
     UnsupportedAlgorithm,
@@ -158,18 +167,27 @@ def test_a_request_signed_by_someone_other_than_the_expected_aid_is_refused():
 # --- malformed input ---
 
 @pytest.mark.parametrize(
-    "mangle",
+    "mangle,expected",
     [
-        pytest.param(lambda h: h.pop("Signature"), id="no-signature"),
-        pytest.param(lambda h: h.pop("Signature-Input"), id="no-signature-input"),
-        pytest.param(lambda h: h.update({"Signature-Input": "not a dictionary («"}), id="unparsable"),
-        pytest.param(lambda h: h.update({"Signature": "sig=:not-base64!:"}), id="bad-signature"),
+        pytest.param(lambda h: h.pop("Signature"), MissingSignature, id="no-signature"),
+        pytest.param(lambda h: h.pop("Signature-Input"), MissingSignatureInput,
+                     id="no-signature-input"),
+        pytest.param(lambda h: h.update({"Signature-Input": "not a dictionary («"}),
+                     MalformedSignatureInput, id="unparsable-input"),
+        pytest.param(lambda h: h.update({"Signature": "sig=:not-base64!:"}), MalformedSignature,
+                     id="unparsable-signature"),
     ],
 )
-def test_malformed_signature_headers_are_refused(mangle):
+def test_malformed_signature_headers_are_refused(mangle, expected):
+    """Each header names its own condition, so a sender can be told which one to fix.
+
+    The granularity is a contract rather than a preference: heti maps these classes one to one
+    onto codes it already publishes, so folding two of them together here would narrow heti's
+    error surface the moment it delegates (@8zw78n0v).
+    """
     request, headers = signed()
     mangle(headers)
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(expected):
         verify_request(headers=headers, **request)
 
 
@@ -178,7 +196,7 @@ def test_two_signature_labels_are_refused():
     request, headers = signed()
     label, rest = headers["Signature-Input"].split("=", 1)
     headers["Signature-Input"] = f"{headers['Signature-Input']},other={rest}"
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(MalformedSignatureLabel):
         verify_request(headers=headers, **request)
 
 
@@ -216,7 +234,7 @@ def test_a_content_digest_naming_an_unknown_algorithm_alongside_a_known_one_veri
 def test_a_content_digest_naming_only_algorithms_fiki_cannot_compute_is_refused():
     """Fail closed: an uncheckable digest is an unchecked body, not a checked one."""
     request, headers = signed(headers={"Content-Digest": "sha-1=:AAAA:"})
-    with pytest.raises(DigestMismatch):
+    with pytest.raises(MalformedDigest):
         verify_request(headers=headers, **request)
 
 
@@ -225,14 +243,14 @@ def test_a_content_digest_naming_only_algorithms_fiki_cannot_compute_is_refused(
 def test_a_signature_labelled_differently_from_its_input_is_refused():
     request, headers = signed()
     headers["Signature"] = "other=" + headers["Signature"].split("=", 1)[1]
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(MissingSignatureLabel):
         verify_request(headers=headers, **request)
 
 
 def test_a_signature_that_is_not_a_byte_sequence_is_refused():
     request, headers = signed()
     headers["Signature"] = 'sig="this is a string, not a byte sequence"'
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(MalformedSignatureValue):
         verify_request(headers=headers, **request)
 
 
@@ -240,7 +258,7 @@ def test_a_signature_with_no_keyid_and_no_expected_aid_is_refused():
     request, headers = signed()
     inputs = headers["Signature-Input"]
     headers["Signature-Input"] = inputs.split(";keyid=")[0] + ";alg=\"ed25519\""
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(MissingKey):
         verify_request(headers=headers, **request)
 
 
@@ -248,5 +266,5 @@ def test_a_keyid_that_is_not_a_key_is_refused():
     request, headers = signed()
     keyid = headers["Signature-Input"].split('keyid="')[1].split('"')[0]
     headers["Signature-Input"] = headers["Signature-Input"].replace(keyid, "not-a-key")
-    with pytest.raises(MalformedSignature):
+    with pytest.raises(MalformedKey):
         verify_request(headers=headers, **request)
