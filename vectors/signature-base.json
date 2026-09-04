@@ -1,0 +1,149 @@
+{
+  "about": "Signature bases and the signatures over them, byte for byte.",
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "rfc-9421-b-2-6",
+      "seed_hex": "9f8362f87a484a954e6e740c5b4c0e84229139a20aa8ab56ff66586f6a7d29c5",
+      "method": "POST",
+      "url": "https://example.com/foo?param=Value&Pet=dog",
+      "headers": {
+        "Date": "Tue, 20 Apr 2021 02:07:55 GMT",
+        "Content-Type": "application/json",
+        "Content-Length": "18"
+      },
+      "covered": [
+        "date",
+        "@method",
+        "@path",
+        "@authority",
+        "content-type",
+        "content-length"
+      ],
+      "created": 1618884473,
+      "keyid": "test-key-ed25519",
+      "base": "\"date\": Tue, 20 Apr 2021 02:07:55 GMT\n\"@method\": POST\n\"@path\": /foo\n\"@authority\": example.com\n\"content-type\": application/json\n\"content-length\": 18\n\"@signature-params\": (\"date\" \"@method\" \"@path\" \"@authority\" \"content-type\" \"content-length\");created=1618884473;keyid=\"test-key-ed25519\"",
+      "signature": "wqcAqbmYJ2ji2glfAMaRy4gruYYnx2nEFN2HN6jrnDnQCK1u02Gb04v9EDgwUPiu4A0w6vuQv5lIp5WPpBKRCw==",
+      "note": "Verbatim from RFC 9421 Appendix B.2.6. Externally anchored: no Bakobo party authored this base or this signature."
+    },
+    {
+      "id": "default-covered-with-query",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {},
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"@authority\": api.example.com\n\"@path\": /things\n\"@query\": ?limit=1&sort=name\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==",
+      "alg": "ed25519",
+      "note": "The covered set the RFC's own vectors never exercise."
+    },
+    {
+      "id": "query-absent-is-a-bare-question-mark",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/things",
+      "headers": {},
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"@authority\": api.example.com\n\"@path\": /things\n\"@query\": ?\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "4+IaJoUIDzgjgkV3j49YGAsjfOC7l60VzkkUbLPpsY7ylqIi+dwBhCoHSGgboTGdorHxJmm1CVdjwlmb0jREBQ==",
+      "alg": "ed25519",
+      "note": "RFC 9421 section 2.2.7: a request with no query still binds 'no query'."
+    },
+    {
+      "id": "percent-encoding-is-not-decoded",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/p?baz=bat%2Dman",
+      "headers": {},
+      "covered": [
+        "@method",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"@path\": /p\n\"@query\": ?baz=bat%2Dman\n\"@signature-params\": (\"@method\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "azPylZLfGDMHqIzwfrpFbIiSjVUVoXmfLFZsVDDHB49H2EOOemJNHOUznVMw0Kj23UHWjZRpOm2FMzJrpGZ+CA==",
+      "alg": "ed25519"
+    },
+    {
+      "id": "body-bound-by-content-digest",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "url": "https://api.example.com/things",
+      "headers": {
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query",
+        "content-digest"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": POST\n\"@authority\": api.example.com\n\"@path\": /things\n\"@query\": ?\n\"content-digest\": sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "lDLyoqV/7/jRZET+EdNJb7JreTRsrBaII/YLAKuMgQLbB+iw7p9HbzoeryZUS1LWMOIAPeFp0XgMDhhy4L3QBA==",
+      "alg": "ed25519",
+      "note": "The other thing the RFC's ed25519 vector never exercises."
+    },
+    {
+      "id": "relative-url-takes-authority-from-the-host-header",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "/things?limit=1",
+      "headers": {
+        "Host": "API.example.com"
+      },
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"@authority\": api.example.com\n\"@path\": /things\n\"@query\": ?limit=1\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==",
+      "alg": "ed25519",
+      "note": "The shape a server-side verifier has, and the shape heti's vanilla dialect delegates in. The host is lowercased; no port is stripped, because with no scheme no port is a default port."
+    },
+    {
+      "id": "non-default-port-is-kept",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com:8443/things",
+      "headers": {},
+      "covered": [
+        "@authority"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@authority\": api.example.com:8443\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "bjTJMNEfJnpf+CwPwmXTIJdfsO2Ki9AhSh9AFNuMfAU1QLG1I14irZq0jn34T8NliGZLGSP4S3CF4YYfc3syBQ==",
+      "alg": "ed25519"
+    }
+  ]
+}

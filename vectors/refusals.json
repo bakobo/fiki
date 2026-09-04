@@ -1,0 +1,110 @@
+{
+  "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "rewritten-query",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1000000&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "SignatureMismatch",
+      "note": "The headline case. heti's KERI dialect cannot see this at all."
+    },
+    {
+      "id": "rewritten-host",
+      "method": "POST",
+      "url": "https://evil.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "SignatureMismatch"
+    },
+    {
+      "id": "rewritten-method",
+      "method": "DELETE",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "SignatureMismatch"
+    },
+    {
+      "id": "swapped-body",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"goodbye\"}",
+      "error": "DigestMismatch"
+    },
+    {
+      "id": "covered-digest-with-no-body",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": null,
+      "error": "DigestMismatch",
+      "note": "Fail closed: a verifier that cannot check the digest has not checked the body."
+    },
+    {
+      "id": "two-signature-labels",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\",other=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MalformedSignature"
+    },
+    {
+      "id": "algorithm-other-than-ed25519",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"rsa-pss-sha512\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "UnsupportedAlgorithm"
+    },
+    {
+      "id": "keyid-that-is-not-a-key",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"not-a-key\"",
+        "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "error": "MalformedSignature"
+    }
+  ]
+}

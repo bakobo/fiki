@@ -8,9 +8,15 @@ The public half of an Ed25519 key is rendered as a non-transferable AID — a 44
 
 fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want [heti](https://github.com/bakobo/heti) instead; fiki is deliberately the floor.
 
+## What is covered, and the one thing that is not
+
+By default a fiki signature binds the method, the host, the path, the query string, and — whenever you hand it a body — a digest of that body. That is deliberately more than [heti](https://github.com/bakobo/heti)'s KERI dialect covers and more than it structurally can: RFC 9421 stops `@path` at the question mark, so a signature that omits `@query` cannot tell `?limit=1` from `?limit=1000000`, and a signature that omits `Content-Digest` cannot tell one request body from another. Verification recomputes the digest over the body it receives rather than trusting the header, even though the header is itself signed.
+
+The bound worth stating plainly: **fiki cannot cover a body it was never given.** The guarantee is that if you hand fiki the body, it is covered or fiki refuses to sign — a caller who omits it gets a valid signature over a request whose body nothing protects, and no library can detect that from the inside. If you are wiring fiki into an HTTP client, pass the body at the same place you pass the URL.
+
 ## Status
 
-Early. The Python implementation is under construction and the wire format is not yet frozen.
+Early. The Python implementation works and is tested against RFC 9421's own vectors, but the API is not yet stable and the vector set is not yet frozen.
 
 ## Layout
 
@@ -18,6 +24,10 @@ fiki is polyglot on purpose. Each language implementation is a top-level directo
 
 ```
 vectors/    conformance vectors, shared and normative
+  generate.py         regenerates them; run from the repo root
+  aid-lens.json       a seed to its AID and its keyid
+  signature-base.json bases and signatures, byte for byte
+  refusals.json       requests every implementation must refuse
 py/         the Python implementation
 ```
 

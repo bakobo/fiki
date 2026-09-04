@@ -38,20 +38,35 @@ _PARAM_ORDER = ("created", "expires", "nonce", "alg", "keyid", "tag")
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
 
 
-def _authority(parts) -> str:
-    """The authority, normalized per RFC 9421 section 2.2.3: lowercase host, default port omitted."""
-    host = (parts.hostname or "").lower()
-    port = parts.port
-    if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
-        return host
-    return f"{host}:{port}"
+def _authority(parts, headers: Mapping[str, str]) -> str:
+    """The authority, normalized per RFC 9421 section 2.2.3: lowercase host, default port omitted.
+
+    A relative URL falls back to the ``Host`` header, which in HTTP/1.1 *is* the authority. That
+    is the shape a server-side verifier actually has — a request target and a header block, never
+    a reconstructed absolute URL — and synthesizing a URL to get one would mean guessing a scheme,
+    which is precisely the input the default-port rule turns on. Nothing is normalized away in
+    that case, because without a scheme no port is a default port.
+    """
+    if parts.netloc:
+        host = (parts.hostname or "").lower()
+        port = parts.port
+        if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
+            return host
+        return f"{host}:{port}"
+    host = headers.get("host")
+    if host is None:
+        raise MissingComponent(
+            'The signature covers "@authority", but the URL carries no authority and the '
+            "request has no Host header, so there is nothing to derive it from."
+        )
+    return host.lower()
 
 
 def _component_value(component: str, method: str, parts, headers: Mapping[str, str]) -> str:
     if component == "@method":
         return method.upper()
     if component == "@authority":
-        return _authority(parts)
+        return _authority(parts, headers)
     if component == "@path":
         # An empty path is the "/" the origin server would have received.
         return parts.path or "/"

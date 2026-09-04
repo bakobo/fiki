@@ -98,3 +98,31 @@ def test_signature_params_serializes_the_optional_parameters_in_a_fixed_order():
         '"@signature-params": ("@method");created=1618884473;expires=1618884573;'
         'nonce="abc";alg="ed25519";keyid="k";tag="app"'
     )
+
+
+# --- authority when the caller has a path rather than a full URL ---
+
+def test_authority_falls_back_to_the_host_header_when_the_url_has_none():
+    """RFC 9421 section 2.2.3 — in HTTP/1.1 the authority IS the Host header.
+
+    A server-side verifier is handed a request target and a header block, not a reconstructed
+    absolute URL, and guessing a scheme in order to synthesize one gets the default-port rule
+    wrong. heti's vanilla dialect delegates here with exactly that shape.
+    """
+    line = line_for("@authority", url="/things?limit=1", headers={"Host": "API.example.com"})
+    assert line == '"@authority": api.example.com'
+
+
+def test_a_relative_url_still_yields_path_and_query():
+    assert line_for("@path", url="/things?limit=1") == '"@path": /things'
+    assert line_for("@query", url="/things?limit=1") == '"@query": ?limit=1'
+
+
+def test_a_host_header_port_is_preserved_because_no_scheme_declares_it_default():
+    line = line_for("@authority", url="/x", headers={"Host": "example.com:8443"})
+    assert line == '"@authority": example.com:8443'
+
+
+def test_covering_authority_with_neither_a_url_authority_nor_a_host_header_is_refused():
+    with pytest.raises(MissingComponent):
+        line_for("@authority", url="/things")
