@@ -1,0 +1,4 @@
+# expires is accepted, signed, and never enforced — the exact shape WebOfTrust/keripy#1669 criticizes in keria. sign_request takes expires=, signature_base binds it into the base so it is tamper-proof, and verify_request never reads it (measured 2026-09-04: zero references to expires or created in the verify path). A parameter that looks like an expiry and is not one is worse than no parameter, because a caller who sets it believes they have bought something. Two ways out and they are not equivalent: ENFORCE it on verify (reject when expires < now, with a new error class and a heti code beside it), or REFUSE to accept it at sign time until it is enforced. Enforcing needs a clock in a library that is currently pure, which is a real design change — verify becomes non-deterministic and the vectors cannot pin it without an injectable now
+kind: debt
+created: 2026-09-04T01:33Z
+
