@@ -12,7 +12,7 @@ from __future__ import annotations
 from . import errors
 from .base import DEFAULT_COVERED, DERIVED, signature_base
 from .errors import FikiError
-from .keys import Key, verifying_key
+from .keys import Key, to_aid, verifying_key
 from .messages import Verdict, sign_request, verify_request
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "errors",
     "sign_request",
     "signature_base",
+    "to_aid",
     "verify_request",
     "verifying_key",
 ]
