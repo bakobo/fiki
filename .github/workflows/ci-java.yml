@@ -19,6 +19,9 @@ permissions:
 
 jobs:
   test:
+    # An explicit name, because a required status check is matched by NAME and all five
+    # ports called this job `test` -- five indistinguishable contexts a ruleset cannot name.
+    name: java
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
