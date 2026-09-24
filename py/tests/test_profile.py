@@ -855,3 +855,12 @@ def test_an_aid_shaped_keyid_outside_the_alphabet_is_malformed_through_a_resolve
 def test_a_canonical_aid_still_reaches_the_resolver():
     request, headers = sign(keyid=AID)
     assert verify(request, headers, resolve={AID: raw(KEY)}.get).aid == AID
+
+
+def test_a_signer_checks_a_bound_request_digest_against_an_empty_body_too():
+    """Codex #4 on fiki#4: b"" is a body that was supplied, and it contradicts this digest."""
+    covered = list(RESPONSE_MINIMUM) + [req("content-digest"), "content-digest"]
+    empty = Request(method="POST", url=URL, headers={"Content-Digest": content_digest(BODY)},
+                    body=b"")
+    with pytest.raises(DigestMismatch):
+        respond(request=empty, covered=covered)

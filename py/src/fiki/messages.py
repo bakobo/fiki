@@ -288,7 +288,7 @@ def sign_response(
         _check_minimum(items, minimum, has_body=bool(body), request_had_body=had_body)
     # The check verify_response will make, made first: a signer does not vouch for a request
     # digest that the request body it was handed contradicts (bakobo/fiki#4).
-    if had_body and _binds_request_digest(items):
+    if request is not None and request.body is not None and _binds_request_digest(items):
         _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
 
     base = response_signature_base(
