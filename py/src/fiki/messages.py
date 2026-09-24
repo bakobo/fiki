@@ -84,6 +84,9 @@ _SIGNATURE_PARAMS = {"created": int, "expires": int, "nonce": str, "alg": str, "
                      "tag": str}
 _SIGNATURE_LENGTH = 64
 _KEY_LENGTH = 32
+# The RFC 8037 "x" form of a raw keyid (@7xrx5evg): 32 bytes, base64url, unpadded.
+_RAW_KEYID_LENGTH = 43
+_RAW_KEYID = re.compile(rf"[A-Za-z0-9_-]{{{_RAW_KEYID_LENGTH}}}")
 
 # Two hosts disagreeing by a second is ordinary; a verifier that treats it as an attack is
 # unusable. Adjustable per call, because a satellite link and a rack are not the same problem.
@@ -642,14 +645,22 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
                 keyid=keyid,
             )
         return Ed25519PublicKey.from_public_bytes(bytes(raw)), keyid, keyid
-    try:
-        raw = base64.urlsafe_b64decode(keyid + "=" * (-len(keyid) % 4))
-        public_key = Ed25519PublicKey.from_public_bytes(raw)
-    except Exception as ex:
+    # Strictly, as keys.py decodes an AID: a lenient decoder discards characters outside the
+    # alphabet and ignores trailing bits, so a keyid that is not the key's encoding could verify
+    # as whatever key it happened to decode to. Only the one canonical spelling is a key.
+    if not _RAW_KEYID.fullmatch(keyid):
         raise MalformedKey(
-            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key.',
+            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key: that is '
+            f"exactly {_RAW_KEYID_LENGTH} characters from the base64url alphabet, unpadded.",
             keyid=keyid,
-        ) from ex
+        )
+    raw = base64.urlsafe_b64decode(keyid + "=")
+    if base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != keyid:
+        raise MalformedKey(
+            f'The keyid "{keyid}" is not the canonical base64url spelling of any key.',
+            keyid=keyid,
+        )
+    public_key = Ed25519PublicKey.from_public_bytes(raw)
     return public_key, to_aid(public_key.public_bytes_raw()), keyid
 
 
