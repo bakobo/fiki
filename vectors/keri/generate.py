@@ -156,7 +156,8 @@ ENCODING = {
 KEYS_RULE = (
     "A keyid is a well-formed AID when it is 44 characters, its first character is B, D or E, "
     "and the other 43 are base64url that decode, behind one leading pad character, to 32 "
-    "bytes. A keyid that is not is malformed-key. A well-formed B keyid yields its key from the "
+    "bytes with a zero pad byte, so that re-encoding gives back the keyid exactly. A keyid "
+    "that is not is malformed-key. A well-formed B keyid yields its key from the "
     "prefix. Every other well-formed keyid resolves through the key state the verifier holds, "
     "which this table stands in for: absent from the table is unknown-key, and an entry whose "
     "effective_key is null is unsupported-signer. key_state is the state an implementation with "
@@ -262,9 +263,12 @@ def well_formed_aid(keyid: str) -> bool:
     if len(keyid) != 44 or keyid[0] not in "BDE":
         return False
     try:
-        return len(base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)) == 33
+        decoded = base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)
     except ValueError:
         return False
+    # Canonical only: a non-zero bit in the pad byte the code replaced is a second spelling of
+    # the same 32 bytes, and a B keyid spelled that way would alias the same key.
+    return len(decoded) == 33 and qb64(keyid[0], decoded[1:]) == keyid
 
 
 def resolver(keys: list[dict]):

@@ -104,4 +104,9 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
         raise MalformedKey(
             f'The AID "{aid}" does not decode to a {_RAW_LEN}-byte key.', keyid=aid
         )
+    # validate=True does not check the bits the code character overwrote: the second
+    # character's top two bits land in the pad byte, so a non-zero pad would give one key two
+    # spellings. Only the canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
+    if to_aid(decoded[len(_PAD):]) != aid:
+        raise MalformedKey(f'The AID "{aid}" is not the canonical spelling of its key.', keyid=aid)
     return Ed25519PublicKey.from_public_bytes(decoded[len(_PAD):])
