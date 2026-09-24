@@ -426,6 +426,12 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
 
     if _covers_body(items):
         _check_digest(found.get(CONTENT_DIGEST), body)
+    # A response binding the request's digest binds a request body only if somebody hashes it,
+    # so a request handed over with its body is checked the same way (bakobo/fiki#4).
+    if request is not None and request.body is not None and any(
+        identity(item) == identity(component(req(CONTENT_DIGEST))) for item in items
+    ):
+        _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
 
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)
 

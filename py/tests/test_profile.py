@@ -763,3 +763,24 @@ def test_without_a_minimum_created_stays_optional_as_rfc_9421_makes_it():
     request, headers = _without_created()
     with pytest.raises(SignatureMismatch):
         verify(request, headers)
+
+
+# --- a covered "content-digest";req is recomputed over the request body (bakobo/fiki#4) ---
+
+def test_a_swapped_request_body_is_refused_when_the_response_binds_its_digest():
+    swapped = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers,
+                      body=b'{"hello": "mallory"}')
+    with pytest.raises(DigestMismatch):
+        check(respond(), request=swapped)
+
+
+def test_an_unreadable_request_digest_is_malformed_when_the_response_binds_it():
+    odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
+    headers = respond(request=odd)
+    with pytest.raises(MalformedDigest):
+        check(headers, request=odd)
+
+
+def test_a_request_handed_over_without_its_body_is_not_recomputed():
+    bodiless = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers)
+    assert check(respond(), request=bodiless).aid == KEY.aid
