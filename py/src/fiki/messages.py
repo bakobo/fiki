@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 
 import http_sfv
@@ -43,6 +44,7 @@ from .base import (
     response_signature_base,
     signature_base,
     spec_of,
+    value_of,
 )
 from .errors import (
     DigestMismatch,
@@ -60,6 +62,7 @@ from .errors import (
     SignatureExpired,
     SignatureMismatch,
     SignatureTooOld,
+    Unauthenticated,
     UncoveredBody,
     UnknownKey,
     UnsupportedAlgorithm,
@@ -172,6 +175,7 @@ def sign_request(
     nonce: str | None = None,
     tag: str | None = None,
     keyid: str | None = None,
+    minimum: Sequence[str] | None = None,
 ) -> dict[str, str]:
     """Sign a request, returning the headers to add to it.
 
@@ -182,12 +186,16 @@ def sign_request(
 
     ``method`` is signed exactly as given (@22g0xkr8), so pass it as it will go on the wire.
     ``keyid`` defaults to the key itself (@7xrx5evg); name another, such as a KERI AID, only when
-    the verifier resolves it (@6g9zjsv9).
+    the verifier resolves it (@6g9zjsv9). ``minimum``, such as :data:`REQUEST_MINIMUM`, makes
+    the signer refuse a covered list its verifier would refuse (@2f227n4r).
     """
     sending = dict(headers or {})
     chosen = covered is not None
     items = [component(spec) for spec in (DEFAULT_COVERED if covered is None else covered)]
     _cover_body(items, sending, body, chosen)
+    if minimum is not None:
+        _check_minimum(items, minimum, has_body=_request_has_body(_lowered(sending), body),
+                       request_had_body=False)
 
     base = signature_base(
         method=method,
@@ -218,26 +226,37 @@ def sign_response(
     nonce: str | None = None,
     tag: str | None = None,
     keyid: str | None = None,
+    minimum: Sequence[str] | None = None,
 ) -> dict[str, str]:
     """Sign a response, returning the headers to add to it (RFC 9421 section 2.4).
 
     By default the signature covers ``@status``, a ``Content-Digest`` of any body, and — when the
     ``request`` it answers is given — that request's method, path and query, plus its
     ``content-digest`` when it carried one, each marked ``req``. That binds the response to what
-    was asked. The body rule is the same as :func:`sign_request`'s.
+    was asked. The body rule is the same as :func:`sign_request`'s. A request that had a body by
+    the verifier's own test is bound by its ``Content-Digest``, and one with no digest to bind is
+    refused as :class:`~fiki.errors.UncoveredBody` rather than signed into a response every
+    profile client refuses (@2f227n4r).
     """
     sending = dict(headers or {})
     chosen = covered is not None
+    had_body = request is not None and _request_has_body(_lowered(request.headers), request.body)
     if covered is None:
         covered = ["@status"]
         if request is not None:
             covered += [req("@method"), req("@path"), req("@query")]
     items = [component(spec) for spec in covered]
     _cover_body(items, sending, body, chosen)
-    if not chosen and request is not None and CONTENT_DIGEST in {
-        name.lower() for name in request.headers
-    }:
+    if not chosen and had_body:
+        if CONTENT_DIGEST not in _lowered(request.headers):
+            raise UncoveredBody(
+                "The request this response answers carried a body and no Content-Digest, so the "
+                "response has nothing to bind that body with. Sign the request with a digest "
+                "first, or name the covered components yourself."
+            )
         items.append(component(req(CONTENT_DIGEST)))
+    if minimum is not None:
+        _check_minimum(items, minimum, has_body=bool(body), request_had_body=had_body)
 
     base = response_signature_base(
         status=status,
@@ -266,6 +285,8 @@ def verify_request(
     now: int | None = None,
     resolve: Resolver | None = None,
     minimum: Sequence[str] | None = None,
+    expected_keyid: str | None = None,
+    authorities: Collection[str] | None = None,
 ) -> Verdict:
     """Verify a signed request, returning a :class:`Verdict` or raising.
 
@@ -283,14 +304,22 @@ def verify_request(
     ``minimum`` is the verifier's own covered-set policy, such as :data:`REQUEST_MINIMUM`: a
     signature covering less is refused even though it verifies, and so is a body — signalled by
     ``Content-Length`` above zero, any ``Transfer-Encoding``, or simply arriving — without a
-    covered ``content-digest`` (@7f28p7xk). ``None`` enforces no minimum.
+    covered ``content-digest`` (@7f28p7xk). ``None`` enforces no minimum, and that includes the
+    body rule: with ``minimum=None`` a body handed over with no covered ``content-digest`` is
+    accepted, and the verdict's ``covered`` is the only place that shows it (@2f227n4r).
+
+    ``expected_keyid`` refuses a signature by any other keyid as
+    :class:`~fiki.errors.UnknownKey`. ``authorities`` is the set of ``@authority`` values this
+    verifier serves; a covered ``@authority`` outside it is a
+    :class:`~fiki.errors.SignatureMismatch`, because a request signed for one service must not
+    replay to another (@2f227n4r).
 
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     """
     return _verify(
         request_message(method, url, headers), headers, body, response=False, request=None,
         max_age=max_age, expected_aid=expected_aid, skew=skew, now=now, resolve=resolve,
-        minimum=minimum,
+        minimum=minimum, expected_keyid=expected_keyid, authorities=authorities,
     )
 
 
@@ -306,41 +335,57 @@ def verify_response(
     now: int | None = None,
     resolve: Resolver | None = None,
     minimum: Sequence[str] | None = None,
+    expected_keyid: str | None = None,
 ) -> Verdict:
     """Verify a signed response to ``request``, returning a :class:`Verdict` or raising.
 
     The arguments are :func:`verify_request`'s, with ``status`` in place of the method and URL and
     the ``request`` the response answers, which its ``req`` components are read from. With
     :data:`RESPONSE_MINIMUM`, a request that had a body also obliges the response to cover
-    ``"content-digest";req``. A client checking a response should compare the verdict's ``keyid``
-    with the identifier it expects to be talking to; fiki cannot know which that is.
+    ``"content-digest";req``. A response's body is its content, never its ``Content-Length``, so
+    a HEAD or 304 response is bodiless whatever length it announces. A client should pass
+    ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
+    :class:`~fiki.errors.Unauthenticated`, checked before anything else, because a server that
+    refuses before it knows the agent cannot sign the refusal (@2f227n4r).
     """
+    if status == 401 and not any(name.lower() == "signature" for name in headers):
+        raise Unauthenticated(
+            "The server answered 401 without signing the answer, so the request was not "
+            "authenticated and the body of the refusal cannot be trusted."
+        )
     return _verify(
         response_message(status, headers, request), headers, body, response=True,
         request=request, max_age=max_age, expected_aid=expected_aid, skew=skew, now=now,
-        resolve=resolve, minimum=minimum,
+        resolve=resolve, minimum=minimum, expected_keyid=expected_keyid, authorities=None,
     )
 
 
 def _verify(message, headers, body, *, response, request, max_age, expected_aid, skew, now,
-            resolve, minimum) -> Verdict:
+            resolve, minimum, expected_keyid, authorities) -> Verdict:
     """The KERI profile's section 9 order, so a message has exactly one correct refusal."""
     if expected_aid is not None and resolve is not None:
         raise TypeError("Pass expected_aid or resolve, not both; each decides the key alone.")
 
     found = {name.lower(): value for name, value in headers.items()}
-    inner, signature = _read(found)
+    inner, signature = _read(found, require_keyid=expected_aid is None)
     items = list(inner)
     check_covered(items, response=response)
     if minimum is not None:
         _check_minimum(
-            items, minimum, has_body=_has_body(found, body),
-            request_had_body=request is not None and _has_body(
-                {name.lower(): value for name, value in request.headers.items()}, request.body
+            items, minimum,
+            has_body=bool(body) if response else _request_has_body(found, body),
+            request_had_body=request is not None and _request_has_body(
+                _lowered(request.headers), request.body
             ),
         )
 
-    public_key, aid, keyid = _resolve(expected_aid, inner.params.get("keyid"), resolve)
+    keyid = inner.params.get("keyid")
+    if expected_keyid is not None and keyid != expected_keyid:
+        raise UnknownKey(
+            f'This message is signed by "{keyid}", and the one expected is "{expected_keyid}".',
+            keyid=keyid,
+        )
+    public_key, aid, keyid = _resolve(expected_aid, keyid, resolve)
     alg = inner.params.get("alg")
     if alg is not None and alg != ALG:
         raise UnsupportedAlgorithm(
@@ -360,6 +405,14 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
             "cannot be treated as authentic."
         ) from ex
 
+    if authorities is not None:
+        for item in items:
+            if item.value == "@authority" and value_of(item, message) not in authorities:
+                raise SignatureMismatch(
+                    f'The signature covers the authority "{value_of(item, message)}", which '
+                    "this verifier does not serve, so it was signed for somebody else."
+                )
+
     # AFTER the signature check, deliberately. created and expires are covered by the signature,
     # so acting on them before verifying it would mean enforcing a policy against values an
     # attacker could still have chosen — and it would tell that attacker their forgery at least
@@ -373,8 +426,16 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)
 
 
-def _has_body(found: Mapping[str, str], body: bytes | None) -> bool:
-    """The profile's body test: a length above zero, any transfer coding, or content that arrived."""
+def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
+    return {name.lower(): value for name, value in headers.items()}
+
+
+def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:
+    """The profile's request body test: a length above zero, any transfer coding, or content.
+
+    Requests only. A response's body is its content, since a HEAD or 304 response carries the
+    length of a representation it does not send (@2f227n4r).
+    """
     if body:
         return True
     if "transfer-encoding" in found:
@@ -382,11 +443,10 @@ def _has_body(found: Mapping[str, str], body: bytes | None) -> bool:
     length = found.get("content-length")
     if length is None:
         return False
-    try:
-        return int(length) > 0
-    except ValueError:
-        # Fail closed: a length nobody can read is not evidence that there is no body.
-        return True
+    # Fail closed: a length that is not a plain decimal, negative ones included, is not evidence
+    # that there is no body.
+    length = length.strip()
+    return not re.fullmatch(r"[0-9]+", length) or int(length) > 0
 
 
 def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) -> None:
@@ -455,7 +515,7 @@ def _keyid(aid: str) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _read(found: Mapping[str, str]):
+def _read(found: Mapping[str, str], *, require_keyid: bool):
     """Pull one signature and its input out of the headers, or say what is wrong with them.
 
     In the KERI profile's section 9 order: absence before malformation, the Signature header
@@ -474,9 +534,17 @@ def _read(found: Mapping[str, str]):
         )
 
     signatures = _parse(raw_signature, "Signature", MalformedSignature)
+    for member in signatures.values():
+        # Draft 6 of the KERI profile would call this malformed-signature, since such a header is
+        # neither mode's form; the class stays the one the shared vectors pin (@2f227n4r).
+        if type(getattr(member, "value", None)) is not bytes:
+            raise MalformedSignatureValue(
+                "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; "
+                "this Signature header carries something else."
+            )
     inputs = _parse(raw_input, "Signature-Input", MalformedSignatureInput)
     for member in inputs.values():
-        _check_input(member)
+        _check_input(member, require_keyid=require_keyid)
 
     if len(inputs) != 1 or len(signatures) != 1:
         raise MalformedSignatureLabel(
@@ -491,8 +559,8 @@ def _read(found: Mapping[str, str]):
             label=label,
         )
 
-    value = getattr(signatures[label], "value", None)
-    if type(value) is not bytes or len(value) != _SIGNATURE_LENGTH:
+    value = signatures[label].value
+    if len(value) != _SIGNATURE_LENGTH:
         raise MalformedSignatureValue(
             "RFC 9421 carries an Ed25519 signature as a 64-byte RFC 8941 byte sequence, wrapped "
             "in colons; this one is something else."
@@ -500,7 +568,7 @@ def _read(found: Mapping[str, str]):
     return inputs[label], value
 
 
-def _check_input(member) -> None:
+def _check_input(member, *, require_keyid: bool) -> None:
     """Refuse a Signature-Input member fiki would otherwise have to guess about."""
     if not isinstance(member, http_sfv.InnerList):
         raise MalformedSignatureInput(
@@ -517,6 +585,13 @@ def _check_input(member) -> None:
                 f"The covered field {item} is not lowercase, and RFC 9421 section 2.1 requires "
                 "field names in the covered list to be lowercased by the signer."
             )
+    if require_keyid and "keyid" not in member.params:
+        # Here rather than when the key is resolved: keyid is REQUIRED, so its absence belongs
+        # with the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
+        raise MissingKey(
+            "This signature carries no keyid and no expected_aid was supplied, so there is no "
+            "key to verify it against."
+        )
     for name, value in member.params.items():
         expected = _SIGNATURE_PARAMS.get(name)
         if expected is None:

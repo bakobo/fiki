@@ -67,6 +67,17 @@ class UnknownKey(_Detailed):
     _fields = ("keyid",)
 
 
+class UnsupportedSigner(_Detailed):
+    """The keyid's key state has no single key that satisfies its threshold alone (``this.i`` @2f227n4r).
+
+    fiki never decides this itself: it knows nothing of key state. A resolver raises it, and fiki
+    carries it out unchanged, so the refusal keeps its own class rather than being folded into
+    UnknownKey.
+    """
+
+    _fields = ("keyid",)
+
+
 class MissingKey(FikiError):
     """The signature carries no keyid and the caller supplied no key."""
 
@@ -75,6 +86,15 @@ class MissingComponent(_Detailed):
     """A covered component has no value in the request, so the base cannot be rebuilt."""
 
     _fields = ("component",)
+
+
+class Unauthenticated(FikiError):
+    """An unsigned 401 answered the request (``this.i`` @2f227n4r).
+
+    A server that refuses a request before it knows which agent it is cannot sign the refusal,
+    so an unsigned 401 is reported as an authentication failure whose body is not to be trusted,
+    rather than as a response that is missing its signature.
+    """
 
 
 # --- something the request carries cannot be read ---

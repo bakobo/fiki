@@ -21,7 +21,7 @@ from urllib.parse import urlsplit
 
 import http_sfv
 
-from .errors import DuplicateComponent, MissingComponent, UnsupportedComponent
+from .errors import DuplicateComponent, MissingComponent, SignatureMismatch, UnsupportedComponent
 
 DERIVED = ("@method", "@authority", "@path", "@query")
 
@@ -68,7 +68,15 @@ def component(spec: str | http_sfv.Item) -> http_sfv.Item:
         return spec
     if spec.startswith('"'):
         item = http_sfv.Item()
-        item.parse(spec.encode("utf-8"))
+        try:
+            item.parse(spec.encode("utf-8"))
+        except ValueError as ex:
+            raise UnsupportedComponent(
+                f"fiki cannot read {spec} as a component identifier; name a component plainly, "
+                'as "@path", or in its serialized form, as \'"@path";req\'.',
+                component=spec,
+                supported=", ".join(DERIVED + RESPONSE_DERIVED),
+            ) from ex
         item.value = item.value.lower()
         return item
     return http_sfv.Item(spec.lower())
@@ -215,9 +223,25 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
     return value
 
 
+def value_of(item: http_sfv.Item, message: _Message) -> str:
+    """A component's value, refused when it has no single serialization both sides agree on.
+
+    A line break inside a value would forge a line of the base, and a byte outside visible ASCII
+    is encoded differently by different stacks. The KERI profile's draft 6 names such a base
+    unbuildable, and so a signature-mismatch (@2f227n4r).
+    """
+    value = _component_value(item, message)
+    if any(not (char == "\t" or " " <= char <= "~") for char in value):
+        raise SignatureMismatch(
+            f"The value of {spec_of(item)} contains a line break, a control character or a "
+            "non-ASCII character, so there is no signature base both sides would build from it."
+        )
+    return value
+
+
 def lines_for(items: Sequence[http_sfv.Item], message: _Message) -> list[str]:
     """Every line of the signature base except the trailing ``@signature-params``."""
-    return [f"{item}: {_component_value(item, message)}" for item in items]
+    return [f"{item}: {value_of(item, message)}" for item in items]
 
 
 def component_lines(

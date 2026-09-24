@@ -48,8 +48,10 @@ from fiki.errors import (
     SignatureMismatch,
     SignatureTooOld,
     UncoveredBody,
+    Unauthenticated,
     UnknownKey,
     UnsupportedComponent,
+    UnsupportedSigner,
 )
 from fiki.messages import content_digest
 
@@ -542,3 +544,163 @@ def test_a_request_body_is_signalled_by_its_headers_too():
     headers = respond(request=chunked, covered=list(RESPONSE_MINIMUM) + ["content-digest"])
     with pytest.raises(InsufficientCoverage):
         check(headers, request=chunked, minimum=RESPONSE_MINIMUM)
+
+
+# --- the first review's findings and the profile's draft 6 (@2f227n4r) ---
+
+def test_a_default_response_binds_the_digest_of_a_request_whose_body_only_its_headers_announce():
+    asked = Request(method="POST", url=URL, headers={"Content-Length": "18",
+                                                     "Content-Digest": content_digest(BODY)})
+    headers = respond(request=asked)
+    assert req("content-digest") in check(headers, request=asked, minimum=RESPONSE_MINIMUM).covered
+
+
+def test_a_default_response_to_a_body_with_no_digest_to_bind_is_refused_at_signing():
+    """The review's finding 1: the signer must not produce what the verifier's minimum refuses."""
+    asked = Request(method="POST", url=URL, body=BODY)
+    with pytest.raises(UncoveredBody):
+        respond(request=asked)
+
+
+def test_a_missing_keyid_is_reported_before_the_covered_list():
+    request, headers = sign(covered=["@method", "content-digest"], keyid=AID)
+    mangle_input(headers, f';keyid="{AID}"', "")
+    with pytest.raises(MissingKey):
+        verify(request, headers, resolve={AID: raw(KEY)}.get, minimum=REQUEST_MINIMUM)
+
+
+def test_a_missing_keyid_is_reported_before_the_labels():
+    request, headers = sign(keyid=AID)
+    mangle_input(headers, f';keyid="{AID}"', "")
+    value = headers["Signature-Input"].split("=", 1)[1]
+    headers["Signature-Input"] += f", other={value}"
+    with pytest.raises(MissingKey):
+        verify(request, headers, resolve={AID: raw(KEY)}.get)
+
+
+def test_a_missing_keyid_is_fine_when_the_verifier_names_the_key():
+    request, headers = sign()
+    keyid = headers["Signature-Input"].split('keyid="')[1].split('"')[0]
+    mangle_input(headers, f';keyid="{keyid}"', "")
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers, expected_aid=KEY.aid)
+
+
+def test_a_head_response_carrying_a_content_length_has_no_body():
+    """The review's finding 4: a response's body is its content, never its Content-Length."""
+    head = Request(method="HEAD", url=URL)
+    headers = respond(request=head, body=None, headers={"Content-Length": "898"})
+    verdict = check(headers, request=head, body=None, minimum=RESPONSE_MINIMUM)
+    assert "content-digest" not in verdict.covered
+
+
+@pytest.mark.parametrize("length", ["-5", "18 bytes", "+3"])
+def test_a_content_length_that_is_not_a_plain_decimal_counts_as_a_body(length):
+    request, headers = sign(body=None, headers={"Content-Length": length})
+    with pytest.raises(InsufficientCoverage):
+        verify(request, headers, minimum=REQUEST_MINIMUM)
+
+
+def test_a_malformed_component_spec_is_a_fiki_error():
+    with pytest.raises(UnsupportedComponent):
+        sign(covered=['"@path'])
+
+
+def test_a_signer_given_a_minimum_refuses_a_covered_list_below_it():
+    with pytest.raises(InsufficientCoverage):
+        sign(body=None, covered=["@method", "@path"], minimum=REQUEST_MINIMUM)
+    request, headers = sign(minimum=REQUEST_MINIMUM)
+    assert verify(request, headers, minimum=REQUEST_MINIMUM).aid == KEY.aid
+
+
+def test_a_signer_given_a_minimum_refuses_a_body_it_would_not_cover():
+    with pytest.raises(InsufficientCoverage):
+        sign(body=None, headers={"Transfer-Encoding": "chunked"}, minimum=REQUEST_MINIMUM)
+
+
+def test_a_response_signer_given_a_minimum_refuses_a_covered_list_below_it():
+    with pytest.raises(InsufficientCoverage):
+        respond(covered=["@status", "content-digest"], minimum=RESPONSE_MINIMUM)
+    assert check(respond(minimum=RESPONSE_MINIMUM), minimum=RESPONSE_MINIMUM).aid == KEY.aid
+
+
+def test_a_signer_refuses_an_unsupported_component_parameter():
+    with pytest.raises(UnsupportedComponent):
+        sign(covered=['"@method";sf', "@path", "content-digest"])
+
+
+def test_a_response_from_an_aid_other_than_the_expected_one_is_an_unknown_key():
+    headers = respond(keyid=AID)
+    resolve = {AID: raw(KEY)}.get
+    assert check(headers, resolve=resolve, expected_keyid=AID).keyid == AID
+    with pytest.raises(UnknownKey):
+        check(headers, resolve=resolve, expected_keyid=cesr("E", bytes(32)))
+
+
+def test_a_covered_authority_outside_the_served_set_is_a_signature_mismatch():
+    request, headers = sign(url="/identifiers", headers={"Host": "other.example.com"})
+    assert verify(request, headers, authorities={"other.example.com"}).aid == KEY.aid
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers, authorities={"keria.example.com"})
+
+
+def test_served_authorities_do_not_apply_when_authority_is_not_covered():
+    request, headers = sign(covered=["@method", "@path", "@query", "content-digest"])
+    assert verify(request, headers, authorities={"elsewhere.example.com"}).aid == KEY.aid
+
+
+def test_an_unsigned_401_is_unauthenticated_before_anything_else():
+    with pytest.raises(Unauthenticated):
+        check({"Content-Type": "application/json"}, status=401, body=b'{"title": "no"}')
+
+
+def test_an_unsigned_200_is_missing_its_signature():
+    with pytest.raises(MissingSignature):
+        check({}, status=200)
+
+
+def test_a_signed_401_is_verified_like_any_other_response():
+    headers = respond(status=401)
+    assert check(headers, status=401).aid == KEY.aid
+
+
+def test_a_resolver_may_refuse_a_key_state_with_no_single_signer():
+    def resolve(keyid):
+        raise UnsupportedSigner(f"{keyid} has no single effective signer.", keyid=keyid)
+
+    request, headers = sign(keyid=AID)
+    with pytest.raises(UnsupportedSigner):
+        verify(request, headers, resolve=resolve)
+
+
+@pytest.mark.parametrize("value", ["café", "two\nlines", "bell\x07"])
+def test_a_base_that_cannot_be_built_is_a_signature_mismatch(value):
+    request, headers = sign(headers={"X-Note": "plain"},
+                            covered=["@method", "@path", "@query", "x-note", "content-digest"])
+    headers["X-Note"] = value
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers)
+    with pytest.raises(SignatureMismatch):
+        signature_base(method="GET", url=URL, headers={"X-Note": value}, covered=["x-note"],
+                       created=AT, keyid="k")
+
+
+def test_a_tab_in_a_field_value_still_builds():
+    request, headers = sign(headers={"X-Note": "a\tb"},
+                            covered=["@method", "@path", "@query", "x-note", "content-digest"])
+    assert verify(request, headers).aid == KEY.aid
+
+
+def test_a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labels():
+    request, headers = sign()
+    value = headers["Signature-Input"].split("=", 1)[1]
+    headers["Signature-Input"] += f", other={value}"
+    headers["Signature"] = 'sig="not bytes"'
+    with pytest.raises(MalformedSignatureValue):
+        verify(request, headers)
+
+
+def test_an_empty_keyid_is_a_missing_key():
+    request, headers = sign(keyid="")
+    with pytest.raises(MissingKey):
+        verify(request, headers, resolve={}.get)

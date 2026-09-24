@@ -73,6 +73,7 @@ CODES = {
     "InsufficientCoverage": "insufficient-coverage",
     "MalformedKey": "malformed-key",
     "UnknownKey": "unknown-key",
+    "UnsupportedSigner": "unsupported-signer",
     "UnsupportedAlgorithm": "unsupported-algorithm",
     "MissingComponent": "missing-component",
     "SignatureMismatch": "signature-mismatch",
@@ -81,6 +82,7 @@ CODES = {
     "MalformedDigest": "malformed-digest",
     "DigestMismatch": "digest-mismatch",
     "UncoveredBody": "uncovered-body",
+    "Unauthenticated": "unauthenticated",
 }
 
 # Section 9 in its own order. mode-mismatch and unsupported-signer are listed and never produced
