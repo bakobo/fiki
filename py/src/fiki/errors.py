@@ -57,6 +57,27 @@ class MissingSignatureLabel(_Detailed):
     _fields = ("label",)
 
 
+class UnknownKey(_Detailed):
+    """A resolver was supplied and does not know the signature's keyid (``this.i`` @6g9zjsv9).
+
+    Never answered by decoding the keyid as a key instead: a basic transferable prefix embeds its
+    inception key, and reading it would accept a key that has been rotated away.
+    """
+
+    _fields = ("keyid",)
+
+
+class UnsupportedSigner(_Detailed):
+    """The keyid's key state has no single key that satisfies its threshold alone (@2f227n4r).
+
+    fiki never decides this itself: it knows nothing of key state. A resolver raises it, and fiki
+    carries it out unchanged, so the refusal keeps its own class rather than being folded into
+    UnknownKey.
+    """
+
+    _fields = ("keyid",)
+
+
 class MissingKey(FikiError):
     """The signature carries no keyid and the caller supplied no key."""
 
@@ -65,6 +86,15 @@ class MissingComponent(_Detailed):
     """A covered component has no value in the request, so the base cannot be rebuilt."""
 
     _fields = ("component",)
+
+
+class Unauthenticated(FikiError):
+    """An unsigned 401 answered the request (``this.i`` @2f227n4r).
+
+    A server that refuses a request before it knows which agent it is cannot sign the refusal,
+    so an unsigned 401 is reported as an authentication failure whose body is not to be trusted,
+    rather than as a response that is missing its signature.
+    """
 
 
 # --- something the request carries cannot be read ---
@@ -101,6 +131,23 @@ class UnsupportedComponent(_Detailed):
     """The covered set names a derived component fiki does not build."""
 
     _fields = ("component", "supported")
+
+
+class DuplicateComponent(_Detailed):
+    """The covered list names the same component twice, whatever the order of its parameters."""
+
+    _fields = ("component",)
+
+
+class InsufficientCoverage(_Detailed):
+    """The signature verifies, and covers less than the verifier's stated minimum (@7f28p7xk).
+
+    Includes a message with a body whose ``content-digest`` is not covered. A signature over too
+    little is refused even when it is valid, because a valid signature over the wrong things is
+    exactly what an intermediary wants.
+    """
+
+    _fields = ("component",)
 
 
 class UnsupportedAlgorithm(_Detailed):

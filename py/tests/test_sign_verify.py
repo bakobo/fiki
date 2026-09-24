@@ -227,7 +227,7 @@ def test_a_caller_supplied_content_digest_is_used_rather_than_recomputed():
 
 
 def test_a_content_digest_naming_an_unknown_algorithm_alongside_a_known_one_verifies():
-    """RFC 9530 allows several digests; fiki checks the first it can compute."""
+    """RFC 9530 allows several digests; fiki ignores the ones it cannot compute (@7f28p7xk)."""
     supplied = {"Content-Digest": f"sha-1=:AAAA:, {content_digest(BODY)}"}
     request, headers = signed(headers=supplied)
     assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
@@ -389,3 +389,29 @@ def test_a_signature_with_no_created_cannot_be_aged_and_is_refused():
     assert verify_request(method="GET", url="/a", headers=headers, max_age=None).aid == KEY.aid
     with pytest.raises(SignatureTooOld):
         verify_request(method="GET", url="/a", headers=headers, max_age=300, now=SIGNED_AT)
+
+
+# --- the raw keyid is decoded strictly (bakobo/fiki#4 review) ---
+
+def _raw_keyid():
+    return base64.urlsafe_b64encode(verifying_key(KEY.aid).public_bytes_raw()).decode().rstrip("=")
+
+
+@pytest.mark.parametrize(
+    "keyid",
+    [
+        pytest.param(lambda k: k + "!", id="a-character-outside-the-alphabet"),
+        pytest.param(lambda k: k[:10] + " " + k[10:], id="an-embedded-space"),
+        pytest.param(lambda k: k + "=", id="padding"),
+        pytest.param(lambda k: k[:10] + "+" + k[11:], id="standard-rather-than-url-alphabet"),
+        pytest.param(lambda k: k[:-1], id="too-short"),
+        pytest.param(lambda k: k[:-1] + chr(ord(k[-1]) + 1), id="non-canonical-trailing-bits"),
+    ],
+)
+def test_a_keyid_that_only_decodes_leniently_to_the_key_is_refused(keyid):
+    """A lenient decoder discards what it does not understand, so a keyid that is not the key's
+    encoding could otherwise verify as the key it happens to decode to."""
+    mangled = keyid(_raw_keyid())
+    request, headers = signed(keyid=mangled)
+    with pytest.raises(MalformedKey):
+        verify_request(headers=headers, max_age=None, **request)

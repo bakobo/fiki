@@ -10,10 +10,18 @@ See ``this.i`` @07wstqk7 for why this is a library of its own rather than a corn
 from __future__ import annotations
 
 from . import errors
-from .base import DEFAULT_COVERED, DERIVED, signature_base
+from .base import DEFAULT_COVERED, DERIVED, Request, req, response_signature_base, signature_base
 from .errors import FikiError
 from .keys import Key, to_aid, verifying_key
-from .messages import Verdict, sign_request, verify_request
+from .messages import (
+    REQUEST_MINIMUM,
+    RESPONSE_MINIMUM,
+    Verdict,
+    sign_request,
+    sign_response,
+    verify_request,
+    verify_response,
+)
 
 # The conformance contract this port satisfies (``this.i`` @4fhrre0m). Two artifacts interoperate
 # when their declared vectors format matches, whatever their own version numbers say — so this is
@@ -25,13 +33,20 @@ __all__ = [
     "VECTORS_FORMAT",
     "DEFAULT_COVERED",
     "DERIVED",
+    "REQUEST_MINIMUM",
+    "RESPONSE_MINIMUM",
     "FikiError",
     "Key",
+    "Request",
     "Verdict",
     "errors",
+    "req",
+    "response_signature_base",
     "sign_request",
+    "sign_response",
     "signature_base",
     "to_aid",
     "verify_request",
+    "verify_response",
     "verifying_key",
 ]

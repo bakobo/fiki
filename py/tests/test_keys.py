@@ -94,3 +94,25 @@ def test_a_refusal_carries_the_offending_value_as_an_attribute():
     with pytest.raises(MalformedKey) as caught:
         verifying_key("D" + "A" * 43)
     assert caught.value.keyid == "D" + "A" * 43
+
+
+_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+
+
+def padding_bit_alias(aid: str) -> str:
+    """The same 32 key bytes, spelled with a non-zero bit in the pad byte the code replaces.
+
+    The second character's top two bits land in that pad byte, so flipping one of them changes
+    nothing a lenient decoder keeps: the alias decodes to the same key as the original.
+    """
+    value = _ALPHABET.index(aid[1])
+    return aid[0] + _ALPHABET[value ^ 0b010000] + aid[2:]
+
+
+def test_verifying_key_refuses_a_padding_bit_alias_of_a_real_aid():
+    """bakobo/fiki#4: an AID has exactly one spelling, or two identifiers name one key."""
+    aid = Key.from_seed(bytes(range(32))).aid
+    alias = padding_bit_alias(aid)
+    assert alias != aid
+    with pytest.raises(MalformedKey):
+        verifying_key(alias)

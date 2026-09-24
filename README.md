@@ -57,12 +57,15 @@ fiki is polyglot on purpose. Each language implementation is a top-level directo
 
 ```
 docs/user-guide.md    how to use fiki, in every language
+docs/keri-profile.md  the KERI profile of RFC 9421, which vectors/keri/ pins
 vectors/              conformance vectors, shared and normative
   generate.py             regenerates them; run from the repo root
   aid-lens.json           a seed to its AID and its keyid
   signature-base.json     bases and signatures, byte for byte
   accepts.json            requests every implementation must accept, and the verdict
   refusals.json           requests every implementation must refuse, and the error
+  keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 2;
+                          only the Python port runs it so far
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
@@ -93,6 +96,8 @@ Releases are tagged per port: `py/v0.5.0`, `js/v0.5.0`, `go/v0.5.0`, `rust/v0.5.
 Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakobo party authored, pin the signature base and the signing algorithm — including on the signing side, since B.1.4 publishes the Ed25519 private key and Ed25519 is deterministic. The `vectors/` set pins what the RFC cannot: the AID lens, `@query`, `Content-Digest`, the freshness rules, and the refusal to sign a body that nothing digests.
 
 No implementation is the reference. The vectors are, and all five answer to them equally.
+
+`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it; the other four do not yet.
 
 ## Contributing a port
 
