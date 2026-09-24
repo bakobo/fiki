@@ -60,8 +60,9 @@ def test_authority_keeps_a_non_default_port():
     )
 
 
-def test_method_is_uppercased():
-    assert line_for("@method", method="post") == '"@method": POST'
+def test_method_is_the_method_as_sent_with_no_case_transformation():
+    """RFC 9421 section 2.2.1, and @22g0xkr8: "post" and "POST" are different methods."""
+    assert line_for("@method", method="post") == '"@method": post'
 
 
 def test_header_values_are_stripped_and_named_in_lowercase():

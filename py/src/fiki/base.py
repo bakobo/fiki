@@ -6,8 +6,9 @@ sides actually hashed. That is not hypothetical: keripy's KERI-flavored base div
 in three ways while emitting a conformant ``Signature-Input`` header, so a standards-conformant
 verifier parses the header, computes a different base, and reports a bad signature.
 
-Derived components fiki builds: ``@method``, ``@authority``, ``@path``, ``@query``. Anything else
-raises rather than being skipped — a component silently dropped from the base is a component the
+Derived components fiki builds: ``@method``, ``@authority``, ``@path``, ``@query`` in a request,
+and ``@status`` in a response, which may also name its request's components with the ``req``
+parameter of section 2.4 (@7f28p7xk). Anything else raises rather than being skipped — a component silently dropped from the base is a component the
 caller believes is covered and is not, which is exactly the shape of the gap in heti's KERI
 dialect (@2hwvpm42).
 """
@@ -15,13 +16,18 @@ dialect (@2hwvpm42).
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import http_sfv
 
-from .errors import MissingComponent, UnsupportedComponent
+from .errors import DuplicateComponent, MissingComponent, UnsupportedComponent
 
 DERIVED = ("@method", "@authority", "@path", "@query")
+
+# The one derived component a response has of its own (RFC 9421 section 2.2.9). Every request
+# component reaches a response only through `req`.
+RESPONSE_DERIVED = ("@status",)
 
 # @method, @authority, @path, @query — plus content-digest whenever there is a body (@2hwvpm42).
 # This closes the query, host, and body gaps that heti's KERI dialect leaves open and structurally
@@ -31,11 +37,123 @@ DEFAULT_COVERED = ("@method", "@authority", "@path", "@query")
 
 CONTENT_DIGEST = "content-digest"
 
+# The only component parameter fiki supports, and only in a response (RFC 9421 section 2.4).
+_REQ = "req"
+
 # RFC 9421 section 2.3. Order is the signer's choice — a verifier reserializes whatever it
 # received — so fiki fixes one order and keeps it, which makes its own output reproducible.
 _PARAM_ORDER = ("created", "expires", "nonce", "alg", "keyid", "tag")
 
 _DEFAULT_PORTS = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+
+@dataclass(frozen=True)
+class Request:
+    """The request a response answers, which a response's ``req`` components are read from."""
+
+    method: str
+    url: str
+    headers: Mapping[str, str] = field(default_factory=dict)
+    body: bytes | None = None
+
+
+def component(spec: str | http_sfv.Item) -> http_sfv.Item:
+    """A component identifier from a caller's spelling of it.
+
+    A plain name (``"@method"``, ``"Content-Digest"``) or its RFC 8941 serialization with
+    parameters (``'"@method";req'``). Names are lowercased as a convenience to a local caller; a
+    name parsed from the wire is never lowercased, and is refused instead when it is not already.
+    """
+    if isinstance(spec, http_sfv.Item):
+        return spec
+    if spec.startswith('"'):
+        item = http_sfv.Item()
+        item.parse(spec.encode("utf-8"))
+        item.value = item.value.lower()
+        return item
+    return http_sfv.Item(spec.lower())
+
+
+def req(name: str) -> str:
+    """The spelling of a request component named from a response: ``req("@path")``."""
+    item = http_sfv.Item(name.lower())
+    item.params[_REQ] = True
+    return str(item)
+
+
+def spec_of(item: http_sfv.Item) -> str:
+    """The inverse of :func:`component`: a plain name when it has no parameters."""
+    return str(item) if item.params else item.value
+
+
+def identity(item: http_sfv.Item) -> tuple:
+    """What two identifiers must share to be the same component. Parameter order is not it."""
+    return (item.value, tuple(sorted(item.params.items())))
+
+
+def check_covered(items: Sequence[http_sfv.Item], *, response: bool) -> None:
+    """Refuse a covered list fiki cannot build faithfully: duplicates first, then the unsupported.
+
+    That order is the KERI profile's section 9, so a list that is both has one correct refusal.
+    """
+    seen = set()
+    for item in items:
+        if identity(item) in seen:
+            raise DuplicateComponent(
+                f"The covered components name {spec_of(item)} twice, so the signature base would "
+                "not be what either copy says it is.",
+                component=spec_of(item),
+            )
+        seen.add(identity(item))
+
+    for item in items:
+        params = dict(item.params)
+        is_req = params.get(_REQ) is True
+        if set(params) - {_REQ} or (_REQ in params and not (is_req and response)):
+            raise UnsupportedComponent(
+                f"fiki does not support the component {spec_of(item)}: the only component "
+                f'parameter it supports is "{_REQ}", and only in a response.',
+                component=spec_of(item),
+                supported=_REQ,
+            )
+        if item.value.startswith("@"):
+            supported = DERIVED if (is_req or not response) else RESPONSE_DERIVED
+            if item.value not in supported:
+                raise UnsupportedComponent(
+                    f'fiki does not build the derived component {spec_of(item)} in a '
+                    f"{'response' if response else 'request'}; it builds {', '.join(supported)}.",
+                    component=spec_of(item),
+                    supported=", ".join(supported),
+                )
+
+
+@dataclass(frozen=True)
+class _Message:
+    headers: Mapping[str, str]
+    method: str | None = None
+    parts: object = None
+    status: int | None = None
+    request: _Message | None = None
+
+
+def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
+    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
+    # values are stripped of leading and trailing whitespace.
+    return {name.lower(): value.strip() for name, value in headers.items()}
+
+
+def request_message(method: str, url: str, headers: Mapping[str, str]) -> _Message:
+    return _Message(headers=_lowered(headers), method=method, parts=urlsplit(url))
+
+
+def response_message(status: int, headers: Mapping[str, str], request: Request | None) -> _Message:
+    return _Message(
+        headers=_lowered(headers),
+        status=status,
+        request=None if request is None else request_message(
+            request.method, request.url, request.headers
+        ),
+    )
 
 
 def _authority(parts, headers: Mapping[str, str]) -> str:
@@ -63,33 +181,43 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
     return host.lower()
 
 
-def _component_value(component: str, method: str, parts, headers: Mapping[str, str]) -> str:
-    if component == "@method":
-        return method.upper()
-    if component == "@authority":
-        return _authority(parts, headers)
-    if component == "@path":
+def _component_value(item: http_sfv.Item, message: _Message) -> str:
+    name = item.value
+    if item.params.get(_REQ) is True:
+        if message.request is None:
+            raise MissingComponent(
+                f"The signature covers {spec_of(item)}, which is read from the request this "
+                "response answers, and no request was supplied.",
+                component=spec_of(item),
+            )
+        message = message.request
+    if name == "@status":
+        return f"{message.status:03d}"
+    if name == "@method":
+        # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+        return message.method
+    if name == "@authority":
+        return _authority(message.parts, message.headers)
+    if name == "@path":
         # An empty path is the "/" the origin server would have received.
-        return parts.path or "/"
-    if component == "@query":
+        return message.parts.path or "/"
+    if name == "@query":
         # Section 2.2.7: the whole query string including the leading "?", percent-encoding
         # preserved, and a bare "?" when the request carries no query at all.
-        return f"?{parts.query}"
-    if component.startswith("@"):
-        raise UnsupportedComponent(
-            f'fiki does not build the derived component "{component}"; it builds '
-            f"{', '.join(DERIVED)}.",
-            component=component,
-            supported=", ".join(DERIVED),
-        )
-    value = headers.get(component)
+        return f"?{message.parts.query}"
+    value = message.headers.get(name)
     if value is None:
         raise MissingComponent(
-            f'The signature covers "{component}", but the request carries no value for it, '
+            f"The signature covers {spec_of(item)}, but the message carries no value for it, "
             f"so the signature base cannot be built.",
-            component=component,
+            component=spec_of(item),
         )
     return value
+
+
+def lines_for(items: Sequence[http_sfv.Item], message: _Message) -> list[str]:
+    """Every line of the signature base except the trailing ``@signature-params``."""
+    return [f"{item}: {_component_value(item, message)}" for item in items]
 
 
 def component_lines(
@@ -99,21 +227,25 @@ def component_lines(
     headers: Mapping[str, str],
     covered: Sequence[str],
 ) -> list[str]:
-    """Every line of the signature base except the trailing ``@signature-params``.
+    """Every line of a request's signature base except the trailing ``@signature-params``.
 
     Split out because the verify side cannot call :func:`signature_base`: it must reserialize the
     parameters exactly as they arrived, in the order they arrived, rather than in fiki's own fixed
     order — a verifier that reorders what it received computes a different base and rejects a good
     signature.
     """
-    parts = urlsplit(url)
-    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-    # values are stripped of leading and trailing whitespace.
-    lowered = {name.lower(): value.strip() for name, value in headers.items()}
-    return [
-        f'"{component}": {_component_value(component.lower(), method, parts, lowered)}'
-        for component in covered
-    ]
+    items = [component(spec) for spec in covered]
+    check_covered(items, response=False)
+    return lines_for(items, request_message(method, url, headers))
+
+
+def _finish(lines: list[str], items, **values) -> bytes:
+    params = http_sfv.InnerList(list(items))
+    for name in _PARAM_ORDER:
+        if values[name] is not None:
+            params.params[name] = values[name]
+    lines.append(f'"@signature-params": {params}')
+    return "\n".join(lines).encode("utf-8")
 
 
 def signature_base(
@@ -134,25 +266,39 @@ def signature_base(
     ``url`` is a full URL rather than heti's ``path``, because ``@authority`` and ``@query`` cannot
     be derived from a path alone — and those two are exactly what fiki covers and heti cannot.
 
-    Raises :class:`~fiki.errors.UnsupportedComponent` for a derived component outside
-    :data:`DERIVED`, and :class:`~fiki.errors.MissingComponent` for a covered header the request
-    does not carry.
+    Raises :class:`~fiki.errors.DuplicateComponent` for a component named twice,
+    :class:`~fiki.errors.UnsupportedComponent` for a derived component outside :data:`DERIVED` or
+    a component parameter, and :class:`~fiki.errors.MissingComponent` for a covered header the
+    request does not carry.
     """
-    covered = [component.lower() for component in covered]
-    lines = component_lines(method=method, url=url, headers=headers, covered=covered)
+    items = [component(spec) for spec in covered]
+    check_covered(items, response=False)
+    lines = lines_for(items, request_message(method, url, headers))
+    return _finish(lines, items, created=created, expires=expires, nonce=nonce, alg=alg,
+                   keyid=keyid, tag=tag)
 
-    params = http_sfv.InnerList([http_sfv.Item(component) for component in covered])
-    values = {
-        "created": created,
-        "expires": expires,
-        "nonce": nonce,
-        "alg": alg,
-        "keyid": keyid,
-        "tag": tag,
-    }
-    for name in _PARAM_ORDER:
-        if values[name] is not None:
-            params.params[name] = values[name]
-    lines.append(f'"@signature-params": {params}')
 
-    return "\n".join(lines).encode("utf-8")
+def response_signature_base(
+    *,
+    status: int,
+    headers: Mapping[str, str],
+    covered: Sequence[str],
+    created: int,
+    keyid: str,
+    request: Request | None = None,
+    alg: str | None = None,
+    expires: int | None = None,
+    nonce: str | None = None,
+    tag: str | None = None,
+) -> bytes:
+    """Build the RFC 9421 signature base for a response (sections 2.2.9 and 2.4).
+
+    ``request`` is the request being answered, which ``req`` components are read from — spelled
+    ``req("@path")`` or ``'"@path";req'``. Without one, a ``req`` component is a
+    :class:`~fiki.errors.MissingComponent`.
+    """
+    items = [component(spec) for spec in covered]
+    check_covered(items, response=True)
+    lines = lines_for(items, response_message(status, headers, request))
+    return _finish(lines, items, created=created, expires=expires, nonce=nonce, alg=alg,
+                   keyid=keyid, tag=tag)

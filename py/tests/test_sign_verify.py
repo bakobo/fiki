@@ -227,7 +227,7 @@ def test_a_caller_supplied_content_digest_is_used_rather_than_recomputed():
 
 
 def test_a_content_digest_naming_an_unknown_algorithm_alongside_a_known_one_verifies():
-    """RFC 9530 allows several digests; fiki checks the first it can compute."""
+    """RFC 9530 allows several digests; fiki ignores the ones it cannot compute (@7f28p7xk)."""
     supplied = {"Content-Digest": f"sha-1=:AAAA:, {content_digest(BODY)}"}
     request, headers = signed(headers=supplied)
     assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
