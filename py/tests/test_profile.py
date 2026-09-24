@@ -827,3 +827,28 @@ def test_a_minimum_may_add_requirements_beyond_the_profiles():
     with pytest.raises(InsufficientCoverage):
         verify(*sign(covered=list(REQUEST_MINIMUM) + ["content-digest"]),
                minimum=list(REQUEST_MINIMUM) + ["@authority"])
+
+
+# --- an AID-shaped keyid is spelled canonically before any resolver sees it (fiki#4, Codex #1) ---
+
+@pytest.mark.parametrize("code", ["B", "D", "E"])
+def test_a_padding_bit_alias_is_malformed_even_through_a_resolver(code):
+    from test_keys import padding_bit_alias
+
+    alias = padding_bit_alias(cesr(code, raw(KEY)))
+    request, headers = sign(keyid=alias)
+    with pytest.raises(MalformedKey):
+        verify(request, headers, resolve=lambda keyid: raw(KEY))
+    with pytest.raises(MalformedKey):
+        verify(request, headers, resolve=lambda keyid: None)
+
+
+def test_an_aid_shaped_keyid_outside_the_alphabet_is_malformed_through_a_resolver():
+    request, headers = sign(keyid="E" + "!" * 43)
+    with pytest.raises(MalformedKey):
+        verify(request, headers, resolve=lambda keyid: raw(KEY))
+
+
+def test_a_canonical_aid_still_reaches_the_resolver():
+    request, headers = sign(keyid=AID)
+    assert verify(request, headers, resolve={AID: raw(KEY)}.get).aid == AID

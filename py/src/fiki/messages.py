@@ -67,7 +67,7 @@ from .errors import (
     UnknownKey,
     UnsupportedAlgorithm,
 )
-from .keys import to_aid, verifying_key
+from .keys import misspelled_aid, to_aid, verifying_key
 
 ALG = "ed25519"
 
@@ -675,6 +675,12 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
             "key to verify it against."
         )
     if resolve is not None:
+        if misspelled_aid(keyid):
+            raise MalformedKey(
+                f'The keyid "{keyid}" is shaped like an AID and is not its canonical spelling, '
+                "so it is not an AID at all.",
+                keyid=keyid,
+            )
         # The resolver is authoritative: fiki never falls back to decoding the keyid, because a
         # transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
         raw = resolve(keyid)
