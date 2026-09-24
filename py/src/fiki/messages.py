@@ -370,7 +370,8 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
         raise TypeError("Pass expected_aid or resolve, not both; each decides the key alone.")
 
     found = {name.lower(): value for name, value in headers.items()}
-    inner, signature = _read(found, require_keyid=expected_aid is None)
+    inner, signature = _read(found, require_keyid=expected_aid is None,
+                             require_created=minimum is not None)
     items = list(inner)
     check_covered(items, response=response)
     if minimum is not None:
@@ -518,7 +519,7 @@ def _keyid(aid: str) -> str:
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def _read(found: Mapping[str, str], *, require_keyid: bool):
+def _read(found: Mapping[str, str], *, require_keyid: bool, require_created: bool):
     """Pull one signature and its input out of the headers, or say what is wrong with them.
 
     In the KERI profile's section 9 order: absence before malformation, the Signature header
@@ -547,7 +548,7 @@ def _read(found: Mapping[str, str], *, require_keyid: bool):
             )
     inputs = _parse(raw_input, "Signature-Input", MalformedSignatureInput)
     for member in inputs.values():
-        _check_input(member, require_keyid=require_keyid)
+        _check_input(member, require_keyid=require_keyid, require_created=require_created)
 
     if len(inputs) != 1 or len(signatures) != 1:
         raise MalformedSignatureLabel(
@@ -571,7 +572,7 @@ def _read(found: Mapping[str, str], *, require_keyid: bool):
     return inputs[label], value
 
 
-def _check_input(member, *, require_keyid: bool) -> None:
+def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
     """Refuse a Signature-Input member fiki would otherwise have to guess about."""
     if not isinstance(member, http_sfv.InnerList):
         raise MalformedSignatureInput(
@@ -594,6 +595,12 @@ def _check_input(member, *, require_keyid: bool) -> None:
         raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "
             "key to verify it against."
+        )
+    if require_created and "created" not in member.params:
+        # Only under a minimum, which is how a caller applies the KERI profile, where created is
+        # REQUIRED. RFC 9421 makes it optional, and without a minimum it stays so (@7p9s3g9k).
+        raise MalformedSignatureInput(
+            "This signature carries no created timestamp, which the verifier's policy requires."
         )
     for name, value in member.params.items():
         expected = _SIGNATURE_PARAMS.get(name)

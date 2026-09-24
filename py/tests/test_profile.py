@@ -723,3 +723,33 @@ def test_the_status_range_is_inclusive(status):
     base = response_signature_base(status=status, headers={}, covered=["@status"], created=AT,
                                    keyid="k")
     assert base.decode().split("\n")[0] == f'"@status": {status}'
+
+
+# --- created is required under a minimum (@7p9s3g9k) ---
+
+def _without_created():
+    request, headers = sign()
+    signed_input = headers["Signature-Input"]
+    headers["Signature-Input"] = signed_input.replace(f";created={AT}", "")
+    return request, headers
+
+
+def test_a_minimum_requires_created_as_part_of_signature_input():
+    request, headers = _without_created()
+    with pytest.raises(MalformedSignatureInput):
+        verify(request, headers, minimum=REQUEST_MINIMUM)
+
+
+def test_a_missing_created_under_a_minimum_is_reported_before_the_covered_list():
+    request, headers = _without_created()
+    mangle_input(headers, '"@path"', '"@path" "@path"')
+    with pytest.raises(MalformedSignatureInput):
+        verify(request, headers, minimum=REQUEST_MINIMUM)
+
+
+def test_without_a_minimum_created_stays_optional_as_rfc_9421_makes_it():
+    """The generic path is unchanged: the missing created surfaces only as the signature it
+    breaks, because nothing else here asked for one."""
+    request, headers = _without_created()
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers)
