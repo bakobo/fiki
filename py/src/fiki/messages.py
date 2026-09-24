@@ -127,6 +127,23 @@ def content_digest(body: bytes) -> str:
     return f"{_DIGEST_OUT}=:{base64.b64encode(digest).decode('ascii')}:"
 
 
+def _floored(minimum: Sequence[str] | None, floor: Sequence[str]) -> Sequence[str] | None:
+    """A supplied minimum selects the KERI profile's policy, so it may only add to the profile's.
+
+    Anything smaller is the caller's mistake rather than a message's defect, so it is a
+    ValueError, raised before any message is read (bakobo/fiki#4).
+    """
+    if minimum is not None:
+        given = {identity(component(spec)) for spec in minimum}
+        missing = [spec for spec in floor if identity(component(spec)) not in given]
+        if missing:
+            raise ValueError(
+                f"A minimum covered set must include the profile's own, {', '.join(floor)}; this "
+                f"one leaves out {', '.join(missing)}. Pass None to apply no minimum at all."
+            )
+    return minimum
+
+
 def _covers_body(items) -> bool:
     return any(identity(item) == (CONTENT_DIGEST, ()) for item in items)
 
@@ -192,6 +209,7 @@ def sign_request(
     the verifier resolves it (@6g9zjsv9). ``minimum``, such as :data:`REQUEST_MINIMUM`, makes
     the signer refuse a covered list its verifier would refuse (@2f227n4r).
     """
+    minimum = _floored(minimum, REQUEST_MINIMUM)
     sending = dict(headers or {})
     chosen = covered is not None
     items = [component(spec) for spec in (DEFAULT_COVERED if covered is None else covered)]
@@ -241,6 +259,7 @@ def sign_response(
     refused as :class:`~fiki.errors.UncoveredBody` rather than signed into a response every
     profile client refuses (@2f227n4r).
     """
+    minimum = _floored(minimum, RESPONSE_MINIMUM)
     sending = dict(headers or {})
     chosen = covered is not None
     # By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
@@ -305,7 +324,8 @@ def verify_request(
     remove — so the decision is written at the call site either way. An ``expires`` the signer
     declared is enforced regardless, because ignoring one is selling a guarantee nobody bought.
 
-    ``minimum`` is the verifier's own covered-set policy, such as :data:`REQUEST_MINIMUM`: a
+    ``minimum`` is the verifier's own covered-set policy, :data:`REQUEST_MINIMUM` or a superset
+    of it (a smaller one is a ValueError): a
     signature covering less is refused even though it verifies, and so is a body — signalled by
     ``Content-Length`` above zero, any ``Transfer-Encoding``, or simply arriving — without a
     covered ``content-digest`` (@7f28p7xk). ``None`` enforces no minimum, and that includes the
@@ -323,7 +343,7 @@ def verify_request(
     return _verify(
         request_message(method, url, headers), headers, body, response=False, request=None,
         max_age=max_age, expected_aid=expected_aid, skew=skew, now=now, resolve=resolve,
-        minimum=minimum, expected_keyid=expected_keyid, authorities=authorities,
+        minimum=_floored(minimum, REQUEST_MINIMUM), expected_keyid=expected_keyid, authorities=authorities,
     )
 
 
@@ -352,6 +372,7 @@ def verify_response(
     :class:`~fiki.errors.Unauthenticated`, checked before anything else, because a server that
     refuses before it knows the agent cannot sign the refusal (@2f227n4r).
     """
+    minimum = _floored(minimum, RESPONSE_MINIMUM)
     if status == 401 and not any(name.lower() == "signature" for name in headers):
         raise Unauthenticated(
             "The server answered 401 without signing the answer, so the request was not "

@@ -473,7 +473,8 @@ def test_a_request_covering_less_than_the_minimum_is_refused_even_though_it_veri
 
 def test_a_minimum_may_be_named_in_serialized_form():
     request, headers = sign()
-    assert verify(request, headers, minimum=['"@method"', '"@query"']).aid == KEY.aid
+    minimum = ['"@method"', '"@PATH"', '"@query"']
+    assert verify(request, headers, minimum=minimum).aid == KEY.aid
 
 
 @pytest.mark.parametrize(
@@ -784,3 +785,30 @@ def test_an_unreadable_request_digest_is_malformed_when_the_response_binds_it():
 def test_a_request_handed_over_without_its_body_is_not_recomputed():
     bodiless = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers)
     assert check(respond(), request=bodiless).aid == KEY.aid
+
+
+# --- a supplied minimum can only add to the profile's (bakobo/fiki#4) ---
+
+@pytest.mark.parametrize("minimum", [(), ["@method", "@path"], [req("@method")]])
+def test_a_request_minimum_below_the_profiles_is_a_caller_error(minimum):
+    request, headers = sign()
+    with pytest.raises(ValueError):
+        verify(request, headers, minimum=minimum)
+    with pytest.raises(ValueError):
+        sign(minimum=minimum)
+
+
+@pytest.mark.parametrize("minimum", [(), REQUEST_MINIMUM, ["@status", req("@method")]])
+def test_a_response_minimum_below_the_profiles_is_a_caller_error(minimum):
+    with pytest.raises(ValueError):
+        check(respond(), minimum=minimum)
+    with pytest.raises(ValueError):
+        respond(minimum=minimum)
+
+
+def test_a_minimum_may_add_requirements_beyond_the_profiles():
+    request, headers = sign()
+    assert verify(request, headers, minimum=list(REQUEST_MINIMUM) + ["@authority"]).aid == KEY.aid
+    with pytest.raises(InsufficientCoverage):
+        verify(*sign(covered=list(REQUEST_MINIMUM) + ["content-digest"]),
+               minimum=list(REQUEST_MINIMUM) + ["@authority"])
