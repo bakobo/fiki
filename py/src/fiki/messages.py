@@ -460,8 +460,9 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     # keeps a message declaring no freshness deterministic (@67shl6c5).
     _check_freshness(inner.params, max_age=max_age, skew=skew, now=now)
 
+    digests = []
     if _covers_body(items):
-        _check_digest(found.get(CONTENT_DIGEST), body)
+        digests.append((found.get(CONTENT_DIGEST), body))
     # A response binding the request's digest binds a request body only if somebody hashes it
     # (bakobo/fiki#4). A verifier handed no request body cannot, and a verdict that skipped the
     # check would look like one that made it, so that is the caller's mistake, not a pass.
@@ -471,7 +472,12 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
                 'The response covers "content-digest";req, so the request body it binds must '
                 "be supplied in Request.body to be checked; it was not."
             )
-        _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
+        digests.append((_lowered(request.headers).get(CONTENT_DIGEST), request.body))
+    # Every covered digest is parsed before any is compared, so a malformed one outranks a
+    # mismatched one wherever each sits (profile section 9, bakobo/fiki#4).
+    parsed = [(_read_digest(header), content) for header, content in digests]
+    for recognized, content in parsed:
+        _compare_digest(recognized, content)
 
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)
 
@@ -730,6 +736,15 @@ def _check_digest(header: str | None, body: bytes | None) -> None:
     digest still only attests to a body nobody hashed until somebody hashes it. Every algorithm
     fiki computes must match; the ones it does not are ignored (RFC 9530 section 2).
     """
+    _compare_digest(_read_digest(header), body)
+
+
+def _read_digest(header: str | None) -> list:
+    """Parse a Content-Digest into the members fiki computes, or refuse it as MalformedDigest.
+
+    Separate from the comparison so that a verifier holding two covered digests can parse both
+    before hashing either: section 9 of the KERI profile puts malformed-digest first.
+    """
     parsed = _parse(header, "Content-Digest", MalformedDigest)
     recognized = []
     for name, member in parsed.items():
@@ -748,6 +763,10 @@ def _check_digest(header: str | None, body: bytes | None) -> None:
             "The Content-Digest header names no algorithm fiki computes; it computes "
             f"{' and '.join(sorted(_DIGEST_ALGORITHMS))}."
         )
+    return recognized
+
+
+def _compare_digest(recognized: list, body: bytes | None) -> None:
     if body is None:
         raise DigestMismatch(
             "The signature covers content-digest, but no body was supplied to check it against, "

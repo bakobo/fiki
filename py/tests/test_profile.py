@@ -864,3 +864,14 @@ def test_a_signer_checks_a_bound_request_digest_against_an_empty_body_too():
                     body=b"")
     with pytest.raises(DigestMismatch):
         respond(request=empty, covered=covered)
+
+
+def test_a_malformed_request_digest_outranks_a_mismatched_response_digest():
+    """Codex #5 on fiki#4: section 9 puts malformed-digest before digest-mismatch, so every
+    covered digest is parsed before any hash is compared."""
+    covered = list(RESPONSE_MINIMUM) + [req("content-digest"), "content-digest"]
+    unread = Request(method="POST", url=URL, headers={"Content-Digest": "(((("})
+    headers = respond(request=unread, covered=covered)
+    odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
+    with pytest.raises(MalformedDigest):
+        check(headers, request=odd, body=b'{"done": false}')
