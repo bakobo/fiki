@@ -8,9 +8,9 @@ verifier parses the header, computes a different base, and reports a bad signatu
 
 Derived components fiki builds: ``@method``, ``@authority``, ``@path``, ``@query`` in a request,
 and ``@status`` in a response, which may also name its request's components with the ``req``
-parameter of section 2.4 (@7f28p7xk). Anything else raises rather than being skipped — a component silently dropped from the base is a component the
-caller believes is covered and is not, which is exactly the shape of the gap in heti's KERI
-dialect (@2hwvpm42).
+parameter of section 2.4 (@7f28p7xk). Anything else raises rather than being skipped — a
+component silently dropped from the base is a component the caller believes is covered and is
+not, which is exactly the shape of the gap in heti's KERI dialect (@2hwvpm42).
 """
 
 from __future__ import annotations

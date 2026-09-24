@@ -259,14 +259,16 @@ def sign_response(
     ``request`` it answers is given — that request's method, path and query, plus its
     ``content-digest`` when it carried one, each marked ``req``. That binds the response to what
     was asked. The body rule is the same as :func:`sign_request`'s. A request whose content was
-    non-empty is bound by its ``Content-Digest`` (its headers do not count, @7p9s3g9k), and one with no digest to bind is
-    refused as :class:`~fiki.errors.UncoveredBody` rather than signed into a response every
-    profile client refuses (@2f227n4r).
+    non-empty is bound by its ``Content-Digest`` (its headers do not count, @7p9s3g9k), and one
+    with no digest to bind is refused as :class:`~fiki.errors.UncoveredBody` rather than signed
+    into a response every profile client refuses (@2f227n4r). A digest the request body
+    contradicts is refused the same way the verifier would refuse it.
     """
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     sending = dict(headers or {})
     chosen = covered is not None
-    # By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+    # By content alone: both sides hold the whole request by now (profile section 3,
+    # @7p9s3g9k).
     had_body = request is not None and bool(request.body)
     if covered is None:
         covered = ["@status"]
@@ -348,10 +350,11 @@ def verify_request(
 
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     """
+    minimum = _floored(minimum, REQUEST_MINIMUM)
     return _verify(
         request_message(method, url, headers), headers, body, response=False, request=None,
         max_age=max_age, expected_aid=expected_aid, skew=skew, now=now, resolve=resolve,
-        minimum=_floored(minimum, REQUEST_MINIMUM), expected_keyid=expected_keyid, authorities=authorities,
+        minimum=minimum, expected_keyid=expected_keyid, authorities=authorities,
     )
 
 
@@ -377,8 +380,9 @@ def verify_response(
     ``"content-digest";req``. A response's body is its content, never its ``Content-Length``, so
     a HEAD or 304 response is bodiless whatever length it announces. A client should pass
     ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
-    :class:`~fiki.errors.Unauthenticated`, checked before anything else, because a server that
-    refuses before it knows the agent cannot sign the refusal (@2f227n4r).
+    :class:`~fiki.errors.Unauthenticated`, checked before anything else in the message, because a
+    server that refuses before it knows the agent cannot sign the refusal (@2f227n4r). A minimum
+    smaller than the profile's is a ValueError, a mistake in the call rather than the message.
     """
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     if status == 401 and not any(name.lower() == "signature" for name in headers):

@@ -68,7 +68,7 @@ class UnknownKey(_Detailed):
 
 
 class UnsupportedSigner(_Detailed):
-    """The keyid's key state has no single key that satisfies its threshold alone (``this.i`` @2f227n4r).
+    """The keyid's key state has no single key that satisfies its threshold alone (@2f227n4r).
 
     fiki never decides this itself: it knows nothing of key state. A resolver raises it, and fiki
     carries it out unchanged, so the refusal keeps its own class rather than being folded into
