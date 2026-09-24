@@ -86,6 +86,16 @@ def test_this_port_satisfies_the_keri_vectors_format_it_is_running(name):
     assert data["cases"]
 
 
+@pytest.mark.parametrize("name", FILES)
+def test_each_file_names_the_published_profile_it_pins(name):
+    """The contract is a document anyone can read, beside these files (@997vxdu7)."""
+    profile = load(name)["profile"]
+    assert profile["version"] == 1
+    assert profile["where"] == "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md"
+    doc = KERI.parents[1] / "docs" / "keri-profile.md"
+    assert doc.read_text(encoding="utf-8").startswith(f"# {profile['title']}\n\nVersion 1, ")
+
+
 @pytest.mark.parametrize("name", ["requests.json", "responses.json", "refusals.json"])
 def test_each_file_states_the_policy_it_assumes(name):
     policy = load(name)["policy"]

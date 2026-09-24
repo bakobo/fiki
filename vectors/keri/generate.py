@@ -3,7 +3,8 @@
 
 Run from the repository root: ``python3 vectors/keri/generate.py``.
 
-The contract is the KERI profile of RFC 9421 HTTP Message Signatures, draft 4 of 2026-09-24,
+The contract is the KERI profile of RFC 9421 HTTP Message Signatures, version 1 of 2026-09-24,
+published beside these files at docs/keri-profile.md (``this.i`` @997vxdu7),
 which keripy, KERIA and signify-ts implement for WebOfTrust/keripy#1669. fiki generates these
 because it shares no code with any of them; the profile's own oracle section asks for exactly
 that. This is a separate script from ``vectors/generate.py`` on purpose: the shared vectors are a
@@ -107,9 +108,9 @@ BODY = '{"name": "alice", "salt": "0ACDEyMzQ1Njc4OWFiY2RlZg"}'
 
 PROFILE = {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
-    "draft": 6,
+    "version": 1,
     "date": "2026-09-24",
-    "where": "bakobo/keripy, .ignored/rfc9421/profile.md (not yet published)",
+    "where": "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md",
     "rules": "Canonical mode only. Refusals are named by the profile's section 9 codes. A "
              "verifier runs its checks in section 9's order and reports the first that fails. "
              "Every refusal case carries exactly one defect, so it has exactly one correct code.",
