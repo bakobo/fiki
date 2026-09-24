@@ -797,9 +797,12 @@ def test_a_signer_will_not_bind_a_request_digest_its_body_contradicts():
         respond(request=odd)
 
 
-def test_a_request_handed_over_without_its_body_is_not_recomputed():
+def test_a_bound_request_digest_with_no_request_body_to_check_is_a_caller_error():
+    """Codex #2 on fiki#4: the verifier cannot check what it was not given, and a verdict that
+    skipped the check would look like one that made it (profile section 5)."""
     bodiless = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers)
-    assert check(respond(), request=bodiless).aid == KEY.aid
+    with pytest.raises(ValueError):
+        check(respond(), request=bodiless)
 
 
 # --- a supplied minimum can only add to the profile's (bakobo/fiki#4) ---

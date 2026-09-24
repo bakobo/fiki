@@ -382,7 +382,10 @@ def verify_response(
     ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
     :class:`~fiki.errors.Unauthenticated`, checked before anything else in the message, because a
     server that refuses before it knows the agent cannot sign the refusal (@2f227n4r). A minimum
-    smaller than the profile's is a ValueError, a mistake in the call rather than the message.
+    smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
+    is a response covering ``"content-digest";req`` verified against a ``request`` whose body is
+    None: that digest is recomputed over the request body, and fiki cannot check a body it was
+    not given.
     """
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     if status == 401 and not any(name.lower() == "signature" for name in headers):
@@ -459,9 +462,15 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
 
     if _covers_body(items):
         _check_digest(found.get(CONTENT_DIGEST), body)
-    # A response binding the request's digest binds a request body only if somebody hashes it,
-    # so a request handed over with its body is checked the same way (bakobo/fiki#4).
-    if request is not None and request.body is not None and _binds_request_digest(items):
+    # A response binding the request's digest binds a request body only if somebody hashes it
+    # (bakobo/fiki#4). A verifier handed no request body cannot, and a verdict that skipped the
+    # check would look like one that made it, so that is the caller's mistake, not a pass.
+    if request is not None and _binds_request_digest(items):
+        if request.body is None:
+            raise ValueError(
+                'The response covers "content-digest";req, so the request body it binds must '
+                "be supplied in Request.body to be checked; it was not."
+            )
         _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
 
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)
