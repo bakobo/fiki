@@ -1,0 +1,5 @@
+# Stop uppercasing @method in the go port, at go/base.go:61 (strings.ToUpper(method)). this.i @22g0xkr8 (2026-09-24) decided that @method is the method exactly as the caller gives it, per RFC 9421 section 2.2.1, and fiki-py already does this (commit 38df6b1). Until this lands, fiki-py and the go port compute different signature bases for a lowercase method while both declare vectors_format 1, and no shared vector catches it because every method in vectors/*.json is uppercase. Fix: return the method unchanged, change the port's own method-case unit test to expect 'post' to stay 'post', and confirm the shared vectors still pass unchanged (they should: python3 vectors/generate.py produces a byte-identical vectors/ tree after the change). Consider adding a lowercase-method case to the shared vectors once all four ports are fixed, which is a vectors_format bump under @4fhrre0m.
+kind: todo
+tags: go
+created: 2026-09-24T11:30Z
+
