@@ -70,6 +70,8 @@ verify_response(status=200, headers=signed, body=reply, request=asked, max_age=3
 
 `minimum` refuses a signature that covers less than the named components even when it is valid, and refuses a body — `Content-Length` above zero, any `Transfer-Encoding`, or one that simply arrived — whose `content-digest` is not covered. The method is signed exactly as given, with no case change, so pass it as it will go on the wire.
 
+`minimum=None`, the default, enforces nothing: a body handed to `verify_request` with no covered `content-digest` is then accepted, and only the verdict's `covered` shows it. Pass a minimum whenever you hand over a body. Signers take the same `minimum` and refuse to cover less. A client checking a response should pass `expected_keyid`, the AID it is talking to; a server that requires `@authority` should pass `authorities`, the set it serves. An unsigned 401 is `Unauthenticated`, and a resolver raises `UnsupportedSigner` for a key state with no single effective signer.
+
 ## Conformance
 
 `tests/test_rfc9421_conformance.py` signs RFC 9421's own Appendix B.2.6 request with the RFC's own published Ed25519 key and asserts the RFC's own signature, byte for byte. `tests/test_vectors.py` runs the shared `vectors/` at the repository root, which every port runs. `tests/test_keri_vectors.py` runs `vectors/keri/`, the KERI profile's set, which only this port runs so far.

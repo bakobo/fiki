@@ -50,11 +50,11 @@ from fiki import (  # noqa: E402
     verifying_key,
 )
 from fiki.base import component  # noqa: E402
-from fiki.errors import FikiError, MalformedKey  # noqa: E402
+from fiki.errors import FikiError, MalformedKey, UnsupportedSigner  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m).
-KERI_VECTORS_FORMAT = 1
+KERI_VECTORS_FORMAT = 2
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -85,15 +85,17 @@ CODES = {
     "Unauthenticated": "unauthenticated",
 }
 
-# Section 9 in its own order. mode-mismatch and unsupported-signer are listed and never produced
-# here: fiki has no legacy mode and its resolver yields one key.
+# Section 9's codes in the order it lists them. unauthenticated is listed where section 9 puts
+# it, and runs before any other check on a response. mode-mismatch cases are carried as data:
+# fiki has no legacy parser, so it cannot tell a legacy header from a malformed one.
 PROFILE_CODES = [
     "missing-signature", "missing-signature-input", "malformed-signature",
     "malformed-signature-input", "malformed-signature-label", "missing-signature-label",
     "malformed-signature-value", "mode-mismatch", "duplicate-component", "unsupported-component",
     "insufficient-coverage", "malformed-key", "unknown-key", "unsupported-signer",
     "unsupported-algorithm", "missing-component", "signature-mismatch", "signature-stale",
-    "signature-expired", "malformed-digest", "digest-mismatch", "uncovered-body",
+    "signature-expired", "unauthenticated", "malformed-digest", "digest-mismatch",
+    "uncovered-body",
 ]
 
 MAX_AGE = 300
@@ -105,12 +107,12 @@ BODY = '{"name": "alice", "salt": "0ACDEyMzQ1Njc4OWFiY2RlZg"}'
 
 PROFILE = {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
-    "draft": 4,
+    "draft": 6,
     "date": "2026-09-24",
     "where": "bakobo/keripy, .ignored/rfc9421/profile.md (not yet published)",
     "rules": "Canonical mode only. Refusals are named by the profile's section 9 codes. A "
-             "verifier runs its checks in section 9's order and reports the first that fails; "
-             "every refusal case has exactly one defect, so it has exactly one correct code.",
+             "verifier runs its checks in section 9's order and reports the first that fails. "
+             "Every refusal case carries exactly one defect, so it has exactly one correct code.",
 }
 
 POLICY = {
@@ -118,28 +120,47 @@ POLICY = {
     "skew": SKEW,
     "request_minimum": [str(component(spec)) for spec in REQUEST_MINIMUM],
     "response_minimum": [str(component(spec)) for spec in RESPONSE_MINIMUM],
-    "body_rule": "Profile section 3. A message has a body when it carries Content-Length above "
-                 "zero or any Transfer-Encoding, or when a non-empty body arrives whatever the "
-                 "headers said; a body obliges a covered content-digest. A response to a request "
-                 "that had a body must also cover \"content-digest\";req.",
+    "body_rule": "Profile section 3. A REQUEST has a body when it carries Content-Length above "
+                 "zero, any Transfer-Encoding, or a Content-Length that is not a plain decimal, "
+                 "or when a non-empty body arrives whatever the headers said. A RESPONSE has a "
+                 "body when it has content; its Content-Length is not evidence, since a HEAD or "
+                 "304 response announces a length it does not send. A body obliges a covered "
+                 "content-digest, and a response to a request that had a body must also cover "
+                 "\"content-digest\";req.",
     "freshness": "Profile section 6: refuse created < now - max_age - skew or created > now + "
                  "skew as signature-stale, then expires < now - skew as signature-expired. Each "
                  "case gives the now it assumes, in seconds since the epoch.",
+    "case_policy": "A case may carry a policy object whose fields extend this one: "
+                   "expected_keyid, the AID a client expects a response from (profile R1); "
+                   "authorities, the @authority values a verifier serves (profile section 3).",
 }
 
 ENCODING = {
     "body": "The content as a UTF-8 string, after any transfer coding is removed; null means no "
-            "body is handed to the verifier.",
+            "body is handed to the verifier, which is how a case tests what the headers alone "
+            "announce.",
     "headers": "Field names as a sender would write them; a verifier matches them "
                "case-insensitively. Each value is one field line.",
     "covered": "Component identifiers in their RFC 8941 serialized form, as they appear in "
                "Signature-Input: \"@method\", \"@path\";req.",
-    "public_key": "The raw 32-byte Ed25519 public key, base64url without padding.",
+    "effective_key": "The raw 32-byte Ed25519 public key, base64url without padding.",
     "signature": "The raw 64-byte Ed25519 signature, standard base64, as inside the Signature "
                  "header's colons.",
     "seed_hex": "The 32-byte Ed25519 seed, hex, so a signer can reproduce every signature; "
                 "Ed25519 is deterministic.",
 }
+
+KEYS_RULE = (
+    "A keyid is a well-formed AID when it is 44 characters, its first character is B, D or E, "
+    "and the other 43 are base64url that decode, behind one leading pad character, to 32 "
+    "bytes. A keyid that is not is malformed-key. A well-formed B keyid yields its key from the "
+    "prefix. Every other well-formed keyid resolves through the key state the verifier holds, "
+    "which this table stands in for: absent from the table is unknown-key, and an entry whose "
+    "effective_key is null is unsupported-signer. key_state is the state an implementation with "
+    "a KERI stack reduces itself (profile R4): the current signing keys as qb64 verfers, and the "
+    "signing threshold in keripy's form. The effective key is the one key that satisfies the "
+    "threshold alone, when exactly one does."
+)
 
 
 def qb64(code: str, raw: bytes) -> str:
@@ -164,40 +185,108 @@ def synthetic_aid(label: str) -> str:
     return qb64("E", hashlib.sha256(f"fiki keri vectors: {label}".encode()).digest())
 
 
-NON_TRANSFERABLE = Key.from_seed(bytes(range(32)))
-CONTROLLER = Key.from_seed(bytes(range(2, 34)))
-AGENT = Key.from_seed(bytes(range(3, 35)))
-INCEPTION = Key.from_seed(bytes(range(4, 36)))
-ROTATED = Key.from_seed(bytes(range(5, 37)))
+def seeded(n: int) -> Key:
+    return Key.from_seed(bytes(range(n, n + 32)))
+
+
+NON_TRANSFERABLE = seeded(0)
+CONTROLLER = seeded(2)
+AGENT = seeded(3)
+INCEPTION = seeded(4)
+ROTATED = seeded(5)
+PASSCODE_NEW = seeded(6)
+PRIOR_NEXT = seeded(7)
+GROUP = [seeded(8), seeded(9), seeded(10)]
 
 B_AID = NON_TRANSFERABLE.aid
 CONTROLLER_AID = synthetic_aid("controller")
 AGENT_AID = synthetic_aid("agent")
 D_AID = qb64("D", raw_key(INCEPTION))
 UNKNOWN_AID = synthetic_aid("a controller this verifier holds no KEL for")
+PASSCODE_AID = synthetic_aid("a Signify controller after a passcode rotation")
+EITHER_AID = synthetic_aid("either of two keys suffices")
+TWO_OF_THREE_AID = synthetic_aid("two of three keys")
 
-SIGNERS = {B_AID: NON_TRANSFERABLE, CONTROLLER_AID: CONTROLLER, AGENT_AID: AGENT, D_AID: ROTATED}
+SIGNERS = {B_AID: NON_TRANSFERABLE, CONTROLLER_AID: CONTROLLER, AGENT_AID: AGENT, D_AID: ROTATED,
+           PASSCODE_AID: PASSCODE_NEW, EITHER_AID: GROUP[0], TWO_OF_THREE_AID: GROUP[0]}
+
+
+def verfer(key: Key) -> str:
+    return qb64("D", raw_key(key))
+
+
+def transferable(keyid, keys, threshold, effective, note, **extra):
+    return {"keyid": keyid, "kind": "transferable",
+            "effective_key": None if effective is None else b64url(raw_key(effective)),
+            "seed_hex": SIGNERS[keyid].seed.hex(),
+            "key_state": {"keys": [verfer(key) for key in keys], "threshold": threshold},
+            **extra, "note": note}
+
 
 KEYS = [
-    {"keyid": B_AID, "kind": "non-transferable", "public_key": b64url(raw_key(NON_TRANSFERABLE)),
-     "seed_hex": NON_TRANSFERABLE.seed.hex(),
+    {"keyid": B_AID, "kind": "non-transferable",
+     "effective_key": b64url(raw_key(NON_TRANSFERABLE)), "seed_hex": NON_TRANSFERABLE.seed.hex(),
      "note": "Ed25519N. The verifier derives the key from the prefix itself and holds no KEL."},
-    {"keyid": CONTROLLER_AID, "kind": "transferable", "public_key": b64url(raw_key(CONTROLLER)),
-     "seed_hex": CONTROLLER.seed.hex(),
-     "note": "A controller's current signing key, as the KEL the verifier holds says. The AID "
-             "is synthetic: a well-formed E code, not the digest of a real inception event."},
-    {"keyid": AGENT_AID, "kind": "transferable", "public_key": b64url(raw_key(AGENT)),
-     "seed_hex": AGENT.seed.hex(),
-     "note": "An agent's current signing key; it signs the responses. Synthetic like the "
-             "controller's."},
-    {"keyid": D_AID, "kind": "transferable", "public_key": b64url(raw_key(ROTATED)),
-     "seed_hex": ROTATED.seed.hex(), "embedded_key": b64url(raw_key(INCEPTION)),
-     "embedded_seed_hex": INCEPTION.seed.hex(),
-     "note": "A basic transferable prefix after one rotation. Decoding the prefix yields "
-             "embedded_key, the INCEPTION key; the current key is public_key and comes only "
-             "from the KEL (profile R1). A verifier that decodes a D keyid as a key accepts a "
-             "rotated-away key."},
+    transferable(CONTROLLER_AID, [CONTROLLER], "1", CONTROLLER,
+                 "A controller with one current signing key. The AID is synthetic: a "
+                 "well-formed E code, not the digest of a real inception event."),
+    transferable(AGENT_AID, [AGENT], "1", AGENT,
+                 "An agent with one current signing key; it signs the responses. Synthetic "
+                 "like the controller's."),
+    transferable(D_AID, [ROTATED], "1", ROTATED,
+                 "A basic transferable prefix after one rotation. Decoding the prefix yields "
+                 "embedded_key, the INCEPTION key; the current key comes only from the KEL "
+                 "(profile R1). A verifier that decodes a D keyid as a key accepts a "
+                 "rotated-away key.",
+                 embedded_key=b64url(raw_key(INCEPTION)),
+                 embedded_seed_hex=INCEPTION.seed.hex()),
+    transferable(PASSCODE_AID, [PASSCODE_NEW, PRIOR_NEXT], ["1", "0"], PASSCODE_NEW,
+                 "A Signify controller after its passcode is rotated: keys [new, prior-next] "
+                 "and threshold ['1','0'], so only the first key satisfies it alone, and that "
+                 "key signs (profile R4)."),
+    transferable(EITHER_AID, GROUP[:2], "1", None,
+                 "Threshold 1 over two keys: either alone suffices, so there is no single "
+                 "effective signer and the signature names no key index (profile R4). The "
+                 "vectors' messages for this keyid are signed by the first key."),
+    transferable(TWO_OF_THREE_AID, GROUP, "2", None,
+                 "A 2-of-3 group: no one key suffices (profile R4). The vectors' messages for "
+                 "this keyid are signed by the first key."),
 ]
+
+
+def well_formed_aid(keyid: str) -> bool:
+    """KEYS_RULE's test, shared by this generator and fiki-py's driver."""
+    if len(keyid) != 44 or keyid[0] not in "BDE":
+        return False
+    try:
+        return len(base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)) == 33
+    except ValueError:
+        return False
+
+
+def resolver(keys: list[dict]):
+    """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode."""
+    table = {entry["keyid"]: entry for entry in keys if entry["kind"] == "transferable"}
+
+    def resolve(keyid: str):
+        if not well_formed_aid(keyid):
+            raise MalformedKey(f'"{keyid}" is not a well-formed AID.', keyid=keyid)
+        if keyid.startswith("B"):
+            return verifying_key(keyid).public_bytes_raw()
+        entry = table.get(keyid)
+        if entry is None:
+            return None
+        if entry["effective_key"] is None:
+            raise UnsupportedSigner(
+                f'The key state of "{keyid}" has no single key that satisfies its threshold.',
+                keyid=keyid,
+            )
+        return base64.urlsafe_b64decode(entry["effective_key"] + "=")
+
+    return resolve
+
+
+resolve = resolver(KEYS)
 
 
 def header(about: str) -> dict:
@@ -211,19 +300,7 @@ def header(about: str) -> dict:
 
 
 def policy_header(about: str) -> dict:
-    return {**header(about), "policy": POLICY, "keys": KEYS}
-
-
-def resolve(keyid: str):
-    """What a KERI verifier's key lookup does, for the keys above: authoritative, never a decode."""
-    for entry in KEYS:
-        if entry["keyid"] == keyid and entry["kind"] == "transferable":
-            return base64.urlsafe_b64decode(entry["public_key"] + "=")
-    if len(keyid) != 44 or keyid[0] not in "BDE":
-        raise MalformedKey(f'"{keyid}" is not a well-formed AID.', keyid=keyid)
-    if keyid.startswith("B"):
-        return verifying_key(keyid).public_bytes_raw()
-    return None
+    return {**header(about), "policy": POLICY, "keys_rule": KEYS_RULE, "keys": KEYS}
 
 
 def nonce(case_id: str) -> str:
@@ -239,15 +316,17 @@ def body_bytes(body: str | None) -> bytes | None:
 
 def signed_request(case_id, *, keyid=CONTROLLER_AID, key=None, method="POST",
                    url=f"{HOST}/identifiers", headers=None, body=BODY, covered=None,
-                   created=AT, expires=None, emit_alg=True, with_nonce=True):
-    """A request signed as a Signify client would sign it, and the base it signed."""
+                   created=AT, expires=None, emit_alg=True, with_nonce=True,
+                   minimum=REQUEST_MINIMUM):
+    """A request signed as a Signify client would sign it: refusing, as the profile's signer
+    does, to cover less than the minimum set unless a case deliberately asks for that."""
     key = key or SIGNERS[keyid]
     sending = dict(headers or {})
     if emit_alg:
         sending.update(sign_request(
             key=key, method=method, url=url, headers=dict(sending), body=body_bytes(body),
             covered=covered, created=created, expires=expires, label=LABEL,
-            nonce=nonce(case_id) if with_nonce else None, keyid=keyid,
+            nonce=nonce(case_id) if with_nonce else None, keyid=keyid, minimum=minimum,
         ))
     else:
         # sign_request always emits alg, so the absent-alg case is assembled from the base.
@@ -269,12 +348,12 @@ def attach(headers: dict, base: bytes, signature: bytes) -> None:
 
 
 def signed_response(case_id, request, *, status=200, body='{"done": true}', headers=None,
-                    covered=None, key=AGENT, keyid=AGENT_AID):
+                    covered=None, key=None, keyid=AGENT_AID, minimum=RESPONSE_MINIMUM):
     sending = dict(headers or {})
     sending.update(sign_response(
-        key=key, status=status, request=as_request(request), headers=dict(sending),
-        body=body_bytes(body), covered=covered, created=AT, label=LABEL, nonce=nonce(case_id),
-        keyid=keyid,
+        key=key or SIGNERS[keyid], status=status, request=as_request(request),
+        headers=dict(sending), body=body_bytes(body), covered=covered, created=AT, label=LABEL,
+        nonce=nonce(case_id), keyid=keyid, minimum=minimum,
     ))
     return {"status": status, "headers": sending, "body": body}
 
@@ -286,21 +365,26 @@ def as_request(message) -> Request:
 
 # --- running fiki as the verifier the vectors describe ---
 
-def verify(request, response=None, *, now):
-    common = dict(max_age=MAX_AGE, skew=SKEW, now=now, resolve=resolve)
+def verify(request, response=None, *, now, policy=None, keys=KEYS):
+    """Verify as a KERI verifier would, under the file's policy extended by the case's."""
+    policy = {**POLICY, **(policy or {})}
+    common = dict(max_age=policy["max_age"], skew=policy["skew"], now=now,
+                  resolve=resolver(keys), expected_keyid=policy.get("expected_keyid"))
     if response is not None:
         return verify_response(
             status=response["status"], headers=response["headers"],
             body=body_bytes(response["body"]), request=as_request(request),
-            minimum=RESPONSE_MINIMUM, **common,
+            minimum=policy["response_minimum"], **common,
         )
+    authorities = policy.get("authorities")
     return verify_request(
         method=request["method"], url=request["url"], headers=request["headers"],
-        body=body_bytes(request["body"]), minimum=REQUEST_MINIMUM, **common,
+        body=body_bytes(request["body"]), minimum=policy["request_minimum"],
+        authorities=None if authorities is None else set(authorities), **common,
     )
 
 
-def expected_base(request, response=None) -> tuple[str, str]:
+def expected_base(request, response=None, *, keys=KEYS) -> tuple[str, str]:
     """The base a signer builds from the parameters its Signature-Input carries, and its signature.
 
     Rebuilt through fiki's signing-side base functions and re-signed, then compared with the
@@ -321,18 +405,20 @@ def expected_base(request, response=None) -> tuple[str, str]:
         base = signature_base(method=request["method"], url=request["url"],
                               headers=request["headers"], **kwargs)
     signature = message["headers"]["Signature"].split("=", 1)[1].strip(":")
-    Ed25519PublicKey.from_public_bytes(resolve(params["keyid"])).verify(
+    Ed25519PublicKey.from_public_bytes(resolver(keys)(params["keyid"])).verify(
         base64.b64decode(signature), base
     )
     return base.decode("utf-8"), signature
 
 
-def accept(case_id, request, response=None, *, now=AT + 30, note):
-    verdict = verify(request, response, now=now)
+def accept(case_id, request, response=None, *, now=AT + 30, policy=None, note):
+    verdict = verify(request, response, now=now, policy=policy)
     base, signature = expected_base(request, response)
     case = {"id": case_id, "note": note, "request": request}
     if response is not None:
         case["response"] = response
+    if policy:
+        case["policy"] = policy
     case["now"] = now
     case["expected"] = {
         "keyid": verdict.keyid,
@@ -343,21 +429,28 @@ def accept(case_id, request, response=None, *, now=AT + 30, note):
     return case
 
 
-def refuse(case_id, error, request, response=None, *, now=AT + 30, note):
-    try:
-        verify(request, response, now=now)
-    except FikiError as ex:
-        got = CODES[type(ex).__name__]
-    else:
-        got = "(accepted)"
-    if got != error:
-        raise SystemExit(f"{case_id}: the case names {error} and fiki reports {got}")
+def refuse(case_id, error, request, response=None, *, now=AT + 30, policy=None, note,
+           verified_by_fiki=True, why=None):
+    if verified_by_fiki:
+        try:
+            verify(request, response, now=now, policy=policy)
+        except FikiError as ex:
+            got = CODES[type(ex).__name__]
+        else:
+            got = "(accepted)"
+        if got != error:
+            raise SystemExit(f"{case_id}: the case names {error} and fiki reports {got}")
     case = {"id": case_id, "kind": "response" if response is not None else "request",
             "note": note, "request": request}
     if response is not None:
         case["response"] = response
+    if policy:
+        case["policy"] = policy
     case["now"] = now
     case["error"] = error
+    if not verified_by_fiki:
+        case["verified_by_fiki"] = False
+        case["why"] = why
     return case
 
 
@@ -479,8 +572,22 @@ def requests():
         accept("expires-boundary-inside", signed_request(
             "expires-boundary-inside", expires=AT + 100), now=AT + 100 + SKEW,
             note="expires = now - skew exactly."),
+        accept("passcode-rotated-controller", signed_request(
+            "passcode-rotated-controller", keyid=PASSCODE_AID),
+            note="Profile R4: keys [new, prior-next] with threshold ['1','0'] has one effective "
+                 "signer, the first key, and it signed."),
+        accept("authority-in-the-served-set", signed_request(
+            "authority-in-the-served-set", url="/identifiers",
+            headers={"Host": "keria.example.com"}),
+            policy={"authorities": ["keria.example.com"]},
+            note="A covered @authority the verifier serves, rebuilt from Host."),
     ]
     return {**policy_header("Signed requests a canonical verifier must ACCEPT, with the base."),
+            "verify_only": ["digest-with-an-unknown-algorithm-member",
+                            "digest-with-two-recognized-members"],
+            "verify_only_why": "These cases carry a Content-Digest with a member a sha-256-only "
+                               "signer does not emit, so such a signer cannot reproduce their "
+                               "headers byte for byte. Verify them; do not expect to sign them.",
             "cases": cases}
 
 
@@ -488,15 +595,24 @@ def responses():
     post = signed_request("response-to-post:request", url=f"{HOST}/identifiers/alice/events")
     get = signed_request("response-to-get:request", method="GET",
                          url=f"{HOST}/identifiers/alice?include=state", body=None)
+    head = signed_request("head-response:request", method="HEAD",
+                          url=f"{HOST}/identifiers/alice", body=None)
+    agent = {"expected_keyid": AGENT_AID}
     cases = [
         accept("response-to-post", post, signed_response("response-to-post", post),
+               policy=agent,
                note="A response binds @status, its own body, and the request's method, path, "
                     "query and content-digest, each marked req."),
-        accept("response-to-get", get, signed_response("response-to-get", get),
+        accept("response-to-get", get, signed_response("response-to-get", get), policy=agent,
                note="The request had no body, so no \"content-digest\";req."),
         accept("response-without-a-body", post, signed_response(
-            "response-without-a-body", post, status=204, body=None),
+            "response-without-a-body", post, status=204, body=None), policy=agent,
             note="A bodiless response covers no content-digest of its own."),
+        accept("head-response-with-a-content-length", head, signed_response(
+            "head-response-with-a-content-length", head, body=None,
+            headers={"Content-Length": "898"}), policy=agent,
+            note="A response's body is its content: a HEAD response announces the length of a "
+                 "representation it does not send, and needs no content-digest."),
     ]
     return {**policy_header("Signed responses a canonical client must ACCEPT, each with the "
                             "signed request it answers."), "cases": cases}
@@ -533,10 +649,12 @@ def refusals():
     add("absent-keyid", "malformed-signature-input",
         tamper(post, "Signature-Input", params_end, ""),
         note="keyid is REQUIRED in the profile.")
-    add("two-labels", "malformed-signature-label",
-        tamper(post, "Signature-Input", "",
-               "other=" + post["headers"]["Signature-Input"].split("=", 1)[1] + ", "),
-        note="Canonical mode carries exactly one signature.")
+    add("two-labels", "malformed-signature-label", tamper(tamper(
+        post, "Signature-Input", "",
+        "other=" + post["headers"]["Signature-Input"].split("=", 1)[1] + ", "),
+        "Signature", "", "other=" + post["headers"]["Signature"].split("=", 1)[1] + ", "),
+        note="Canonical mode carries exactly one signature; both headers carry two, under the "
+             "same two labels.")
     add("labels-differ", "missing-signature-label",
         tamper(post, "Signature", f"{LABEL}=", "other="),
         note="Signature and Signature-Input name different labels.")
@@ -558,16 +676,21 @@ def refusals():
         tamper(post, "Signature-Input", '"@path"', '"@path";req'),
         note="req is valid only in a response.")
     add("query-not-covered", "insufficient-coverage", signed_request(
-        "query-not-covered", covered=["@method", "@path", "content-digest"]),
+        "query-not-covered", covered=["@method", "@path", "content-digest"], minimum=None),
         note="Validly signed over too little: @query is in the minimum set.")
-    add("content-length-body-without-digest", "insufficient-coverage", {**signed_request(
-        "content-length-body-without-digest", body=None, headers={"Content-Length": str(len(BODY.encode()))}),
-        "body": BODY},
-        note="Content-Length above zero means a body, and the body's digest is not covered.")
-    add("chunked-body-without-digest", "insufficient-coverage", {**signed_request(
-        "chunked-body-without-digest", body=None, headers={"Transfer-Encoding": "chunked"}),
-        "body": BODY},
-        note="Any Transfer-Encoding means a body.")
+    add("content-length-body-without-digest", "insufficient-coverage", signed_request(
+        "content-length-body-without-digest", body=None, minimum=None,
+        headers={"Content-Length": str(len(BODY.encode()))}),
+        note="Content-Length above zero announces a body whose digest is not covered. No body "
+             "is handed over: this is the header-time test of section 3.")
+    add("chunked-body-without-digest", "insufficient-coverage", signed_request(
+        "chunked-body-without-digest", body=None, minimum=None,
+        headers={"Transfer-Encoding": "chunked"}),
+        note="Any Transfer-Encoding announces a body. No body is handed over.")
+    add("negative-content-length", "insufficient-coverage", signed_request(
+        "negative-content-length", body=None, minimum=None, headers={"Content-Length": "-1"}),
+        note="A Content-Length that is not a plain decimal is not evidence of no body; fail "
+             "closed.")
     add("body-arrived-without-digest", "insufficient-coverage", {**signed_request(
         "body-arrived-without-digest", body=None), "body": BODY},
         note="No header announced a body, and one arrived: the read-time rule of section 3.")
@@ -579,6 +702,12 @@ def refusals():
     add("unknown-transferable-keyid", "unknown-key", signed_request(
         "unknown-transferable-keyid", keyid=UNKNOWN_AID, key=CONTROLLER),
         note="A well-formed E keyid the verifier holds no KEL for; never a raw key.")
+    add("either-of-two-keys", "unsupported-signer", signed_request(
+        "either-of-two-keys", keyid=EITHER_AID),
+        note="Profile R4: threshold 1 over two keys has no single effective signer.")
+    add("two-of-three-keys", "unsupported-signer", signed_request(
+        "two-of-three-keys", keyid=TWO_OF_THREE_AID),
+        note="Profile R4: a 2-of-3 group has no single effective signer.")
     add("unsupported-algorithm", "unsupported-algorithm",
         tamper(post, "Signature-Input", 'alg="ed25519"', 'alg="rsa-pss-sha512"'),
         note="alg present and not ed25519.")
@@ -598,6 +727,19 @@ def refusals():
         "path-reencoded-as-hio-does", method="GET", url=f"{HOST}/identifiers/a:b", body=None),
         "url": f"{HOST}/identifiers/a%3Ab"},
         note="Profile O1 as a refusal: a verifier that substitutes a re-encoded path fails.")
+    add("authority-outside-the-served-set", "signature-mismatch", signed_request(
+        "authority-outside-the-served-set", url="/identifiers",
+        headers={"Host": "other.example.com"}),
+        policy={"authorities": ["keria.example.com"]},
+        note="Signed for other.example.com and delivered here with its Host intact, so the "
+             "rebuilt base verifies; the covered @authority is not one this verifier serves "
+             "(profile section 3).")
+    add("base-that-cannot-be-built", "signature-mismatch", {**(lambda m: {**m, "headers": {
+        **m["headers"], "X-Note": "caf\u00e9"}})(signed_request(
+            "base-that-cannot-be-built", headers={"X-Note": "cafe"},
+            covered=["@method", "@path", "@query", "x-note", "content-digest"]))},
+        note="A covered field value with a non-ASCII character has no one serialization both "
+             "sides agree on, so the base cannot be built (profile section 9).")
     add("d-keyid-signed-by-its-inception-key", "signature-mismatch", signed_request(
         "d-keyid-signed-by-its-inception-key", keyid=D_AID, key=INCEPTION),
         note="Signed by the key the D prefix embeds, which has been rotated away. A verifier "
@@ -627,36 +769,79 @@ def refusals():
     # Responses.
     asked = signed_request("refusal:asked", url=f"{HOST}/identifiers/alice/events")
     answer = signed_response("refusal:answer", asked)
-    add("response-status-altered", "signature-mismatch", asked, {**answer, "status": 201},
+    agent = {"expected_keyid": AGENT_AID}
+
+    def respond(*args, **kwargs):
+        add(*args, policy=agent, **kwargs)
+
+    respond("response-status-altered", "signature-mismatch", asked, {**answer, "status": 201},
         note="The status was changed in transit.")
-    add("response-body-swapped", "digest-mismatch", asked, {**answer, "body": '{"done": false}'},
+    respond("response-body-swapped", "digest-mismatch", asked, {**answer, "body": '{"done": false}'},
         note="The response body was replaced.")
-    add("response-to-a-different-path", "signature-mismatch",
+    respond("response-to-a-different-path", "signature-mismatch",
         {**asked, "url": f"{HOST}/identifiers/bob/events"}, answer,
         note="A response recorded for one request, replayed against another path.")
-    add("response-missing-a-req-component", "insufficient-coverage", asked, signed_response(
+    respond("response-missing-a-req-component", "insufficient-coverage", asked, signed_response(
         "response-missing-a-req-component", asked,
         covered=["@status", req("@method"), req("@query"), "content-digest",
-                 req("content-digest")]),
+                 req("content-digest")], minimum=None),
         note="\"@path\";req is in the response minimum set.")
-    add("response-missing-the-requests-digest", "insufficient-coverage", asked,
+    respond("response-missing-the-requests-digest", "insufficient-coverage", asked,
         signed_response("response-missing-the-requests-digest", asked,
                         covered=["@status", req("@method"), req("@path"), req("@query"),
-                                 "content-digest"]),
+                                 "content-digest"], minimum=None),
         note="The request had a body, so the response must cover \"content-digest\";req.")
-    add("response-body-without-digest", "insufficient-coverage", asked, {**signed_response(
-        "response-body-without-digest", asked, body=None, headers={"Content-Length": "14"}),
-        "body": '{"done": true}'},
-        note="A response body whose digest is not covered.")
-    add("response-duplicate-ignoring-parameter-order", "duplicate-component", asked,
-        tamper(answer, "Signature-Input", '"content-digest";req',
-               '"content-digest";req;sf "content-digest";sf;req'),
-        note="Duplicate detection ignores parameter order, and it precedes unsupported-component "
-             "(sf) in section 9.")
-    add("unsigned-response", "missing-signature", asked,
-        without(answer, "Signature", "Signature-Input"),
-        note="Section 8: a client that sent a canonical request refuses an unsigned response "
-             "(an unsigned 401 is the one exception, and is not a verification).")
+    respond("response-body-without-digest", "insufficient-coverage", asked, {**signed_response(
+        "response-body-without-digest", asked, body=None), "body": '{"done": true}'},
+        note="A response body, arriving as content, whose digest is not covered.")
+    respond("response-duplicate-req-component", "duplicate-component", asked,
+            tamper(answer, "Signature-Input", '"@path";req', '"@path";req "@path";req'),
+            note="The same req component twice.")
+    respond("response-unsupported-parameter", "unsupported-component", asked,
+            tamper(answer, "Signature-Input", '"content-digest";req',
+                   '"content-digest";req;sf'),
+            note="req is the only supported component parameter; sf beside it is refused.")
+    add("response-from-an-unexpected-aid", "unknown-key", asked, signed_response(
+        "response-from-an-unexpected-aid", asked, keyid=CONTROLLER_AID), policy=agent,
+        note="Validly signed by a key the client knows, but not by the AID it is talking to "
+             "(profile R1, section 9).")
+    respond("unsigned-401", "unauthenticated", asked,
+            {"status": 401, "headers": {"Content-Type": "application/json"},
+             "body": '{"title": "401 Unauthorized"}'},
+            note="Section 8: KERIA cannot sign a refusal issued before it resolves the agent. "
+                 "Reported as an authentication failure whose body is not trusted; checked "
+                 "before anything else.")
+    respond("unsigned-200", "missing-signature", asked,
+            {"status": 200, "headers": {"Content-Type": "application/json"},
+             "body": '{"done": true}'},
+            note="Every unsigned response other than a 401 is missing-signature.")
+
+    # Mode (section 8). Carried as data: fiki has no legacy parser, so it cannot tell a legacy
+    # header from a malformed one, and it never sends a legacy request.
+    why = ("fiki does not implement legacy mode (this.i @07wstqk7), so it cannot detect a "
+           "legacy header or know that a request was legacy. The legacy half is legacy.json's "
+           "material verbatim, apart from what the note says.")
+    boot = signed_request("mode:canonical-boot", url=f"{HOST}/boot")
+    legacy_response = next(entry for entry in LEGACY if entry["id"] == "keria-response-from-agent")
+    add("legacy-response-to-a-canonical-request", "mode-mismatch", boot,
+        {"status": legacy_response["status"], "headers": dict(legacy_response["headers"]),
+         "body": None}, policy={"expected_keyid": legacy_response["keyid"]},
+        verified_by_fiki=False, why=why,
+        note="A canonical request to /boot answered in legacy mode: legacy.json's "
+             "keria-response-from-agent. The legacy response covers neither status nor body, "
+             "so a client that sent a canonical request refuses it before any canonical check.")
+    legacy_request = next(entry for entry in LEGACY if entry["id"] == "keria-request-to-boot")
+    legacy_sent = {"method": legacy_request["method"], "url": f"{HOST}{legacy_request['path']}",
+                   "headers": {name: value for name, value in legacy_request["headers"].items()
+                               if name != "Content-Length"},
+                   "body": None}
+    add("canonical-response-to-a-legacy-request", "mode-mismatch", legacy_sent,
+        signed_response("mode:canonical-answer", legacy_sent), policy=agent,
+        verified_by_fiki=False, why=why,
+        note="legacy.json's keria-request-to-boot, without its Content-Length (which the legacy "
+             "signature does not cover, so the request still verifies in legacy mode), "
+             "answered by a canonical response. A client answers in the mode it asked in, and "
+             "refuses the other (section 8).")
 
     # The signer-side refusal.
     cases.append({
@@ -671,14 +856,29 @@ def refusals():
         "seed_hex": CONTROLLER.seed.hex(),
         "error": "uncovered-body",
     })
-    try:
-        sign_request(key=CONTROLLER, method="POST", url=f"{HOST}/identifiers", body=BODY.encode(),
-                     covered=cases[-1]["covered"], keyid=CONTROLLER_AID)
-    except FikiError as ex:
-        if CODES[type(ex).__name__] != "uncovered-body":
-            raise SystemExit(f"sign-body-without-digest: fiki reports {type(ex).__name__}")
-    else:
-        raise SystemExit("sign-body-without-digest: fiki signed it")
+    cases.append({
+        "id": "sign-below-the-minimum",
+        "kind": "sign-request",
+        "note": "A signer asked to cover less than the request minimum set refuses (profile "
+                "section 3, draft 6).",
+        "request": {"method": "GET", "url": f"{HOST}/identifiers?type=rot", "headers": {},
+                    "body": None},
+        "covered": ['"@method"', '"@path"'],
+        "keyid": CONTROLLER_AID,
+        "seed_hex": CONTROLLER.seed.hex(),
+        "error": "insufficient-coverage",
+    })
+    for case in cases[-2:]:
+        request = case["request"]
+        try:
+            sign_request(key=CONTROLLER, method=request["method"], url=request["url"],
+                         headers=request["headers"], body=body_bytes(request["body"]),
+                         covered=case["covered"], keyid=CONTROLLER_AID, minimum=REQUEST_MINIMUM)
+        except FikiError as ex:
+            if CODES[type(ex).__name__] != case["error"]:
+                raise SystemExit(f"{case['id']}: fiki reports {type(ex).__name__}")
+        else:
+            raise SystemExit(f"{case['id']}: fiki signed it")
 
     return {**policy_header("Messages a canonical verifier must REFUSE, and the section 9 code."),
             "codes": PROFILE_CODES, "cases": cases}

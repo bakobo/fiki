@@ -8,14 +8,16 @@ built here from the keys table each file carries.
 
 The resolver is authoritative (@6g9zjsv9). It derives a non-transferable ``B…`` keyid from the
 prefix, looks every transferable keyid up in the table, answers None for a well-formed AID it has
-no key state for, and refuses a keyid that is not an AID at all. It never decodes a ``D…`` keyid
-as a key, which is exactly what one of the vectors is there to catch.
+no key state for, raises UnsupportedSigner for a key state with no single effective signer, and
+refuses a keyid that is not an AID at all. It never decodes a ``D…`` keyid as a key, which is
+exactly what one of the vectors is there to catch. The resolver, the well-formedness rule and the
+policy-applying verifier are the generator's own, imported rather than copied, so the rule the
+files state is the one this driver runs (@4tkkp50h).
 """
 
 from __future__ import annotations
 
 import base64
-import binascii
 import importlib.util
 import json
 from pathlib import Path
@@ -23,25 +25,16 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from fiki import (
-    Key,
-    Request,
-    response_signature_base,
-    sign_request,
-    signature_base,
-    verify_request,
-    verify_response,
-    verifying_key,
-)
+from fiki import Key, sign_request, signature_base, verifying_key
 from fiki.base import component
-from fiki.errors import FikiError, MalformedKey
+from fiki.errors import FikiError
 
 KERI = Path(__file__).resolve().parents[2] / "vectors" / "keri"
 FILES = ("rfc9421.json", "requests.json", "responses.json", "refusals.json", "legacy.json")
 
 # The format this port satisfies. A separate number from fiki.VECTORS_FORMAT, because the two sets
 # answer to different authorities and move independently (@8vwrexxc).
-KERI_VECTORS_FORMAT = 1
+KERI_VECTORS_FORMAT = 2
 
 
 def _generator():
@@ -51,7 +44,8 @@ def _generator():
     return module
 
 
-CODES = _generator().CODES
+GENERATOR = _generator()
+CODES = GENERATOR.CODES
 
 
 def load(name: str) -> dict:
@@ -66,52 +60,15 @@ def b64url(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def resolver(keys: list[dict]):
-    table = {entry["keyid"]: b64url(entry["public_key"]) for entry in keys
-             if entry["kind"] == "transferable"}
-
-    def resolve(keyid: str):
-        if keyid in table:
-            return table[keyid]
-        try:
-            well_formed = len(keyid) == 44 and keyid[0] in "BDE" and len(
-                base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)) == 33
-        except binascii.Error:
-            well_formed = False
-        if not well_formed:
-            raise MalformedKey(f'"{keyid}" is not a well-formed AID.', keyid=keyid)
-        if keyid.startswith("B"):
-            return verifying_key(keyid).public_bytes_raw()
-        return None
-
-    return resolve
-
-
 def body_of(message: dict) -> bytes | None:
     return None if message["body"] is None else message["body"].encode("utf-8")
 
 
-def as_request(message: dict) -> Request:
-    return Request(method=message["method"], url=message["url"], headers=message["headers"],
-                   body=body_of(message))
-
-
 def run(case: dict, data: dict):
-    """Verify a case's message under the file's stated policy, as a KERI verifier would."""
-    policy = data["policy"]
-    common = dict(max_age=policy["max_age"], skew=policy["skew"], now=case["now"],
-                  resolve=resolver(data["keys"]))
-    if "response" in case:
-        response = case["response"]
-        return verify_response(
-            status=response["status"], headers=response["headers"], body=body_of(response),
-            request=as_request(case["request"]), minimum=policy["response_minimum"], **common,
-        )
-    request = case["request"]
-    return verify_request(
-        method=request["method"], url=request["url"], headers=request["headers"],
-        body=body_of(request), minimum=policy["request_minimum"], **common,
-    )
+    """Verify a case's message under the file's policy extended by the case's, as a KERI verifier."""
+    policy = {**data["policy"], **case.get("policy", {})}
+    return GENERATOR.verify(case["request"], case.get("response"), now=case["now"],
+                            policy=policy, keys=data["keys"])
 
 
 def serialized(covered) -> list[str]:
@@ -141,19 +98,35 @@ def test_each_file_states_the_policy_it_assumes(name):
 
 
 @pytest.mark.parametrize("name", ["requests.json", "responses.json", "refusals.json"])
-def test_the_keys_table_agrees_with_its_seeds(name):
+def test_the_keys_table_agrees_with_its_seeds_and_key_states(name):
     """A table entry that disagrees with its own seed would make every case using it a lie."""
-    for entry in load(name)["keys"]:
-        key = Key.from_seed(bytes.fromhex(entry["seed_hex"]))
-        assert b64url(entry["public_key"]) == verifying_key(key.aid).public_bytes_raw()
+    data = load(name)
+    assert data["keys_rule"]
+    for entry in data["keys"]:
+        assert GENERATOR.well_formed_aid(entry["keyid"])
+        signer = verifying_key(Key.from_seed(bytes.fromhex(entry["seed_hex"])).aid)
         if entry["kind"] == "non-transferable":
-            assert entry["keyid"] == key.aid
+            assert entry["keyid"] == Key.from_seed(bytes.fromhex(entry["seed_hex"])).aid
+            continue
+        state = [base64.urlsafe_b64decode("A" + key[1:])[1:] for key in entry["key_state"]["keys"]]
+        assert all(key.startswith("D") and len(key) == 44 for key in entry["key_state"]["keys"])
+        if entry["effective_key"] is None:
+            assert signer.public_bytes_raw() == state[0]
+        else:
+            assert b64url(entry["effective_key"]) == signer.public_bytes_raw()
+            assert signer.public_bytes_raw() in state
 
 
-def test_every_refusal_names_a_profile_code_and_every_code_fiki_can_produce_is_exercised():
+def test_the_well_formedness_rule_refuses_near_misses():
+    assert not GENERATOR.well_formed_aid("E" + "!" * 43)
+    assert not GENERATOR.well_formed_aid("A" + "A" * 43)
+    assert not GENERATOR.well_formed_aid("not-an-aid")
+
+
+def test_every_refusal_names_a_profile_code_and_every_profile_code_is_exercised():
     data = load("refusals.json")
     named = {case["error"] for case in data["cases"]}
-    assert named <= set(data["codes"])
+    assert named == set(data["codes"])
     assert set(CODES.values()) <= named
 
 
@@ -203,51 +176,32 @@ def test_request_accept_vectors(case):
     expected = case["expected"]
     assert verdict.keyid == expected["keyid"]
     assert serialized(verdict.covered) == expected["covered"]
-    assert _base_of(case, data["keys"]) == expected["base"]
+    assert GENERATOR.expected_base(case["request"], keys=data["keys"]) == (
+        expected["base"], expected["signature"]
+    )
 
 
 @pytest.mark.parametrize("case", cases("responses.json"))
 def test_response_accept_vectors(case):
     data = load("responses.json")
-    verify_request(
-        method=case["request"]["method"], url=case["request"]["url"],
-        headers=case["request"]["headers"], body=body_of(case["request"]),
-        max_age=data["policy"]["max_age"], skew=data["policy"]["skew"], now=case["now"],
-        resolve=resolver(data["keys"]), minimum=data["policy"]["request_minimum"],
-    )
+    GENERATOR.verify(case["request"], now=case["now"], policy=data["policy"], keys=data["keys"])
     verdict = run(case, data)
     expected = case["expected"]
     assert verdict.keyid == expected["keyid"]
     assert serialized(verdict.covered) == expected["covered"]
-    assert _base_of(case, data["keys"]) == expected["base"]
+    assert GENERATOR.expected_base(case["request"], case["response"], keys=data["keys"]) == (
+        expected["base"], expected["signature"]
+    )
 
 
-def _base_of(case: dict, keys: list[dict]) -> str:
-    """Rebuild the expected base from the message and its Signature-Input, then check the bytes.
-
-    Built through fiki's own signing-side base functions from the parameters the header carries,
-    so an accept vector pins the base a SIGNER produces as well as the one a verifier rebuilds.
-    """
-    message = case.get("response", case["request"])
-    import http_sfv
-
-    parsed = http_sfv.Dictionary()
-    parsed.parse(message["headers"]["Signature-Input"].encode("utf-8"))
-    (inner,) = parsed.values()
-    params = dict(inner.params)
-    kwargs = dict(covered=list(inner), created=params["created"], keyid=params["keyid"],
-                  alg=params.get("alg"), expires=params.get("expires"),
-                  nonce=params.get("nonce"), tag=params.get("tag"))
-    if "response" in case:
-        base = response_signature_base(status=message["status"], headers=message["headers"],
-                                       request=as_request(case["request"]), **kwargs)
-    else:
-        base = signature_base(method=message["method"], url=message["url"],
-                              headers=message["headers"], **kwargs)
-    signature = message["headers"]["Signature"].split("=", 1)[1].strip(":")
-    public = resolver(keys)(params["keyid"])
-    Ed25519PublicKey.from_public_bytes(public).verify(base64.b64decode(signature), base)
-    return base.decode("utf-8")
+def test_the_sha_512_cases_are_marked_verify_only():
+    data = load("requests.json")
+    ids = {case["id"] for case in data["cases"]}
+    assert set(data["verify_only"]) <= ids
+    for case in data["cases"]:
+        digest = case["request"]["headers"].get("Content-Digest", "")
+        if digest and not digest.startswith("sha-256=") or "," in digest:
+            assert case["id"] in data["verify_only"]
 
 
 # --- the refusals ---
@@ -256,6 +210,11 @@ def _base_of(case: dict, keys: list[dict]) -> str:
 def test_refusal_vectors(case):
     """Each case has one defect and so one correct code under the profile's section 9 order."""
     data = load("refusals.json")
+    if case.get("verified_by_fiki") is False:
+        # Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
+        assert case["error"] == "mode-mismatch"
+        assert case["why"]
+        return
     with pytest.raises(FikiError) as caught:
         if case["kind"] == "sign-request":
             request = case["request"]
@@ -263,6 +222,7 @@ def test_refusal_vectors(case):
                 key=Key.from_seed(bytes.fromhex(case["seed_hex"])), method=request["method"],
                 url=request["url"], headers=request["headers"], body=body_of(request),
                 covered=case["covered"], keyid=case["keyid"],
+                minimum=data["policy"]["request_minimum"],
             )
         else:
             run(case, data)
