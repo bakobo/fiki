@@ -538,19 +538,29 @@ def test_a_response_to_a_request_with_a_body_must_cover_the_requests_digest():
     assert caught.value.component == '"content-digest";req'
 
 
-def test_a_request_body_is_signalled_by_its_headers_too():
+def test_a_response_judges_its_requests_body_by_content_not_headers():
+    """Profile section 3 (version 1): both sides hold the whole request by the time a response
+    is signed or verified, so the request's headers do not count (@7p9s3g9k)."""
     chunked = Request(method="POST", url=URL, headers={"Transfer-Encoding": "chunked",
                                                         "Content-Digest": content_digest(BODY)})
     headers = respond(request=chunked, covered=list(RESPONSE_MINIMUM) + ["content-digest"])
-    with pytest.raises(InsufficientCoverage):
-        check(headers, request=chunked, minimum=RESPONSE_MINIMUM)
+    assert check(headers, request=chunked, minimum=RESPONSE_MINIMUM).aid == KEY.aid
 
 
 # --- the first review's findings and the profile's draft 6 (@2f227n4r) ---
 
-def test_a_default_response_binds_the_digest_of_a_request_whose_body_only_its_headers_announce():
+def test_a_default_response_does_not_bind_a_request_body_only_its_headers_announce():
+    """By content alone (@7p9s3g9k): a Request handed over without its body binds no digest."""
     asked = Request(method="POST", url=URL, headers={"Content-Length": "18",
                                                      "Content-Digest": content_digest(BODY)})
+    headers = respond(request=asked)
+    verdict = check(headers, request=asked, minimum=RESPONSE_MINIMUM)
+    assert req("content-digest") not in verdict.covered
+
+
+def test_a_default_response_binds_the_digest_of_a_request_with_content():
+    asked = Request(method="POST", url=URL, headers={"Content-Digest": content_digest(BODY)},
+                    body=BODY)
     headers = respond(request=asked)
     assert req("content-digest") in check(headers, request=asked, minimum=RESPONSE_MINIMUM).covered
 

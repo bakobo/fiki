@@ -126,8 +126,10 @@ POLICY = {
                  "or when a non-empty body arrives whatever the headers said. A RESPONSE has a "
                  "body when it has content; its Content-Length is not evidence, since a HEAD or "
                  "304 response announces a length it does not send. A body obliges a covered "
-                 "content-digest, and a response to a request that had a body must also cover "
-                 "\"content-digest\";req.",
+                 "content-digest. A response to a request whose content was non-empty must also "
+                 "cover \"content-digest\";req; the request's headers do not count there, "
+                 "since both sides hold the whole request by the time a response is signed or "
+                 "verified.",
     "freshness": "Profile section 6: refuse created < now - max_age - skew or created > now + "
                  "skew as signature-stale, then expires < now - skew as signature-expired. Each "
                  "case gives the now it assumes, in seconds since the epoch.",

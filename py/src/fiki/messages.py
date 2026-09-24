@@ -236,14 +236,15 @@ def sign_response(
     By default the signature covers ``@status``, a ``Content-Digest`` of any body, and — when the
     ``request`` it answers is given — that request's method, path and query, plus its
     ``content-digest`` when it carried one, each marked ``req``. That binds the response to what
-    was asked. The body rule is the same as :func:`sign_request`'s. A request that had a body by
-    the verifier's own test is bound by its ``Content-Digest``, and one with no digest to bind is
+    was asked. The body rule is the same as :func:`sign_request`'s. A request whose content was
+    non-empty is bound by its ``Content-Digest`` (its headers do not count, @7p9s3g9k), and one with no digest to bind is
     refused as :class:`~fiki.errors.UncoveredBody` rather than signed into a response every
     profile client refuses (@2f227n4r).
     """
     sending = dict(headers or {})
     chosen = covered is not None
-    had_body = request is not None and _request_has_body(_lowered(request.headers), request.body)
+    # By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+    had_body = request is not None and bool(request.body)
     if covered is None:
         covered = ["@status"]
         if request is not None:
@@ -344,7 +345,7 @@ def verify_response(
 
     The arguments are :func:`verify_request`'s, with ``status`` in place of the method and URL and
     the ``request`` the response answers, which its ``req`` components are read from. With
-    :data:`RESPONSE_MINIMUM`, a request that had a body also obliges the response to cover
+    :data:`RESPONSE_MINIMUM`, a request with non-empty content obliges the response to cover
     ``"content-digest";req``. A response's body is its content, never its ``Content-Length``, so
     a HEAD or 304 response is bodiless whatever length it announces. A client should pass
     ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
@@ -378,9 +379,8 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
         _check_minimum(
             items, minimum,
             has_body=bool(body) if response else _request_has_body(found, body),
-            request_had_body=request is not None and _request_has_body(
-                _lowered(request.headers), request.body
-            ),
+            # By the request's content alone, as sign_response decides it (@7p9s3g9k).
+            request_had_body=request is not None and bool(request.body),
         )
 
     keyid = inner.params.get("keyid")
