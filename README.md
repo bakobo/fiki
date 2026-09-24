@@ -57,6 +57,7 @@ fiki is polyglot on purpose. Each language implementation is a top-level directo
 
 ```
 docs/user-guide.md    how to use fiki, in every language
+docs/keri-profile.md  the KERI profile of RFC 9421, which vectors/keri/ pins
 vectors/              conformance vectors, shared and normative
   generate.py             regenerates them; run from the repo root
   aid-lens.json           a seed to its AID and its keyid
@@ -96,7 +97,7 @@ Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakob
 
 No implementation is the reference. The vectors are, and all five answer to them equally.
 
-`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the KERI profile of RFC 9421 that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it; the other four do not yet.
+`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it; the other four do not yet.
 
 ## Contributing a port
 
