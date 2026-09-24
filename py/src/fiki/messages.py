@@ -144,6 +144,10 @@ def _floored(minimum: Sequence[str] | None, floor: Sequence[str]) -> Sequence[st
     return minimum
 
 
+def _binds_request_digest(items) -> bool:
+    return any(identity(item) == identity(component(req(CONTENT_DIGEST))) for item in items)
+
+
 def _covers_body(items) -> bool:
     return any(identity(item) == (CONTENT_DIGEST, ()) for item in items)
 
@@ -280,6 +284,10 @@ def sign_response(
         items.append(component(req(CONTENT_DIGEST)))
     if minimum is not None:
         _check_minimum(items, minimum, has_body=bool(body), request_had_body=had_body)
+    # The check verify_response will make, made first: a signer does not vouch for a request
+    # digest that the request body it was handed contradicts (bakobo/fiki#4).
+    if had_body and _binds_request_digest(items):
+        _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
 
     base = response_signature_base(
         status=status,
@@ -449,9 +457,7 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
         _check_digest(found.get(CONTENT_DIGEST), body)
     # A response binding the request's digest binds a request body only if somebody hashes it,
     # so a request handed over with its body is checked the same way (bakobo/fiki#4).
-    if request is not None and request.body is not None and any(
-        identity(item) == identity(component(req(CONTENT_DIGEST))) for item in items
-    ):
+    if request is not None and request.body is not None and _binds_request_digest(items):
         _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
 
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)

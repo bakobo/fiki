@@ -133,12 +133,11 @@ def test_the_well_formedness_rule_refuses_near_misses():
     assert not GENERATOR.well_formed_aid("not-an-aid")
 
 
-@pytest.mark.parametrize("name", ["requests.json"])
-def test_the_well_formedness_rule_refuses_a_padding_bit_alias(name):
+def test_the_well_formedness_rule_refuses_a_padding_bit_alias():
     """bakobo/fiki#4: a B keyid spelled with a non-zero pad bit would alias the same key."""
     from test_keys import padding_bit_alias
 
-    for entry in load(name)["keys"]:
+    for entry in load("requests.json")["keys"]:
         alias = padding_bit_alias(entry["keyid"])
         assert GENERATOR.well_formed_aid(entry["keyid"])
         assert not GENERATOR.well_formed_aid(alias)

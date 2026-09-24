@@ -776,10 +776,25 @@ def test_a_swapped_request_body_is_refused_when_the_response_binds_its_digest():
 
 
 def test_an_unreadable_request_digest_is_malformed_when_the_response_binds_it():
+    covered = ["@status", req("@method"), req("@path"), req("@query"), req("content-digest"),
+               "content-digest"]
+    unread = Request(method="POST", url=URL, headers={"Content-Digest": "(((("})
+    headers = respond(request=unread, covered=covered)
     odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
-    headers = respond(request=odd)
     with pytest.raises(MalformedDigest):
         check(headers, request=odd)
+
+
+def test_a_signer_will_not_bind_a_request_digest_its_body_contradicts():
+    """The verifier's check, run first by the signer: a server does not vouch for a request
+    digest that the body it was handed does not match (@2f227n4r's principle)."""
+    swapped = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers,
+                      body=b'{"hello": "mallory"}')
+    with pytest.raises(DigestMismatch):
+        respond(request=swapped)
+    odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
+    with pytest.raises(MalformedDigest):
+        respond(request=odd)
 
 
 def test_a_request_handed_over_without_its_body_is_not_recomputed():
