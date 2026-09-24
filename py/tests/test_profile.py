@@ -704,3 +704,22 @@ def test_an_empty_keyid_is_a_missing_key():
     request, headers = sign(keyid="")
     with pytest.raises(MissingKey):
         verify(request, headers, resolve={}.get)
+
+
+# --- @status is a three-digit status code (bakobo/fiki#4 review) ---
+
+@pytest.mark.parametrize("status", [99, 1000, -200, True, "200"])
+def test_a_status_that_is_not_three_digits_has_no_status_line(status):
+    with pytest.raises(MissingComponent) as caught:
+        response_signature_base(status=status, headers={}, covered=["@status"], created=AT,
+                                keyid="k")
+    assert caught.value.component == "@status"
+    with pytest.raises(MissingComponent):
+        check(respond(), status=status)
+
+
+@pytest.mark.parametrize("status", [100, 999])
+def test_the_status_range_is_inclusive(status):
+    base = response_signature_base(status=status, headers={}, covered=["@status"], created=AT,
+                                   keyid="k")
+    assert base.decode().split("\n")[0] == f'"@status": {status}'

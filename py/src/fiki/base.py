@@ -200,7 +200,16 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             )
         message = message.request
     if name == "@status":
-        return f"{message.status:03d}"
+        # Section 2.2.9: the three-digit status code. Anything else is not a status this
+        # component can carry, so there is no value to sign or to check.
+        status = message.status
+        if type(status) is not int or not 100 <= status <= 999:
+            raise MissingComponent(
+                f"The signature covers @status, and {status!r} is not a three-digit HTTP status "
+                "code, so there is no status line to build.",
+                component="@status",
+            )
+        return str(status)
     if name == "@method":
         # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
         return message.method
