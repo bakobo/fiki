@@ -16,6 +16,7 @@ import { equal, toBase64, toBase64Url, fromBase64Url, utf8 } from './bytes.js';
 import {
   CONTENT_DIGEST,
   DEFAULT_COVERED,
+  canonicalHeaders,
   checkCovered,
   component,
   finishBase,
@@ -95,8 +96,11 @@ export function bodyBytes(body, name = 'body') {
   );
 }
 
-const withBody = (request) =>
-  request === null || request === undefined ? null : { ...request, body: bodyBytes(request.body, 'request.body') };
+// The request a response answers, with its body as bytes and its headers canonical, once.
+const normalRequest = (request) =>
+  request === null || request === undefined
+    ? null
+    : { ...request, headers: canonicalHeaders(request.headers, 'request.headers'), body: bodyBytes(request.body, 'request.body') };
 
 /** The RFC 9530 `Content-Digest` header value for a body. */
 export async function contentDigest(body) {
@@ -107,8 +111,9 @@ export async function contentDigest(body) {
 const now = () => Math.floor(Date.now() / 1000);
 // Only ever handed what bodyBytes returned, so a body is null or a Uint8Array.
 const hasContent = (body) => body !== null && body.length > 0;
-const hasName = (headers, name) => Object.keys(headers ?? {}).some((key) => key.toLowerCase() === name);
-const lowered = (headers) => new Map(Object.entries(headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
+// Both only ever see headers canonicalHeaders has already lowercased.
+const hasName = (headers, name) => Object.hasOwn(headers, name);
+const lowered = (headers) => new Map(Object.entries(headers));
 
 /** A supplied minimum selects the KERI profile's policy, so it may only add to the profile's.
  *
@@ -148,7 +153,7 @@ async function coverBody(items, sending, body, chosen) {
     }
     items.push(component(CONTENT_DIGEST));
   }
-  if (!hasName(sending, CONTENT_DIGEST)) sending['Content-Digest'] = await contentDigest(body);
+  if (!hasName(sending, CONTENT_DIGEST)) sending[CONTENT_DIGEST] = await contentDigest(body);
 }
 
 async function signed(key, base, label, sending, given) {
@@ -158,8 +163,8 @@ async function signed(key, base, label, sending, given) {
     'Signature-Input': `${label}=${params}`,
     Signature: `${label}=${serializeByteSequence(signature)}`,
   };
-  if (sending['Content-Digest'] !== undefined && !hasName(given, CONTENT_DIGEST)) {
-    out['Content-Digest'] = sending['Content-Digest'];
+  if (sending[CONTENT_DIGEST] !== undefined && !hasName(given, CONTENT_DIGEST)) {
+    out['Content-Digest'] = sending[CONTENT_DIGEST];
   }
   return out;
 }
@@ -194,7 +199,8 @@ export async function signRequest({
 }) {
   const floor = floored(minimum, REQUEST_MINIMUM);
   body = bodyBytes(body);
-  const sending = { ...(headers ?? {}) };
+  headers = canonicalHeaders(headers);
+  const sending = { ...headers };
   const chosen = covered !== null && covered !== undefined;
   const items = (chosen ? covered : DEFAULT_COVERED).map(component);
   await coverBody(items, sending, body, chosen);
@@ -241,8 +247,9 @@ export async function signResponse({
 }) {
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
-  request = withBody(request);
-  const sending = { ...(headers ?? {}) };
+  request = normalRequest(request);
+  headers = canonicalHeaders(headers);
+  const sending = { ...headers };
   const chosen = covered !== null && covered !== undefined;
   // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
   const hadBody = request !== null && hasContent(request.body);
@@ -311,6 +318,7 @@ export async function verifyRequest({
 }) {
   requireMaxAge(maxAge, 'verifyRequest');
   const floor = floored(minimum, REQUEST_MINIMUM);
+  headers = canonicalHeaders(headers);
   return verify(requestMessage(method, url, headers), headers, bodyBytes(body), {
     response: false,
     request: null,
@@ -353,7 +361,8 @@ export async function verifyResponse({
   requireMaxAge(maxAge, 'verifyResponse');
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
-  request = withBody(request);
+  request = normalRequest(request);
+  headers = canonicalHeaders(headers);
   if (status === 401 && !hasName(headers, 'signature')) {
     throw new Unauthenticated(
       'The server answered 401 without signing the answer, so the request was not authenticated ' +

@@ -148,12 +148,33 @@ function authority(parts, headers) {
   return ows(checked(host, '"@authority"')).toLowerCase();
 }
 
+/** Headers with every name lowercased, refusing two names that are one field (D-Q9ZT).
+ *
+ * Field names are case-insensitive, so `X-Role` beside `x-role` is two values for one field, and
+ * keeping either would let a signer cover one while the application reads the other. Only a caller
+ * can build such an object, so it is a TypeError. Values are kept exactly as given.
+ */
+export function canonicalHeaders(headers, name = 'headers') {
+  const out = {};
+  for (const [field, value] of Object.entries(headers ?? {})) {
+    const lower = field.toLowerCase();
+    if (Object.hasOwn(out, lower)) {
+      throw new TypeError(
+        `${name} names the field "${lower}" twice in different case, so it holds two values for one ` +
+          'field; pass one.',
+      );
+    }
+    out[lower] = value;
+  }
+  return out;
+}
+
 function lowered(headers) {
   // Header field names are case-insensitive and appear lowercased in the base (section 2.1). Values
   // are kept exactly as received here: they are checked for forbidden characters before any
   // whitespace is trimmed, or a trailing CR LF would be trimmed into the value that was signed.
   const map = new Map();
-  for (const [name, value] of Object.entries(headers ?? {})) map.set(name.toLowerCase(), String(value));
+  for (const [name, value] of Object.entries(canonicalHeaders(headers))) map.set(name, String(value));
   return map;
 }
 
