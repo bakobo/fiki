@@ -155,7 +155,9 @@ function authority(parts, headers) {
  * can build such an object, so it is a TypeError. Values are kept exactly as given.
  */
 export function canonicalHeaders(headers, name = 'headers') {
-  const out = {};
+  // Null-prototype, so a field named "__proto__" is an own property like any other rather than an
+  // assignment to the prototype that silently drops it (PR #5 hostile review, H1).
+  const out = Object.create(null);
   for (const [field, value] of Object.entries(headers ?? {})) {
     const lower = field.toLowerCase();
     if (Object.hasOwn(out, lower)) {

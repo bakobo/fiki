@@ -200,7 +200,7 @@ export async function signRequest({
   const floor = floored(minimum, REQUEST_MINIMUM);
   body = bodyBytes(body);
   headers = canonicalHeaders(headers);
-  const sending = { ...headers };
+  const sending = Object.assign(Object.create(null), headers);
   const chosen = covered !== null && covered !== undefined;
   const items = (chosen ? covered : DEFAULT_COVERED).map(component);
   await coverBody(items, sending, body, chosen);
@@ -249,7 +249,7 @@ export async function signResponse({
   body = bodyBytes(body);
   request = normalRequest(request);
   headers = canonicalHeaders(headers);
-  const sending = { ...headers };
+  const sending = Object.assign(Object.create(null), headers);
   const chosen = covered !== null && covered !== undefined;
   // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
   const hadBody = request !== null && hasContent(request.body);

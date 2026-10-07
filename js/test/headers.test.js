@@ -12,6 +12,7 @@ import {
   Key,
   componentLines,
   contentDigest,
+  errors,
   responseSignatureBase,
   signRequest,
   signResponse,
@@ -73,5 +74,26 @@ describe('headers holding one field name twice (D-Q9ZT)', () => {
     });
     assert.equal(signed['Content-Digest'], undefined);
     await verifyRequest({ method: 'POST', url: URL_, headers: { ...headers, ...signed }, body: BODY, maxAge: null });
+  });
+});
+
+describe('a header named __proto__ (PR #5 hostile review, H1)', () => {
+  it('is refused when doubled in case, rather than vanishing', async () => {
+    const headers = JSON.parse('{"__proto__": "admin", "__PROTO__": "guest"}');
+    await assert.rejects(() => signRequest({ key: KEY, method: 'GET', url: URL_, headers, created: AT }), TypeError);
+    const signed = await signRequest({ key: KEY, method: 'GET', url: URL_, created: AT });
+    await assert.rejects(() => verifyRequest({ method: 'GET', url: URL_, headers: { ...signed, ...headers }, maxAge: null }), TypeError);
+  });
+
+  it('is an ordinary field when it appears once', async () => {
+    const headers = JSON.parse('{"__proto__": "admin"}');
+    const covered = ['@method', '@path', '@query', '__proto__'];
+    const base = signatureBase({ method: 'GET', url: URL_, headers, covered, created: AT, keyid: 'k' });
+    assert.equal(new TextDecoder().decode(base).split('\n')[3], '"__proto__": admin');
+    const signed = await signRequest({ key: KEY, method: 'GET', url: URL_, headers, covered, created: AT });
+    const both = Object.assign(JSON.parse('{"__proto__": "admin"}'), signed);
+    await verifyRequest({ method: 'GET', url: URL_, headers: both, maxAge: null });
+    const swapped = Object.assign(JSON.parse('{"__proto__": "guest"}'), signed);
+    await assert.rejects(() => verifyRequest({ method: 'GET', url: URL_, headers: swapped, maxAge: null }), errors.SignatureMismatch);
   });
 });
