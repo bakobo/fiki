@@ -152,11 +152,24 @@ public final class Fiki {
             if (url == null) {
                 throw new IllegalArgumentException("A request needs a URL.");
             }
-            // An unmodifiable copy, checked once: a caller mutating its map afterwards changes
-            // nothing fiki reads (@0ms4j0ef).
-            Map<String, String> copy = new LinkedHashMap<>(headers == null ? Map.of() : headers);
-            lowered(copy);
-            headers = java.util.Collections.unmodifiableMap(copy);
+            // An immutable copy, checked once, and a copy of the body: a caller mutating what it
+            // passed in afterwards changes nothing fiki reads (@0ms4j0ef, @2r05k9g0).
+            Map<String, String> given = headers == null ? Map.of() : headers;
+            lowered(given);
+            headers = Map.copyOf(given);
+            body = body == null ? null : body.clone();
+        }
+
+        /** The headers, immutable. */
+        @Override
+        public Map<String, String> headers() {
+            return Map.copyOf(headers);
+        }
+
+        /** A copy of the body, so a caller cannot change what fiki checks. */
+        @Override
+        public byte[] body() {
+            return body == null ? null : body.clone();
         }
     }
 
@@ -722,11 +735,19 @@ public final class Fiki {
         Map<String, String> out = new LinkedHashMap<>();
         if (headers != null) {
             headers.forEach((name, value) -> {
-                if (out.put(lower(name), value) != null) {
+                if (name == null || value == null) {
                     throw new IllegalArgumentException(
-                        "The headers name " + lower(name) + " more than once, under different spellings; "
+                        "A header name or value is null; pass each field as a name and its value.");
+                }
+                // By key presence, not by put's previous value, which a null could not tell apart
+                // from absence (@2r05k9g0).
+                String key = lower(name);
+                if (out.containsKey(key)) {
+                    throw new IllegalArgumentException(
+                        "The headers name " + key + " more than once, under different spellings; "
                             + "HTTP field names are case-insensitive, so pass each field once.");
                 }
+                out.put(key, value);
             });
         }
         return out;
