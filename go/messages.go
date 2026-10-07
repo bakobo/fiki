@@ -101,7 +101,10 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 	if err := floored(opts.Minimum, RequestMinimum); err != nil {
 		return nil, err
 	}
-	sending := copyHeaders(headers)
+	sending, err := canonicalHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
 	chosen := opts.Covered != nil
 	source := opts.Covered
 	if !chosen {
@@ -111,20 +114,21 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 	if err != nil {
 		return nil, err
 	}
-	if items, err = coverBody(items, sending, opts.Body, chosen); err != nil {
+	generated := ""
+	if items, generated, err = coverBody(items, sending, opts.Body, chosen); err != nil {
 		return nil, err
 	}
 	if opts.Minimum != nil {
-		hasBody := requestHasBody(lowerHeaders(sending), opts.Body)
+		hasBody := requestHasBody(sending, opts.Body)
 		if err := checkMinimum(items, opts.Minimum, hasBody, false); err != nil {
 			return nil, err
 		}
 	}
-	base, err := buildBase(items, requestMessage(method, rawURL, sending), false, signerParams(key, opts))
+	base, err := buildBase(items, canonicalMessage(method, rawURL, sending), false, signerParams(key, opts))
 	if err != nil {
 		return nil, err
 	}
-	return signed(key, base, opts.Label, sending, headers), nil
+	return signed(key, base, opts.Label, generated), nil
 }
 
 // SignResponse signs a response to request and returns the headers to add to it (RFC 9421
@@ -140,7 +144,16 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
 		return nil, err
 	}
-	sending := copyHeaders(headers)
+	sending, err := canonicalHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+	var requestHeaders map[string]string
+	if request != nil {
+		if requestHeaders, err = canonicalHeaders(request.Headers); err != nil {
+			return nil, err
+		}
+	}
 	chosen := opts.Covered != nil
 	// By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
 	hadBody := request != nil && len(request.Body) > 0
@@ -155,11 +168,12 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	if err != nil {
 		return nil, err
 	}
-	if items, err = coverBody(items, sending, opts.Body, chosen); err != nil {
+	generated := ""
+	if items, generated, err = coverBody(items, sending, opts.Body, chosen); err != nil {
 		return nil, err
 	}
 	if !chosen && hadBody {
-		if !hasHeader(request.Headers, ContentDigestHeader) {
+		if _, ok := requestHeaders[ContentDigestHeader]; !ok {
 			return nil, errorf(KindUncoveredBody,
 				"The request this response answers carried a body and no Content-Digest, so the "+
 					"response has nothing to bind that body with. Sign the request with a digest "+
@@ -175,28 +189,29 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	// The check VerifyResponse will make, made first: a signer does not vouch for a request
 	// digest that the request body it was handed contradicts (bakobo/fiki#4).
 	if request != nil && request.Body != nil && bindsRequestDigest(items) {
-		header, present := lowerHeaders(request.Headers)[ContentDigestHeader]
-		recognized, err := readDigest(header, present)
-		if err != nil {
-			return nil, err
-		}
-		if err := compareDigest(recognized, request.Body); err != nil {
+		header, present := requestHeaders[ContentDigestHeader]
+		if err := checkDigest(header, present, request.Body); err != nil {
 			return nil, err
 		}
 	}
-	base, err := buildBase(items, responseMessage(status, sending, request), true, signerParams(key, opts))
+	m := &message{headers: sending, status: status}
+	if request != nil {
+		m.request = canonicalMessage(request.Method, request.URL, requestHeaders)
+	}
+	base, err := buildBase(items, m, true, signerParams(key, opts))
 	if err != nil {
 		return nil, err
 	}
-	return signed(key, base, opts.Label, sending, headers), nil
+	return signed(key, base, opts.Label, generated), nil
 }
 
-func copyHeaders(headers map[string]string) map[string]string {
-	out := make(map[string]string, len(headers)+1)
-	for name, value := range headers {
-		out[name] = value
+// checkDigest parses a Content-Digest and compares it with the body it describes.
+func checkDigest(header string, present bool, body []byte) error {
+	recognized, err := readDigest(header, present)
+	if err != nil {
+		return err
 	}
-	return out
+	return compareDigest(recognized, body)
 }
 
 func signerParams(key *Key, opts SignOptions) SignatureParams {
@@ -216,23 +231,24 @@ func signerParams(key *Key, opts SignOptions) SignatureParams {
 // caller CHOSE the covered set is the difference between fiki helping and fiki overriding: on the
 // default path a body simply gets covered, and on an explicit one, silently adding a component
 // would mean the signature covers something the caller did not ask for.
-func coverBody(items []componentID, sending map[string]string, body []byte, chosen bool) ([]componentID, error) {
+func coverBody(items []componentID, sending map[string]string, body []byte, chosen bool) ([]componentID, string, error) {
 	if body == nil {
-		return items, nil
+		return items, "", nil
 	}
 	if !coversBody(items) {
 		if chosen {
-			return nil, errorf(KindUncoveredBody,
+			return nil, "", errorf(KindUncoveredBody,
 				"This message carries a body, but the covered components do not include %q, so "+
 					"the signature would not bind the body. Add it to the covered set, or omit the "+
 					"body if it is genuinely not part of what you are signing.", ContentDigestHeader)
 		}
 		items = append(items, componentID{Name: ContentDigestHeader})
 	}
-	if !hasHeader(sending, ContentDigestHeader) {
-		sending["Content-Digest"] = ContentDigest(body)
+	if _, ok := sending[ContentDigestHeader]; ok {
+		return items, "", nil
 	}
-	return items, nil
+	sending[ContentDigestHeader] = ContentDigest(body)
+	return items, sending[ContentDigestHeader], nil
 }
 
 func coversBody(items []componentID) bool {
@@ -247,7 +263,8 @@ func bindsRequestDigest(items []componentID) bool {
 	})
 }
 
-func signed(key *Key, base []byte, label string, sending, supplied map[string]string) map[string]string {
+// signed returns the signature headers, plus the Content-Digest fiki generated, if it did.
+func signed(key *Key, base []byte, label, generated string) map[string]string {
 	if label == "" {
 		label = "sig"
 	}
@@ -257,19 +274,10 @@ func signed(key *Key, base []byte, label string, sending, supplied map[string]st
 		"Signature-Input": label + "=" + params,
 		"Signature":       label + "=:" + base64.StdEncoding.EncodeToString(key.Sign(base)) + ":",
 	}
-	if _, made := sending["Content-Digest"]; made && !hasHeader(supplied, ContentDigestHeader) {
-		out["Content-Digest"] = sending["Content-Digest"]
+	if generated != "" {
+		out["Content-Digest"] = generated
 	}
 	return out
-}
-
-func hasHeader(headers map[string]string, want string) bool {
-	for name := range headers {
-		if strings.ToLower(name) == want {
-			return true
-		}
-	}
-	return false
 }
 
 // floored refuses a minimum smaller than the profile's. A supplied minimum selects the KERI
@@ -398,7 +406,11 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 	if err := floored(opts.Minimum, RequestMinimum); err != nil {
 		return nil, err
 	}
-	return verify(requestMessage(method, rawURL, headers), headers, false, nil, opts)
+	m, err := requestMessage(method, rawURL, headers)
+	if err != nil {
+		return nil, err
+	}
+	return verify(m, false, nil, opts)
 }
 
 // VerifyResponse verifies a signed response to request.
@@ -417,20 +429,24 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 		return nil, invalidOptions("Authorities applies to a request a verifier serves, not to a " +
 			"response; pass nil.")
 	}
-	if status == 401 && !hasHeader(headers, "signature") {
+	m, err := responseMessage(status, headers, request)
+	if err != nil {
+		return nil, err
+	}
+	if _, signed := m.headers["signature"]; status == 401 && !signed {
 		return nil, errorf(KindUnauthenticated,
 			"The server answered 401 without signing the answer, so the request was not "+
 				"authenticated and the body of the refusal cannot be trusted.")
 	}
-	return verify(responseMessage(status, headers, request), headers, true, request, opts)
+	return verify(m, true, request, opts)
 }
 
 // verify runs the KERI profile's section 9 order, so a message has exactly one correct refusal.
-func verify(m *message, headers map[string]string, response bool, request *Request, opts VerifyOptions) (*Verdict, error) {
+func verify(m *message, response bool, request *Request, opts VerifyOptions) (*Verdict, error) {
 	if opts.ExpectedAID != "" && opts.Resolve != nil {
 		return nil, invalidOptions("Pass ExpectedAID or Resolve, not both; each decides the key alone.")
 	}
-	found := lowerHeaders(headers)
+	found := m.headers
 	list, signature, err := read(found, opts.ExpectedAID == "", opts.Minimum != nil)
 	if err != nil {
 		return nil, err
@@ -526,7 +542,7 @@ func verify(m *message, headers map[string]string, response bool, request *Reque
 			return nil, invalidOptions(`The response covers "content-digest";req, so the request ` +
 				"body it binds must be supplied in Request.Body to be checked; it was not.")
 		}
-		header, present := lowerHeaders(request.Headers)[ContentDigestHeader]
+		header, present := m.request.headers[ContentDigestHeader]
 		digests = append(digests, owed{header, present, request.Body})
 	}
 	// Every covered digest is parsed before any is compared, so a malformed one outranks a

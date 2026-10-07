@@ -293,27 +293,52 @@ type message struct {
 	request *message
 }
 
-func lowerHeaders(headers map[string]string) map[string]string {
-	out := make(map[string]string, len(headers))
+// canonicalHeaders is the one lowercased view of a headers map that every later step reads.
+//
+// Header field names are case-insensitive and appear lowercased in the base (section 2.1); values
+// lose leading and trailing SP and HTAB only (RFC 9110 section 5.5). Trimming CR, LF or NUL as well
+// would let "admin\r\n" verify as "admin"; left in, valueOf refuses it. A map holding two
+// spellings of one name is refused rather than collapsed: which one survived would turn on Go's
+// map order, so the signature base and the digest check could read different values for one
+// field (bakobo/fiki#6). net/http never builds such a map, so it is the caller's construction.
+func canonicalHeaders(headers map[string]string) (map[string]string, error) {
+	out := make(map[string]string, len(headers)+1)
 	for name, value := range headers {
-		// Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-		// values lose leading and trailing SP and HTAB only (RFC 9110 section 5.5). Trimming CR,
-		// LF or NUL as well would let "admin\r\n" verify as "admin"; left in, valueOf refuses it.
-		out[strings.ToLower(name)] = strings.Trim(value, " \t")
+		lowered := strings.ToLower(name)
+		if _, seen := out[lowered]; seen {
+			return nil, invalidOptions("The headers name %q more than once under different "+
+				"capitalizations, so there is no one value to sign or check; merge them first.", lowered)
+		}
+		out[lowered] = strings.Trim(value, " \t")
 	}
-	return out
+	return out, nil
 }
 
-func requestMessage(method, rawURL string, headers map[string]string) *message {
-	return &message{headers: lowerHeaders(headers), method: method, target: splitURL(rawURL)}
+func requestMessage(method, rawURL string, headers map[string]string) (*message, error) {
+	canonical, err := canonicalHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+	return canonicalMessage(method, rawURL, canonical), nil
 }
 
-func responseMessage(status int, headers map[string]string, request *Request) *message {
-	m := &message{headers: lowerHeaders(headers), status: status}
+// canonicalMessage is a request over headers canonicalHeaders has already produced.
+func canonicalMessage(method, rawURL string, canonical map[string]string) *message {
+	return &message{headers: canonical, method: method, target: splitURL(rawURL)}
+}
+
+func responseMessage(status int, headers map[string]string, request *Request) (*message, error) {
+	canonical, err := canonicalHeaders(headers)
+	if err != nil {
+		return nil, err
+	}
+	m := &message{headers: canonical, status: status}
 	if request != nil {
-		m.request = requestMessage(request.Method, request.URL, request.Headers)
+		if m.request, err = requestMessage(request.Method, request.URL, request.Headers); err != nil {
+			return nil, err
+		}
 	}
-	return m
+	return m, nil
 }
 
 func componentValue(item componentID, m *message) (string, error) {
@@ -456,7 +481,11 @@ func SignatureBase(method, rawURL string, headers map[string]string, covered []s
 	if err != nil {
 		return nil, err
 	}
-	return buildBase(items, requestMessage(method, rawURL, headers), false, params)
+	m, err := requestMessage(method, rawURL, headers)
+	if err != nil {
+		return nil, err
+	}
+	return buildBase(items, m, false, params)
 }
 
 // ResponseSignatureBase builds the RFC 9421 signature base for a response (sections 2.2.9 and
@@ -469,5 +498,9 @@ func ResponseSignatureBase(status int, request *Request, headers map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	return buildBase(items, responseMessage(status, headers, request), true, params)
+	m, err := responseMessage(status, headers, request)
+	if err != nil {
+		return nil, err
+	}
+	return buildBase(items, m, true, params)
 }
