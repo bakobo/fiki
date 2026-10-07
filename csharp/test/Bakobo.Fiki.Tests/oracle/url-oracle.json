@@ -1,0 +1,859 @@
+{
+ "about": "urlsplit's verdict on each URL, with .hostname and .port ('error' when it raises).",
+ "cases": [
+  {
+   "input": "https://example.com/foo?param=Value&Pet=dog",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "/foo",
+   "query": "param=Value&Pet=dog",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "https://EXAMPLE.com:443/f",
+   "error": false,
+   "scheme": "https",
+   "netloc": "EXAMPLE.com:443",
+   "path": "/f",
+   "query": "",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": 443
+  },
+  {
+   "input": "https://example.com:8443/f",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com:8443",
+   "path": "/f",
+   "query": "",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": 8443
+  },
+  {
+   "input": "http://example.com:80/",
+   "error": false,
+   "scheme": "http",
+   "netloc": "example.com:80",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": 80
+  },
+  {
+   "input": "http://example.com:443/",
+   "error": false,
+   "scheme": "http",
+   "netloc": "example.com:443",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": 443
+  },
+  {
+   "input": "https://example.com",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "https://example.com?x",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "",
+   "query": "x",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "https://example.com#frag",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "",
+   "query": "",
+   "fragment": "frag",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "https://example.com/p?q#f",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "/p",
+   "query": "q",
+   "fragment": "f",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "https://example.com/p#f?q",
+   "error": false,
+   "scheme": "https",
+   "netloc": "example.com",
+   "path": "/p",
+   "query": "",
+   "fragment": "f?q",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "/things?limit=1",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "/things",
+   "query": "limit=1",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "/x",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "/x",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "?",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "#",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "//host/path",
+   "error": false,
+   "scheme": "",
+   "netloc": "host",
+   "path": "/path",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": null
+  },
+  {
+   "input": "//host",
+   "error": false,
+   "scheme": "",
+   "netloc": "host",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": null
+  },
+  {
+   "input": "///path",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "/path",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "https:",
+   "error": false,
+   "scheme": "https",
+   "netloc": "",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "https:/path",
+   "error": false,
+   "scheme": "https",
+   "netloc": "",
+   "path": "/path",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "https:path",
+   "error": false,
+   "scheme": "https",
+   "netloc": "",
+   "path": "path",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "HTTPS://Example.COM/A?B",
+   "error": false,
+   "scheme": "https",
+   "netloc": "Example.COM",
+   "path": "/A",
+   "query": "B",
+   "fragment": "",
+   "hostname": "example.com",
+   "port": null
+  },
+  {
+   "input": "Https://h/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "1http://h/",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "1http://h/",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "ht@tp://h/",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "ht@tp://h/",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "h+t.t-p://h/",
+   "error": false,
+   "scheme": "h+t.t-p",
+   "netloc": "h",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "x:",
+   "error": false,
+   "scheme": "x",
+   "netloc": "",
+   "path": "",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": ":",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": ":",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "mailto:a@b",
+   "error": false,
+   "scheme": "mailto",
+   "netloc": "",
+   "path": "a@b",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "https://user:pass@Host.example:8080/p",
+   "error": false,
+   "scheme": "https",
+   "netloc": "user:pass@Host.example:8080",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "host.example",
+   "port": 8080
+  },
+  {
+   "input": "https://user@host/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "user@host",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": null
+  },
+  {
+   "input": "https://@host/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "@host",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": null
+  },
+  {
+   "input": "https://host:/p",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": null
+  },
+  {
+   "input": "https://host:0/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:0",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": 0
+  },
+  {
+   "input": "https://host:65535/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:65535",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": 65535
+  },
+  {
+   "input": "https://host:65536/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:65536",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://host:-1/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:-1",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://host:+1/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:+1",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://host:abc/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:abc",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://host:08443/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:08443",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": 8443
+  },
+  {
+   "input": "https://host: 80/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host: 80",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://host:\u0663/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "host:\u0663",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "host",
+   "port": "error"
+  },
+  {
+   "input": "https://[::1]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::1]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": null
+  },
+  {
+   "input": "https://[::1]:8080/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::1]:8080",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": 8080
+  },
+  {
+   "input": "https://[::1]x/",
+   "error": true
+  },
+  {
+   "input": "https://[::1]:x/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::1]:x",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": "error"
+  },
+  {
+   "input": "https://x[::1]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1/",
+   "error": true
+  },
+  {
+   "input": "https://::1]/",
+   "error": true
+  },
+  {
+   "input": "https://[127.0.0.1]/",
+   "error": true
+  },
+  {
+   "input": "https://[v1.fe]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[v1.fe]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "v1.fe",
+   "port": null
+  },
+  {
+   "input": "https://[v1.]/",
+   "error": true
+  },
+  {
+   "input": "https://[vz.x]/",
+   "error": true
+  },
+  {
+   "input": "https://[V1.x]/",
+   "error": true
+  },
+  {
+   "input": "https://[fe80::1%25eth0]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[fe80::1%25eth0]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "fe80::1%25eth0",
+   "port": null
+  },
+  {
+   "input": "https://[fe80::1%eTh0]:1/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[fe80::1%eTh0]:1",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "fe80::1%eTh0",
+   "port": 1
+  },
+  {
+   "input": "https://[fe80::1%]/",
+   "error": true
+  },
+  {
+   "input": "https://[fe80::1%a%b]/",
+   "error": true
+  },
+  {
+   "input": "https://[1:2:3:4:5:6:7:8]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[1:2:3:4:5:6:7:8]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "1:2:3:4:5:6:7:8",
+   "port": null
+  },
+  {
+   "input": "https://[1:2:3:4:5:6:7:8:9]/",
+   "error": true
+  },
+  {
+   "input": "https://[1:2:3:4:5:6:7]/",
+   "error": true
+  },
+  {
+   "input": "https://[::]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::",
+   "port": null
+  },
+  {
+   "input": "https://[1::2::3]/",
+   "error": true
+  },
+  {
+   "input": "https://[:1:2:3:4:5:6:7]/",
+   "error": true
+  },
+  {
+   "input": "https://[1:2:3:4:5:6:7:]/",
+   "error": true
+  },
+  {
+   "input": "https://[::ffff:1.2.3.4]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::ffff:1.2.3.4]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::ffff:1.2.3.4",
+   "port": null
+  },
+  {
+   "input": "https://[::ffff:1.2.3.04]/",
+   "error": true
+  },
+  {
+   "input": "https://[::ffff:1.2.3.256]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1.2.3]/",
+   "error": true
+  },
+  {
+   "input": "https://[12345::]/",
+   "error": true
+  },
+  {
+   "input": "https://[g::]/",
+   "error": true
+  },
+  {
+   "input": "https://[1:2:3:4:5:6:7::]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[1:2:3:4:5:6:7::]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "1:2:3:4:5:6:7::",
+   "port": null
+  },
+  {
+   "input": "https://[::1:2:3:4:5:6:7]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[::1:2:3:4:5:6:7]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1:2:3:4:5:6:7",
+   "port": null
+  },
+  {
+   "input": "https://[::1:2:3:4:5:6:7:8]/",
+   "error": true
+  },
+  {
+   "input": "https://[1/2::]/",
+   "error": true
+  },
+  {
+   "input": "https://[]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1]@x/",
+   "error": true
+  },
+  {
+   "input": "https://a@[::1]:5/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "a@[::1]:5",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": 5
+  },
+  {
+   "input": "https://[a@b]/",
+   "error": true
+  },
+  {
+   "input": "https://[0000:0000:0000:0000:0000:0000:0000:0001]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[0000:0000:0000:0000:0000:0000:0000:0001]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "0000:0000:0000:0000:0000:0000:0000:0001",
+   "port": null
+  },
+  {
+   "input": "https://[0000:0000:0000:0000:0000:0000:0000:00001]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1]]/",
+   "error": true
+  },
+  {
+   "input": "https://[[::1]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1][::2]/",
+   "error": true
+  },
+  {
+   "input": "  https://h/p",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "\u0000https://h/p",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h/p  ",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p  ",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "ht\ttp://h/p\r\n",
+   "error": false,
+   "scheme": "http",
+   "netloc": "h",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h\n/p",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h/p?a\tb",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p",
+   "query": "ab",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h/%2Fa?%2Db",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/%2Fa",
+   "query": "%2Db",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h/p;x?y",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h",
+   "path": "/p;x",
+   "query": "y",
+   "fragment": "",
+   "hostname": "h",
+   "port": null
+  },
+  {
+   "input": "https://h\u00e9.example/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h\u00e9.example",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "h\u00e9.example",
+   "port": null
+  },
+  {
+   "input": "https://h\u2100.example/",
+   "error": true
+  },
+  {
+   "input": "https://\u2100/",
+   "error": true
+  },
+  {
+   "input": "https://h\uff03x/",
+   "error": true
+  },
+  {
+   "input": "https://\u00c9XAMPLE.com/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "\u00c9XAMPLE.com",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "\u00e9xample.com",
+   "port": null
+  },
+  {
+   "input": "https://\u0130.example/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "\u0130.example",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "i\u0307.example",
+   "port": null
+  }
+ ]
+}
