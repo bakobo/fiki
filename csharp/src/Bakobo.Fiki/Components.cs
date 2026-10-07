@@ -308,7 +308,13 @@ namespace Bakobo.Fiki
                     }
                     return status.ToString(CultureInfo.InvariantCulture);
                 case "@method":
-                    // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+                    // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8). A
+                    // request has a method, so an empty one is a caller who lost it, not an empty
+                    // line to sign (this.i @56qu7gyw); refused only when @method is built.
+                    if (string.IsNullOrEmpty(message.Method))
+                    {
+                        throw new ArgumentException("The signature covers @method, and the method given is empty; pass the method as it goes on the wire.");
+                    }
                     return message.Method!;
                 case "@authority":
                     return Authority(message.Parts!, message.Headers);

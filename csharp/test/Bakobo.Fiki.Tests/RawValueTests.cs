@@ -72,5 +72,24 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(FikiErrorKind.InsufficientCoverage, caught.Kind);
             Assert.Equal("content-digest", caught.Component);
         }
+
+        // --- an empty method is a caller who lost it (this.i @56qu7gyw) ---
+
+        [Theory]
+        [InlineData("")]
+        [InlineData(null)]
+        public void AnEmptyMethodIsACallerErrorWhenMethodIsBuilt(string? method)
+        {
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignatureBase(method!, Url, new KeyValuePair<string, string>[0], new[] { "@method" }, 1, "k"));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(Signer, method!, Url));
+            var signed = HttpSignatures.SignRequest(Signer, "GET", Url);
+            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest(method!, Url, signed, VerifyOptions.DecliningFreshness()));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignResponse(Signer, 200, new Request(method!, Url)));
+        }
+
+        [Fact]
+        public void AnEmptyMethodIsNoConcernWhenMethodIsNotCovered() =>
+            Assert.Equal("\"@path\": /things", Bytes.Text(HttpSignatures.SignatureBase("", Url,
+                new KeyValuePair<string, string>[0], new[] { "@path" }, 1, "k")).Split('\n')[0]);
     }
 }
