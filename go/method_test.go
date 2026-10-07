@@ -52,3 +52,13 @@ func TestAnEmptyMethodIsRefusedEvenWhenUncovered(t *testing.T) {
 	_, err = VerifyResponse(200, methodless, response, VerifyOptions{})
 	isInvalidOptions(t, err)
 }
+
+// Copilot on bakobo/fiki#6: an empty Signature header on a 401 is as unsigned as an absent one.
+func TestAnEmptySignatureHeaderOnA401IsUnauthenticated(t *testing.T) {
+	for _, value := range []string{"", " \t"} {
+		_, err := VerifyResponse(401, nil, map[string]string{"Signature": value}, VerifyOptions{})
+		if kindOf(t, err) != KindUnauthenticated {
+			t.Errorf("%q: expected Unauthenticated, got %v", value, err)
+		}
+	}
+}

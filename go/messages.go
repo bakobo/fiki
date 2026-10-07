@@ -441,7 +441,8 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	if err != nil {
 		return nil, err
 	}
-	if _, signed := m.headers["signature"]; status == 401 && !signed {
+	// Empty counts as absent, as read treats it: an empty Signature header signs nothing.
+	if status == 401 && m.headers["signature"] == "" {
 		return nil, errorf(KindUnauthenticated,
 			"The server answered 401 without signing the answer, so the request was not "+
 				"authenticated and the body of the refusal cannot be trusted.")
