@@ -567,6 +567,10 @@ describe('the minimum covered set (profile section 3)', () => {
     ['a-negative-content-length', { 'Content-Length': '-5' }, null],
     ['a-content-length-with-words', { 'Content-Length': '18 bytes' }, null],
     ['a-signed-content-length', { 'Content-Length': '+3' }, null],
+    // Only SP and HTAB are field whitespace; NBSP or a vertical tab is not, so " 0 " so spelled is
+    // not a plain decimal, and fails closed (Copilot review of PR #5, C1).
+    ['a-zero-wrapped-in-nbsp', { 'Content-Length': '\u00a00\u00a0' }, null],
+    ['a-zero-after-a-vertical-tab', { 'Content-Length': '\v0' }, null],
   ]) {
     it(`refuses ${id} without a covered digest`, async () => {
       const signed = await sign({ body: null, headers: extra });
@@ -582,8 +586,8 @@ describe('the minimum covered set (profile section 3)', () => {
     assert.equal((await verify(await sign({ method: 'GET', body: null }), { minimum: REQUEST_MINIMUM })).aid, KEY.aid);
   });
 
-  it('treats a zero Content-Length as no body', async () => {
-    const signed = await sign({ body: null, headers: { 'Content-Length': '00' } });
+  it('treats a zero Content-Length as no body, field whitespace and all', async () => {
+    const signed = await sign({ body: null, headers: { 'Content-Length': ' \t00 ' } });
     signed.request.body = new Uint8Array(0);
     assert.equal((await verify(signed, { minimum: REQUEST_MINIMUM })).aid, KEY.aid);
   });

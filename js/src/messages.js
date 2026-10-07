@@ -490,7 +490,9 @@ function requestHasBody(found, body) {
   if (length === undefined) return false;
   // Fail closed: a length that is not a plain decimal, negative ones included, is not evidence
   // that there is no body.
-  const trimmed = String(length).trim();
+  // Field whitespace is SP and HTAB only (RFC 9110 section 5.5); String.prototype.trim also strips
+  // NBSP, VT and the rest, which would read such a length as a plain zero (Copilot, PR #5).
+  const trimmed = String(length).replace(/^[ \t]+|[ \t]+$/g, '');
   return !/^[0-9]+$/.test(trimmed) || /[1-9]/.test(trimmed);
 }
 
