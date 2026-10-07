@@ -144,10 +144,16 @@ class _Message:
     request: _Message | None = None
 
 
+# RFC 9110 section 5.5: the optional whitespace around a field value is SP and HTAB, and nothing
+# else. str.strip() would also remove CR, LF, VT, FF and Unicode spaces, so a value with a line
+# break at its edge would build the same line as one without (tick 4r5h).
+_OWS = " \t"
+
+
 def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
-    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-    # values are stripped of leading and trailing whitespace.
-    return {name.lower(): value.strip() for name, value in headers.items()}
+    # Header field names are case-insensitive and appear lowercased in the base (section 2.1).
+    # Values are kept as received: value_of checks them raw and only then trims _OWS.
+    return {name.lower(): value for name, value in headers.items()}
 
 
 def request_message(method: str, url: str, headers: Mapping[str, str]) -> _Message:
@@ -186,7 +192,8 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
             "request has no Host header, so there is nothing to derive it from.",
             component="@authority",
         )
-    return host.lower()
+    _check_raw(host, "@authority")
+    return host.strip(_OWS).lower()
 
 
 def _component_value(item: http_sfv.Item, message: _Message) -> str:
@@ -229,22 +236,30 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             f"so the signature base cannot be built.",
             component=spec_of(item),
         )
-    return value
+    # Checked as received, before the optional whitespace is trimmed, so a line break at the
+    # edge of a value is refused exactly as one inside it is (tick 4r5h).
+    _check_raw(value, spec_of(item))
+    return value.strip(_OWS)
 
 
-def value_of(item: http_sfv.Item, message: _Message) -> str:
-    """A component's value, refused when it has no single serialization both sides agree on.
+def _check_raw(value: str, spec: str) -> None:
+    """Refuse a value with no single serialization both sides agree on.
 
     A line break inside a value would forge a line of the base, and a byte outside visible ASCII
     is encoded differently by different stacks. The KERI profile's draft 6 names such a base
     unbuildable, and so a signature-mismatch (@2f227n4r).
     """
-    value = _component_value(item, message)
     if any(not (char == "\t" or " " <= char <= "~") for char in value):
         raise SignatureMismatch(
-            f"The value of {spec_of(item)} contains a line break, a control character or a "
+            f"The value of {spec} contains a line break, a control character or a "
             "non-ASCII character, so there is no signature base both sides would build from it."
         )
+
+
+def value_of(item: http_sfv.Item, message: _Message) -> str:
+    """A component's value, refused when it has no single serialization both sides agree on."""
+    value = _component_value(item, message)
+    _check_raw(value, spec_of(item))
     return value
 
 

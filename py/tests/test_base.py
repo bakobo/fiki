@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from fiki import signature_base
-from fiki.errors import MissingComponent, UnsupportedComponent
+from fiki.errors import MissingComponent, SignatureMismatch, UnsupportedComponent
 
 BASE_ARGS = dict(created=1618884473, keyid="test-key-ed25519")
 
@@ -127,3 +127,32 @@ def test_a_host_header_port_is_preserved_because_no_scheme_declares_it_default()
 def test_covering_authority_with_neither_a_url_authority_nor_a_host_header_is_refused():
     with pytest.raises(MissingComponent):
         line_for("@authority", url="/things")
+
+
+# Characters str.strip() removes that are not RFC 9110 optional whitespace. Each is refused at the
+# edge of a value exactly as inside one, because the check runs on the value as received and only
+# SP and HTAB are trimmed afterwards (tick 4r5h).
+_EDGE_CONTROLS = ["\r\n", "\r", "\n", "\x0b", "\x0c", "\x1c", "\x85", "\xa0", "\u2003"]
+
+
+@pytest.mark.parametrize("edge", _EDGE_CONTROLS, ids=[repr(e) for e in _EDGE_CONTROLS])
+@pytest.mark.parametrize("where", ["leading", "trailing"])
+def test_a_control_character_at_the_edge_of_a_value_is_refused_not_trimmed(edge, where):
+    value = edge + "admin" if where == "leading" else "admin" + edge
+    with pytest.raises(SignatureMismatch):
+        line_for("X-Scope", headers={"X-Scope": value})
+
+
+@pytest.mark.parametrize("edge", _EDGE_CONTROLS, ids=[repr(e) for e in _EDGE_CONTROLS])
+def test_a_control_character_at_the_edge_of_a_host_is_refused_not_trimmed(edge):
+    with pytest.raises(SignatureMismatch):
+        line_for("@authority", url="/foo", headers={"Host": "example.com" + edge})
+
+
+def test_only_spaces_and_tabs_are_trimmed_from_the_edges_of_a_value():
+    """RFC 9110 section 5.5: SP and HTAB are the optional whitespace around a field value."""
+    line = line_for("X-Scope", headers={"X-Scope": " \t admin \t "})
+    assert line == '"x-scope": admin'
+    assert line_for("@authority", url="/foo", headers={"Host": " Example.com\t"}) == (
+        '"@authority": example.com'
+    )

@@ -415,3 +415,20 @@ def test_a_keyid_that_only_decodes_leniently_to_the_key_is_refused(keyid):
     request, headers = signed(keyid=mangled)
     with pytest.raises(MalformedKey):
         verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("tampered", ["admin\r\n", "\r\nadmin", "\nadmin", "admin\r", "admin\x0b"])
+def test_a_line_break_added_at_the_edge_of_a_covered_field_does_not_verify(tampered):
+    """A signature over X-Scope: admin is not a signature over 'admin' plus CR LF (tick 4r5h)."""
+    request, headers = signed(headers={"X-Scope": "admin"},
+                              covered=[*DEFAULT_COVERED, "x-scope", "content-digest"])
+    headers["X-Scope"] = tampered
+    with pytest.raises(SignatureMismatch):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_spaces_and_tabs_at_the_edge_of_a_covered_field_still_verify():
+    request, headers = signed(headers={"X-Scope": "admin"},
+                              covered=[*DEFAULT_COVERED, "x-scope", "content-digest"])
+    headers["X-Scope"] = " \tadmin\t "
+    assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
