@@ -108,7 +108,8 @@ jobs:
           npm --version
       # --provenance is the default under trusted publishing and stated here so it cannot be lost.
       - name: Publish to npm (trusted publishing, with provenance)
-        run: npm publish pack/*.tgz --provenance --access public
+        # ./ matters: npm reads "pack/x.tgz" as a GitHub owner/repo shorthand and tries to clone it.
+        run: npm publish ./pack/*.tgz --provenance --access public
 
   # Install what npm now serves into a clean project and sign and verify with it, in both dialects.
   # A release that uploaded but cannot be installed is a failed release.
