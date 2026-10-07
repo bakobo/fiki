@@ -226,8 +226,17 @@ namespace Bakobo.Fiki
         private static string? Header(Dictionary<string, string> headers, string name) =>
             headers.TryGetValue(name, out var value) ? value : null;
 
-        internal static Verdict VerifyRequest(string method, string url, IEnumerable<KeyValuePair<string, string>> headers, VerifyOptions options)
+        /// <summary>
+        /// The caller's headers, read exactly once. Every later step reads this copy, so a sequence
+        /// that changes between enumerations cannot hand the signature base one Content-Digest and
+        /// the digest check another (bakobo/fiki#7).
+        /// </summary>
+        private static IReadOnlyList<KeyValuePair<string, string>> Snapshot(IEnumerable<KeyValuePair<string, string>> headers) =>
+            new List<KeyValuePair<string, string>>(headers).AsReadOnly();
+
+        internal static Verdict VerifyRequest(string method, string url, IEnumerable<KeyValuePair<string, string>> given, VerifyOptions options)
         {
+            var headers = Snapshot(given);
             if (options.Request != null)
             {
                 throw new ArgumentException("A request answers no other request; WithRequest applies to verifying a response.");
@@ -236,8 +245,9 @@ namespace Bakobo.Fiki
             return Verify(Components.RequestMessage(method, url, headers), headers, options, response: false, floor);
         }
 
-        internal static Verdict VerifyResponse(int status, IEnumerable<KeyValuePair<string, string>> headers, VerifyOptions options)
+        internal static Verdict VerifyResponse(int status, IEnumerable<KeyValuePair<string, string>> given, VerifyOptions options)
         {
+            var headers = Snapshot(given);
             if (options.Authorities != null)
             {
                 throw new ArgumentException("A response covers no authority of its own; WithAuthorities applies to verifying a request.");
