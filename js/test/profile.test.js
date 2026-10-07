@@ -682,6 +682,32 @@ describe('a base that cannot be built (@2f227n4r)', () => {
     });
   }
 
+  for (const value of ['admin\r\n', '\r\nadmin', '\nadmin', 'admin\r', 'admin\0', '\0admin', ' admin\r\n ']) {
+    it(`refuses ${JSON.stringify(value)} rather than trimming it to the signed "admin"`, async () => {
+      // The forbidden-character check runs on the value as received; only SP and HTAB are field
+      // whitespace (RFC 9110 section 5.5), so nothing else may be trimmed away before it.
+      const signed = await sign({ headers: { 'X-Role': 'admin' }, covered: ['@method', '@path', '@query', 'x-role', 'content-digest'] });
+      signed.headers['X-Role'] = value;
+      await assert.rejects(() => verify(signed), errors.SignatureMismatch);
+      assert.throws(
+        () => signatureBase({ method: 'GET', url: URL_, headers: { 'X-Role': value }, covered: ['x-role'], created: AT, keyid: 'k' }),
+        errors.SignatureMismatch,
+      );
+    });
+  }
+
+  it('trims only SP and HTAB from a field value, as RFC 9110 field OWS', async () => {
+    const signed = await sign({ headers: { 'X-Role': 'admin' }, covered: ['@method', '@path', '@query', 'x-role', 'content-digest'] });
+    signed.headers['X-Role'] = ' \t admin\t ';
+    assert.equal((await verify(signed)).aid, KEY.aid);
+    const base = signatureBase({ method: 'GET', url: '/f', headers: { Host: ' \tEXAMPLE.com ' }, covered: ['@authority'], created: AT, keyid: 'k' });
+    assert.equal(new TextDecoder().decode(base).split('\n')[0], '"@authority": example.com');
+    assert.throws(
+      () => signatureBase({ method: 'GET', url: '/f', headers: { Host: 'example.com\r\n' }, covered: ['@authority'], created: AT, keyid: 'k' }),
+      errors.SignatureMismatch,
+    );
+  });
+
   it('still builds with a tab in a field value', async () => {
     const signed = await sign({ headers: { 'X-Note': 'a\tb' }, covered: ['@method', '@path', '@query', 'x-note', 'content-digest'] });
     assert.equal((await verify(signed)).aid, KEY.aid);

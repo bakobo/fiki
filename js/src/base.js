@@ -145,15 +145,35 @@ function authority(parts, headers) {
       { component: '@authority' },
     );
   }
-  return host.toLowerCase();
+  return ows(checked(host, '"@authority"')).toLowerCase();
 }
 
 function lowered(headers) {
-  // Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-  // values are stripped of leading and trailing whitespace.
+  // Header field names are case-insensitive and appear lowercased in the base (section 2.1). Values
+  // are kept exactly as received here: they are checked for forbidden characters before any
+  // whitespace is trimmed, or a trailing CR LF would be trimmed into the value that was signed.
   const map = new Map();
-  for (const [name, value] of Object.entries(headers ?? {})) map.set(name.toLowerCase(), String(value).trim());
+  for (const [name, value] of Object.entries(headers ?? {})) map.set(name.toLowerCase(), String(value));
   return map;
+}
+
+// Leading and trailing field whitespace, which RFC 9110 section 5.5 defines as SP and HTAB only.
+const ows = (value) => value.replace(/^[ \t]+|[ \t]+$/g, '');
+
+/** A value refused when it has no single serialization both sides agree on.
+ *
+ * A line break inside a value would forge a line of the base, and a byte outside visible ASCII is
+ * encoded differently by different stacks. The KERI profile names such a base unbuildable, and so
+ * a signature mismatch (@2f227n4r).
+ */
+function checked(value, spec) {
+  if (!/^[\t\x20-\x7e]*$/.test(value)) {
+    throw new SignatureMismatch(
+      `The value of ${spec} contains a line break, a control character or a non-ASCII ` +
+        'character, so there is no signature base both sides would build from it.',
+    );
+  }
+  return value;
 }
 
 export const requestMessage = (method, url, headers) => ({ headers: lowered(headers), method, parts: splitUrl(url) });
@@ -206,25 +226,12 @@ function componentValue(item, message) {
       { component: specOf(item) },
     );
   }
-  return value;
+  // Checked as received, then trimmed of field whitespace only.
+  return ows(checked(value, specOf(item)));
 }
 
-/** A component's value, refused when it has no single serialization both sides agree on.
- *
- * A line break inside a value would forge a line of the base, and a byte outside visible ASCII is
- * encoded differently by different stacks. The KERI profile names such a base unbuildable, and so
- * a signature mismatch (@2f227n4r).
- */
-export function valueOf(item, message) {
-  const value = componentValue(item, message);
-  if (!/^[\t\x20-\x7e]*$/.test(value)) {
-    throw new SignatureMismatch(
-      `The value of ${specOf(item)} contains a line break, a control character or a non-ASCII ` +
-        'character, so there is no signature base both sides would build from it.',
-    );
-  }
-  return value;
-}
+/** A component's value, refused when it has no single serialization both sides agree on. */
+export const valueOf = (item, message) => checked(componentValue(item, message), specOf(item));
 
 /** Every line of the signature base except the trailing `@signature-params`. */
 export const linesFor = (items, message) => items.map((item) => `${serializeItem(item)}: ${valueOf(item, message)}`);
