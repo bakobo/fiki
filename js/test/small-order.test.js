@@ -97,4 +97,35 @@ describe('small-order Ed25519 keys (tick 27eo)', () => {
       );
     });
   }
+
+  // Not on the curve at all, or not the canonical encoding of a point (tick 27eo, extended).
+  const OFF_CURVE = new Uint8Array(32);
+  OFF_CURVE[0] = 2; // y = 2 has no x on edwards25519
+  const BEYOND_P = Uint8Array.from(Buffer.from('f0' + 'ff'.repeat(30) + '7f', 'hex')); // y = p + 3; 3 is on the curve, not small order
+  const NEGATIVE_ZERO_X = Uint8Array.from(Buffer.from('01' + '00'.repeat(30) + '80', 'hex')); // y = 1, x = 0 with the sign bit set
+
+  it('takes its non-canonical cases from where they claim to be', () => {
+    assert.throws(() => decode(OFF_CURVE), /not a curve point/);
+    const beyond = Uint8Array.from(BEYOND_P);
+    let y = 0n;
+    for (let i = 31; i >= 0; i -= 1) y = (y << 8n) | BigInt(beyond[i]);
+    assert.equal(y, P + 3n);
+    let point = decode(Uint8Array.from([3, ...new Uint8Array(31)]));
+    for (let i = 0; i < 3; i += 1) point = add(point, point);
+    assert.notDeepEqual(point, [0n, 1n]);
+  });
+
+  for (const [id, raw] of [['an off-curve y', OFF_CURVE], ['a y of p or more', BEYOND_P], ['x = 0 with the sign bit set', NEGATIVE_ZERO_X]]) {
+    it(`refuses ${id} as an AID`, () => {
+      assert.throws(() => verifyingKey(toAid(raw)), errors.MalformedKey);
+    });
+
+    it(`refuses ${id} through the raw keyid`, async () => {
+      await assert.rejects(() => verify(forged(Buffer.from(raw).toString('base64url'))), errors.MalformedKey);
+    });
+
+    it(`refuses ${id} when a resolver returns it`, async () => {
+      await assert.rejects(() => verify(forged('E' + 'A'.repeat(43)), { resolve: () => raw }), errors.MalformedKey);
+    });
+  }
 });

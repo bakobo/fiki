@@ -54,8 +54,40 @@ export const SMALL_ORDER = Object.freeze([
 const smallOrder = (raw) =>
   SMALL_ORDER.some((entry) => entry.every((byte, i) => (i === RAW_LEN - 1 ? raw[i] & 0x7f : raw[i]) === byte));
 
-/** Refuse a 32-byte public key of small order, which binds no signature to anything (27eo). */
+// RFC 8032 section 5.1.3's decoding, as far as deciding whether 32 bytes ARE a point: y below p,
+// x squared = (y^2 - 1) / (d y^2 + 1) a square mod p, and no sign bit on an x of zero. BigInt rather
+// than a dependency, because this is a yes-or-no question and needs no curve arithmetic beyond it.
+const P = 2n ** 255n - 19n;
+const mod = (a) => ((a % P) + P) % P;
+function power(base, exponent) {
+  let result = 1n;
+  for (let b = mod(base), e = exponent; e > 0n; e >>= 1n, b = mod(b * b)) if (e & 1n) result = mod(result * b);
+  return result;
+}
+const D = mod(-121665n * power(121666n, P - 2n));
+
+function canonicalPoint(raw) {
+  let y = 0n;
+  for (let i = RAW_LEN - 1; i >= 0; i -= 1) y = (y << 8n) | BigInt(raw[i]);
+  const sign = y >> 255n;
+  y &= (1n << 255n) - 1n;
+  if (y >= P) return false;
+  const x2 = mod((y * y - 1n) * power(D * y * y + 1n, P - 2n));
+  // x of zero has one encoding only, with the sign bit clear.
+  if (x2 === 0n) return sign === 0n;
+  // Euler's criterion: x2 has a square root mod p exactly when x2^((p-1)/2) is 1.
+  return power(x2, (P - 1n) / 2n) === 1n;
+}
+
+/** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo). */
 export function checkKey(raw, keyid) {
+  if (!canonicalPoint(raw)) {
+    throw new MalformedKey(
+      `The key for "${keyid}" is not the canonical encoding of a point on the Ed25519 curve, so ` +
+        'it is not a key fiki will verify with.',
+      { keyid },
+    );
+  }
   if (smallOrder(raw)) {
     throw new MalformedKey(
       `The key for "${keyid}" is a small-order Ed25519 point, under which a signature can be ` +
