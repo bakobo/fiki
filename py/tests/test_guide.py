@@ -10,8 +10,28 @@ import re
 import stat
 from pathlib import Path
 
-from fiki import Key, sign_request, verify_request
-from fiki.errors import DigestMismatch
+import pytest
+
+from fiki import (
+    REQUEST_MINIMUM,
+    RESPONSE_MINIMUM,
+    Key,
+    Request,
+    errors,
+    sign_request,
+    sign_response,
+    verify_request,
+    verify_response,
+    verifying_key,
+)
+from fiki.errors import DigestMismatch, FikiError
+
+# The synthetic controller and agent of vectors/keri/, so the values are real, not placeholders.
+CONTROLLER_SEED = bytes.fromhex("02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021")
+CONTROLLER_AID = "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx"
+AGENT_SEED = bytes.fromhex("030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122")
+AGENT_AID = "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+
 
 def test_the_guides_signing_sample_runs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -58,6 +78,168 @@ def test_the_guides_verifying_sample_runs():
         raise AssertionError("a swapped body should be refused")
 
 
+# --- the KERI profile ---
+
+def _keri_request():
+    key = Key.from_seed(CONTROLLER_SEED)
+    aid = CONTROLLER_AID
+    url = "https://keria.example.com/identifiers"
+    body = b'{"name": "alice"}'
+
+    # guide: signing with a KERI identifier
+    headers = sign_request(
+        key=key,                   # the AID's current signing key
+        keyid=aid,                 # e.g. "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx"
+        method="POST",             # exactly as it will go on the wire
+        url=url,
+        body=body,
+        minimum=REQUEST_MINIMUM,   # refuse to sign what a profile verifier would refuse
+    )
+    # end guide
+    return key, url, body, headers
+
+
+def _key_state():
+    """The verifier's own key state: each AID to the raw bytes of its current signing key."""
+    return {
+        aid: verifying_key(Key.from_seed(seed).aid).public_bytes_raw()
+        for aid, seed in ((CONTROLLER_AID, CONTROLLER_SEED), (AGENT_AID, AGENT_SEED))
+    }
+
+
+def test_the_guides_keri_signing_sample_names_the_aid():
+    _, _, _, headers = _keri_request()
+    assert f'keyid="{CONTROLLER_AID}"' in headers["Signature-Input"]
+    assert "Content-Digest" in headers
+
+
+def test_the_guides_resolver_sample_runs():
+    key_state = _key_state()
+    _, url, body, headers = _keri_request()
+
+    # guide: verifying with a resolver
+    def resolve(keyid):
+        return key_state.get(keyid)   # 32 raw bytes of the current key, or None
+
+    verdict = verify_request(
+        method="POST", url=url, headers=headers, body=body,
+        max_age=300, skew=60,
+        minimum=REQUEST_MINIMUM,
+        resolve=resolve,
+        authorities={"keria.example.com"},   # the authorities this server answers for
+    )
+    # end guide
+    assert verdict.keyid == verdict.aid == CONTROLLER_AID
+
+    # An AID the resolver does not know is refused, never decoded as a key.
+    with pytest.raises(errors.UnknownKey) as caught:
+        verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
+                       minimum=REQUEST_MINIMUM, resolve=lambda keyid: None)
+    assert caught.value.keyid == CONTROLLER_AID
+
+
+def test_the_guides_response_samples_run():
+    key_state = _key_state()
+    _, url, body, request_headers = _keri_request()
+    agent = Key.from_seed(AGENT_SEED)
+    agent_aid = AGENT_AID
+    response_body = b'{"done": true}'
+
+    def resolve(keyid):
+        return key_state.get(keyid)
+
+    # guide: signing a response
+    request = Request(method="POST", url=url, headers=request_headers, body=body)
+    response_headers = sign_response(
+        key=agent,
+        keyid=agent_aid,
+        status=201,
+        request=request,           # the request it answers, which "req" components are read from
+        body=response_body,
+        minimum=RESPONSE_MINIMUM,
+    )
+    # end guide
+
+    # guide: verifying a response
+    verdict = verify_response(
+        status=201, headers=response_headers, body=response_body, request=request,
+        max_age=300,
+        minimum=RESPONSE_MINIMUM,
+        resolve=resolve,
+        expected_keyid=agent_aid,  # the AID this client is talking to
+    )
+    # end guide
+
+    assert verdict.keyid == AGENT_AID
+    assert '"content-digest";req' in verdict.covered
+
+    # A response from any other AID is refused, however valid its signature.
+    with pytest.raises(errors.UnknownKey):
+        verify_response(status=201, headers=response_headers, body=response_body,
+                        request=request, max_age=300, minimum=RESPONSE_MINIMUM,
+                        resolve=resolve, expected_keyid=CONTROLLER_AID)
+
+
+# guide: the new error classes
+def refusal(verify) -> str:
+    try:
+        verify()
+    except errors.UnknownKey as e:
+        return f"no key state for {e.keyid}"
+    except errors.UnsupportedSigner as e:
+        return f"no single key of {e.keyid} signs alone"
+    except errors.InsufficientCoverage as e:
+        return f"the signature does not cover {e.component}"
+    except errors.DuplicateComponent as e:
+        return f"the covered list names {e.component} twice"
+    except errors.Unauthenticated:
+        return "an unsigned 401; its body is not to be trusted"
+    except FikiError as e:
+        return type(e).__name__
+    return "verified"
+
+
+def group(keyid):
+    raise errors.UnsupportedSigner(
+        "This AID's key state has no single key that satisfies its threshold.", keyid=keyid
+    )
+# end guide
+
+
+def test_the_guides_error_sample_names_each_new_refusal():
+    key_state = _key_state()
+    key, url, body, headers = _keri_request()
+
+    def verify(headers=headers, resolve=key_state.get, minimum=REQUEST_MINIMUM):
+        return lambda: verify_request(method="POST", url=url, headers=headers, body=body,
+                                      max_age=300, minimum=minimum, resolve=resolve)
+
+    assert refusal(verify()) == "verified"
+    assert refusal(verify(resolve=lambda keyid: None)) == f"no key state for {CONTROLLER_AID}"
+    assert refusal(verify(resolve=group)) == f"no single key of {CONTROLLER_AID} signs alone"
+
+    # Signed without the profile's minimum, so a profile verifier finds @query missing.
+    thin = sign_request(key=key, keyid=CONTROLLER_AID, method="POST", url=url, body=body,
+                        covered=["@method", "@path", "content-digest"])
+    assert refusal(verify(headers=thin)) == "the signature does not cover @query"
+
+    twice = dict(headers)
+    twice["Signature-Input"] = twice["Signature-Input"].replace('("@method"', '("@method" "@method"')
+    assert refusal(verify(headers=twice)) == "the covered list names @method twice"
+
+    assert refusal(lambda: verify_response(status=401, headers={}, max_age=300)) == (
+        "an unsigned 401; its body is not to be trusted"
+    )
+    assert refusal(verify(headers={})) == "MissingSignature"
+
+    # A mistake in the call is not a refusal of the message, so it is never a FikiError.
+    with pytest.raises(ValueError):
+        verify(minimum=["@method"])()
+    with pytest.raises(TypeError):
+        verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
+                       expected_aid=CONTROLLER_AID, resolve=key_state.get)
+
+
 def _lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
@@ -82,7 +264,7 @@ def test_every_marked_sample_is_in_the_guide_line_for_line():
     # The samples above run; this proves the guide shows the code that ran, so a reader's
     # copy-paste is the tested code rather than a paraphrase of it.
     samples = _marked_samples()
-    assert len(samples) == 1
+    assert len(samples) == 6
     blocks = _guide_blocks()
     for sample in samples:
         assert any(_contains(block, sample) for block in blocks), sample[0]
