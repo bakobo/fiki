@@ -449,7 +449,7 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 		return nil, invalidOptions("Pass ExpectedAID or Resolve, not both; each decides the key alone.")
 	}
 	found := m.headers
-	list, signature, err := read(found, opts.ExpectedAID == "", opts.Minimum != nil)
+	list, signature, err := read(found, opts.ExpectedAID == "" || opts.Minimum != nil, opts.Minimum != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -650,10 +650,13 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 		}
 	}
 	if _, ok := entry.List.param("keyid"); requireKeyid && !ok {
-		// Here rather than when the key is resolved: keyid is REQUIRED, so its absence belongs
-		// with the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
+		// Required with no ExpectedAID, and always under a minimum, where the profile makes keyid
+		// REQUIRED even when ExpectedAID decides the key (bakobo/fiki#6). Here rather than when the
+		// key is resolved: its absence belongs with the other defects of Signature-Input, ahead of
+		// the covered list (@2f227n4r).
 		return errorf(KindMissingKey,
-			"This signature carries no keyid and no ExpectedAID was supplied, so there is no key to verify it against.")
+			"This signature carries no keyid, which is required without an ExpectedAID and always "+
+				"under a minimum covered set.")
 	}
 	if _, ok := entry.List.param("created"); requireCreated && !ok {
 		// Only under a minimum, which is how a caller applies the KERI profile, where created is
