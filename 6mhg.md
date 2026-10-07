@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-07T18:48Z
 
+- 2026-10-07T18:49Z 2026-10-07: duplicate of 65q7 (same cross-port size bound, raised on go #6, rust #8, java #10). Close both together.
