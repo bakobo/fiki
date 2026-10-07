@@ -1,22 +1,24 @@
 package com.bakobo.fiki;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
 /**
- * The RFC 8941 subset RFC 9421 actually uses (this.i @2q9gv70t, @2tt6fmc0).
+ * The RFC 8941 subset RFC 9421 actually uses (this.i @2q9gv70t, @2tt6fmc0, @8yucn7nv).
  *
  * <p>Hand-rolled rather than depended upon, for the reason every port hand-rolls it: fiki's slice
- * of structured fields is small and CLOSED — a dictionary whose members are inner lists of strings
- * with parameters, plus byte sequences — and the shared vectors pin its entire output surface byte
- * for byte. The usual argument against writing your own parser holds where the grammar is
- * open-ended; this one's every output is checked against committed bytes shared with four other
- * implementations.
+ * of structured fields is small and CLOSED — dictionaries whose members are inner lists or bare
+ * items with parameters — and the shared vectors pin its entire output surface byte for byte. The
+ * usual argument against writing your own parser holds where the grammar is open-ended; this one's
+ * every output is checked against committed bytes shared with four other implementations.
  *
- * <p>What is deliberately NOT here: decimals, tokens, inner-list items with their own parameters,
- * and every field type RFC 9421 never puts in these two headers.
+ * <p>Every bare item type the grammar has is READ — integers, decimals, strings, tokens, byte
+ * sequences, booleans — so that a header carrying the wrong type is refused for its type by the
+ * caller, as fiki-py's http_sfv does, rather than failing to parse at all. Lists and items as
+ * top-level fields are not here, because RFC 9421 puts neither in the headers fiki reads.
  */
 final class Sfv {
 
@@ -33,20 +35,42 @@ final class Sfv {
         }
     }
 
-    /** A covered-component list with its parameters, in the order they arrived. */
-    record InnerList(List<String> items, List<Map.Entry<String, Object>> params) {
+    /** An RFC 8941 token, kept distinct from a string because the two are different types. */
+    record Token(String text) {}
+
+    /** A bare item with its parameters, in the order they arrived. */
+    record Item(Object value, List<Map.Entry<String, Object>> params) {
         Object param(String key) {
-            for (Map.Entry<String, Object> entry : params) {
-                if (entry.getKey().equals(key)) {
-                    return entry.getValue();
-                }
-            }
-            return null;
+            return lookup(params, key);
+        }
+
+        boolean has(String key) {
+            return params.stream().anyMatch(entry -> entry.getKey().equals(key));
         }
     }
 
-    /** A dictionary member: either an inner list, or a bare value with parameters. */
-    record Member(String key, InnerList list, Object value) {}
+    /** A parenthesized list of items with its parameters, in the order they arrived. */
+    record InnerList(List<Item> items, List<Map.Entry<String, Object>> params) {
+        Object param(String key) {
+            return lookup(params, key);
+        }
+
+        boolean has(String key) {
+            return params.stream().anyMatch(entry -> entry.getKey().equals(key));
+        }
+    }
+
+    /** A dictionary member: an {@link InnerList}, or a bare value with its parameters. */
+    record Member(String key, Object value, List<Map.Entry<String, Object>> params) {}
+
+    private static Object lookup(List<Map.Entry<String, Object>> params, String key) {
+        for (Map.Entry<String, Object> entry : params) {
+            if (entry.getKey().equals(key)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
 
     private static final class Cursor {
         private final String text;
@@ -65,6 +89,12 @@ final class Sfv {
         }
 
         void skipSpace() {
+            while (!done() && peek() == ' ') {
+                at++;
+            }
+        }
+
+        void skipOws() {
             while (!done() && (peek() == ' ' || peek() == '\t')) {
                 at++;
             }
@@ -104,11 +134,23 @@ final class Sfv {
                     out.append(escaped);
                 } else if (ch == '"') {
                     return out.toString();
+                } else if (ch < 0x20 || ch > 0x7e) {
+                    // Section 3.3.3: a string is visible ASCII and space, nothing else.
+                    throw new SyntaxException("a string carries a character outside visible ASCII");
                 } else {
                     out.append(ch);
                 }
             }
             throw new SyntaxException("a string ran to the end of the field");
+        }
+
+        Token parseToken() {
+            int start = at;
+            at++; // the first character, which the caller checked
+            while (!done() && (isTchar(peek()) || peek() == ':' || peek() == '/')) {
+                at++;
+            }
+            return new Token(text.substring(start, at));
         }
 
         byte[] parseByteSequence() {
@@ -126,19 +168,38 @@ final class Sfv {
             }
         }
 
-        long parseInteger() {
+        Object parseNumber() {
+            // Section 3.3.1 and 3.3.2: at most fifteen digits for an integer, and at most twelve
+            // before the point and three after it for a decimal. Java's long would take nineteen,
+            // and a parser that accepted them would agree with no other implementation (@8yucn7nv).
             int start = at;
             if (peek() == '-') {
                 at++;
             }
+            int digitsStart = at;
             while (!done() && isDigit(peek())) {
                 at++;
             }
-            try {
-                return Long.parseLong(text.substring(start, at));
-            } catch (NumberFormatException e) {
-                throw new SyntaxException("expected an integer at offset " + start);
+            int whole = at - digitsStart;
+            if (whole == 0) {
+                throw new SyntaxException("expected a digit at offset " + at);
             }
+            if (done() || peek() != '.') {
+                if (whole > 15) {
+                    throw new SyntaxException("an integer has at most fifteen digits");
+                }
+                return Long.parseLong(text.substring(start, at));
+            }
+            at++; // the point
+            int fractionStart = at;
+            while (!done() && isDigit(peek())) {
+                at++;
+            }
+            int fraction = at - fractionStart;
+            if (whole > 12 || fraction == 0 || fraction > 3) {
+                throw new SyntaxException("a decimal has at most twelve digits, a point, and one to three more");
+            }
+            return new BigDecimal(text.substring(start, at));
         }
 
         Object parseBareItem() {
@@ -161,7 +222,10 @@ final class Sfv {
                 return flag == '1';
             }
             if (ch == '-' || isDigit(ch)) {
-                return parseInteger();
+                return parseNumber();
+            }
+            if (isAlpha(ch) || ch == '*') {
+                return parseToken();
             }
             throw new SyntaxException("unsupported item at offset " + at);
         }
@@ -172,19 +236,35 @@ final class Sfv {
                 at++;
                 skipSpace();
                 String key = parseKey();
+                Object value = Boolean.TRUE;
                 if (!done() && peek() == '=') {
                     at++;
-                    params.add(Map.entry(key, parseBareItem()));
-                } else {
-                    params.add(Map.entry(key, Boolean.TRUE));
+                    value = parseBareItem();
+                }
+                // A repeated key overwrites the earlier value in its original place (section
+                // 4.2.3.2), so a reader looking a parameter up gets the one a dictionary would.
+                boolean replaced = false;
+                for (int i = 0; i < params.size(); i++) {
+                    if (params.get(i).getKey().equals(key)) {
+                        params.set(i, Map.entry(key, value));
+                        replaced = true;
+                    }
+                }
+                if (!replaced) {
+                    params.add(Map.entry(key, value));
                 }
             }
             return params;
         }
 
+        Item parseItem() {
+            Object value = parseBareItem();
+            return new Item(value, parseParameters());
+        }
+
         InnerList parseInnerList() {
             at++; // the opening parenthesis
-            List<String> items = new ArrayList<>();
+            List<Item> items = new ArrayList<>();
             while (true) {
                 skipSpace();
                 if (done()) {
@@ -194,18 +274,10 @@ final class Sfv {
                     at++;
                     break;
                 }
-                Object item = parseBareItem();
-                if (!(item instanceof String text)) {
-                    throw new SyntaxException("fiki's covered components are strings");
-                }
-                // RFC 9421 never puts parameters on the members of a covered-component list.
-                if (!done() && peek() == ';') {
-                    throw new SyntaxException("parameters on a covered component");
-                }
+                items.add(parseItem());
                 if (!done() && peek() != ' ' && peek() != ')') {
                     throw new SyntaxException("expected a space or ) at offset " + at);
                 }
-                items.add(text);
             }
             return new InnerList(items, parseParameters());
         }
@@ -215,8 +287,16 @@ final class Sfv {
         return ch >= 'a' && ch <= 'z';
     }
 
+    private static boolean isAlpha(char ch) {
+        return isLower(ch) || (ch >= 'A' && ch <= 'Z');
+    }
+
     private static boolean isDigit(char ch) {
         return ch >= '0' && ch <= '9';
+    }
+
+    private static boolean isTchar(char ch) {
+        return isAlpha(ch) || isDigit(ch) || "!#$%&'*+-.^_`|~".indexOf(ch) >= 0;
     }
 
     /** Parse an RFC 8941 dictionary, preserving member order because the verify side needs it. */
@@ -230,27 +310,43 @@ final class Sfv {
             if (!cursor.done() && cursor.peek() == '=') {
                 cursor.at++;
                 if (cursor.peek() == '(') {
-                    member = new Member(key, cursor.parseInnerList(), null);
+                    InnerList list = cursor.parseInnerList();
+                    member = new Member(key, list, list.params());
                 } else {
-                    Object value = cursor.parseBareItem();
-                    member = new Member(key, new InnerList(List.of(), cursor.parseParameters()), value);
+                    Item item = cursor.parseItem();
+                    member = new Member(key, item.value(), item.params());
                 }
             } else {
-                member = new Member(key, new InnerList(List.of(), cursor.parseParameters()), Boolean.TRUE);
+                member = new Member(key, Boolean.TRUE, cursor.parseParameters());
             }
             out.removeIf(existing -> existing.key().equals(key));
             out.add(member);
-            cursor.skipSpace();
+            cursor.skipOws();
             if (cursor.done()) {
                 break;
             }
             cursor.expect(',');
-            cursor.skipSpace();
+            cursor.skipOws();
             if (cursor.done()) {
                 throw new SyntaxException("a dictionary ended with a trailing comma");
             }
         }
         return out;
+    }
+
+    /** Parse one RFC 8941 item with its parameters, the whole of {@code text} and nothing else. */
+    static Item parseItem(String text) {
+        Cursor cursor = new Cursor(text);
+        cursor.skipSpace();
+        if (cursor.done()) {
+            throw new SyntaxException("an item cannot be empty");
+        }
+        Item item = cursor.parseItem();
+        cursor.skipSpace();
+        if (!cursor.done()) {
+            throw new SyntaxException("unexpected text after the item at offset " + cursor.at);
+        }
+        return item;
     }
 
     static String serializeBareItem(Object value) {
@@ -263,10 +359,14 @@ final class Sfv {
         if (value instanceof byte[] raw) {
             return ':' + Base64.getEncoder().encodeToString(raw) + ':';
         }
-        // Only FALSE reaches here: RFC 8941 renders a true-valued parameter as a bare key, which
-        // serializeParameters does before calling this, and fiki never puts a boolean in an item
-        // position.
-        return "?0";
+        if (value instanceof Token token) {
+            return token.text();
+        }
+        if (value instanceof BigDecimal decimal) {
+            String plain = decimal.toPlainString();
+            return plain.contains(".") ? plain : plain + ".0";
+        }
+        return Boolean.TRUE.equals(value) ? "?1" : "?0";
     }
 
     static String serializeParameters(List<Map.Entry<String, Object>> params) {
@@ -281,6 +381,10 @@ final class Sfv {
         return out.toString();
     }
 
+    static String serializeItem(Item item) {
+        return serializeBareItem(item.value()) + serializeParameters(item.params());
+    }
+
     /** Render a covered-component list with its signature parameters. */
     static String serializeInnerList(InnerList list) {
         StringBuilder out = new StringBuilder("(");
@@ -288,7 +392,7 @@ final class Sfv {
             if (i > 0) {
                 out.append(' ');
             }
-            out.append(serializeBareItem(list.items().get(i)));
+            out.append(serializeItem(list.items().get(i)));
         }
         return out.append(')').append(serializeParameters(list.params())).toString();
     }

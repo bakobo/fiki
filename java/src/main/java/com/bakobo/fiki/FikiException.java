@@ -1,7 +1,7 @@
 package com.bakobo.fiki;
 
 /**
- * Every error fiki reports about a request.
+ * Every error fiki reports about a message it was asked to sign or verify.
  *
  * <p>The {@link Kind} names are a cross-language contract rather than an implementation detail:
  * {@code vectors/refusals.json} records the name fiki reports for each refusal, and every port
@@ -23,6 +23,15 @@ public class FikiException extends RuntimeException {
         MissingSignatureLabel,
         MissingKey,
         MissingComponent,
+        // A resolver was supplied and does not know the keyid (@6g9zjsv9). Never answered by
+        // decoding the keyid as a key instead.
+        UnknownKey,
+        // The keyid's key state has no single key that satisfies its threshold alone (@2f227n4r).
+        // fiki never decides this itself; a resolver throws it and fiki carries it out unchanged.
+        UnsupportedSigner,
+        // An unsigned 401 answered the request: a server that refuses before it knows the agent
+        // cannot sign the refusal, so the body of it is not to be trusted (@2f227n4r).
+        Unauthenticated,
 
         // Something the request carries cannot be read.
         MalformedSignature,
@@ -34,6 +43,10 @@ public class FikiException extends RuntimeException {
 
         // fiki understood the request and will not handle it.
         UnsupportedComponent,
+        // The covered list names the same component twice, whatever the order of its parameters.
+        DuplicateComponent,
+        // The signature verifies, and covers less than the verifier's stated minimum (@7f28p7xk).
+        InsufficientCoverage,
         UnsupportedAlgorithm,
         UncoveredBody,
 
@@ -58,7 +71,13 @@ public class FikiException extends RuntimeException {
         this(kind, message, null);
     }
 
-    FikiException(Kind kind, String message, String detail) {
+    /**
+     * Public so that a caller's {@link Fiki.Resolver} can refuse a keyid in fiki's own terms —
+     * {@code MalformedKey} for one that is not a well-formed identifier, {@code UnsupportedSigner}
+     * for a key state with no single effective signer — which fiki carries out unchanged
+     * (this.i @24tvlxgd).
+     */
+    public FikiException(Kind kind, String message, String detail) {
         super(message);
         this.kind = kind;
         this.detail = detail;
