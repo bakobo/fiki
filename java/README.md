@@ -52,7 +52,7 @@ Behaviour is fiki-py's and the surface is Java's (`this.i` @24tvlxgd). Where the
 
 - A refusal is one `FikiException` whose `kind()` is a `FikiException.Kind` named exactly as the Python exception class, rather than a class per refusal, and `detail()` carries the offending value. Its constructor is public so that a `Resolver` can throw `UnsupportedSigner` or `MalformedKey` itself.
 - A mistake in the call rather than the message is an `IllegalArgumentException`, where Python raises `TypeError` for some and `ValueError` for others: an expected AID together with a resolver, a minimum smaller than the profile's, a response binding the request's digest verified without the request body, served authorities passed to `verifyResponse`, an empty method, a port that is not a number from 0 to 65535, and a header map that names one field under two spellings.
-- The resolver is a synchronous functional interface, the request a response answers is a `Fiki.Request` record, and options are `SignOptions` and `VerifyOptions` records built with `with…` methods. `VerifyOptions` still has no constructor that leaves the freshness decision unstated.
+- The resolver is a synchronous functional interface, the request a response answers is a `Fiki.Request` record, and options are `SignOptions` and `VerifyOptions` records built with `with…` methods. `VerifyOptions` holds a `Fiki.Freshness` value, and its canonical constructor refuses a null one, so no constructor leaves the freshness decision unstated: it is `maxAge(seconds)`, `decliningFreshness()`, or `Freshness.DECLINED` passed explicitly. A maximum age or skew that is not positive is refused.
 
 Some refusals are stricter than fiki-py's today, each in the fail-closed direction and each recorded in `this.i`:
 
