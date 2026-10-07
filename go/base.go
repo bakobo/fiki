@@ -58,7 +58,8 @@ func authority(u *url.URL, headers map[string]string) (string, error) {
 func componentValue(component, method string, u *url.URL, headers map[string]string) (string, error) {
 	switch component {
 	case "@method":
-		return strings.ToUpper(method), nil
+		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8).
+		return method, nil
 	case "@authority":
 		return authority(u, headers)
 	case "@path":

@@ -124,7 +124,7 @@ func TestSignatureBaseComponents(t *testing.T) {
 		{"empty path is a slash", "@path", "GET", "https://example.com", `"@path": /`, nil},
 		{"no query is a bare question mark", "@query", "GET", "https://example.com/f", `"@query": ?`, nil},
 		{"percent-encoding is not decoded", "@query", "GET", "https://example.com/p?baz=bat%2Dman", `"@query": ?baz=bat%2Dman`, nil},
-		{"method is uppercased", "@method", "post", "https://example.com/f", `"@method": POST`, nil},
+		{"method is signed as given, with no case transformation", "@method", "post", "https://example.com/f", `"@method": post`, nil},
 		{"header names are lowercased and values trimmed", "Content-Type", "GET", "https://example.com/f", `"content-type": application/json`, map[string]string{"Content-Type": "  application/json  "}},
 	}
 	for _, c := range cases {
