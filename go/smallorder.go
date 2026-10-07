@@ -51,3 +51,33 @@ func smallOrder(key []byte) bool {
 	_, err := smallOrderProbe.ECDH(peer)
 	return err != nil
 }
+
+// edwardsD is the curve constant d = -121665 / 121666 mod p (RFC 8032 section 5.1).
+var edwardsD = new(big.Int).Mod(new(big.Int).Mul(big.NewInt(-121665),
+	new(big.Int).ModInverse(big.NewInt(121666), fieldPrime)), fieldPrime)
+
+// canonicalPoint reports whether a 32-byte key is the canonical encoding of a point on the curve
+// (RFC 8032 section 5.1.3): y below p, some x with -x^2 + y^2 = 1 + d x^2 y^2, and the sign bit
+// clear when that x is 0. crypto/ed25519 refuses the rest only by failing every signature, which
+// would report a defect in the key as a forgery (@8krqtpsu).
+func canonicalPoint(key []byte) bool {
+	bigEndian := make([]byte, 32)
+	for i := range bigEndian {
+		bigEndian[31-i] = key[i]
+	}
+	sign := bigEndian[0]&0x80 != 0
+	bigEndian[0] &= 0x7f
+	y := new(big.Int).SetBytes(bigEndian)
+	if y.Cmp(fieldPrime) >= 0 {
+		return false
+	}
+	y2 := new(big.Int).Mul(y, y)
+	numerator := new(big.Int).Sub(y2, bigOne)
+	denominator := new(big.Int).Add(new(big.Int).Mul(edwardsD, y2), bigOne)
+	x2 := new(big.Int).Mul(numerator, new(big.Int).ModInverse(denominator.Mod(denominator, fieldPrime), fieldPrime))
+	x2.Mod(x2, fieldPrime)
+	if x2.Sign() == 0 {
+		return !sign
+	}
+	return new(big.Int).ModSqrt(x2, fieldPrime) != nil
+}

@@ -663,18 +663,26 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 	return nil
 }
 
-// resolveKey is the key to verify with and the identity to report, refusing a small-order key
-// whichever way it arrived (@8krqtpsu).
+// resolveKey is the key to verify with and the identity to report, refusing a key that is not a
+// canonical on-curve point, or is of small order, whichever way it arrived (@8krqtpsu).
 func resolveKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
 	public, aid, err := findKey(expectedAID, keyid, resolve)
 	if err != nil {
 		return nil, "", err
 	}
-	if smallOrder(public) {
-		named := keyid
-		if expectedAID != "" {
-			named = expectedAID
+	named := keyid
+	if expectedAID != "" {
+		named = expectedAID
+	}
+	if !canonicalPoint(public) {
+		return nil, "", &Error{
+			Kind: KindMalformedKey,
+			Message: fmt.Sprintf("The key for %q is not the canonical encoding of a point on the "+
+				"Ed25519 curve, so no signature could verify under it.", named),
+			Keyid: named,
 		}
+	}
+	if smallOrder(public) {
 		return nil, "", &Error{
 			Kind: KindMalformedKey,
 			Message: fmt.Sprintf("The key for %q is a point of small order, under which a signature "+
