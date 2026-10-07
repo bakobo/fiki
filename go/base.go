@@ -322,12 +322,17 @@ func requestMessage(method, rawURL string, headers map[string]string) (*message,
 	if err != nil {
 		return nil, err
 	}
-	return canonicalMessage(method, rawURL, canonical), nil
+	return canonicalMessage(method, rawURL, canonical)
 }
 
-// canonicalMessage is a request over headers canonicalHeaders has already produced.
-func canonicalMessage(method, rawURL string, canonical map[string]string) *message {
-	return &message{headers: canonical, method: method, target: splitURL(rawURL)}
+// canonicalMessage is a request over headers canonicalHeaders has already produced. Every
+// request message is built here, so an empty method is refused on every path, whether or not
+// @method is covered: no request is sent without one (bakobo/fiki#6).
+func canonicalMessage(method, rawURL string, canonical map[string]string) (*message, error) {
+	if method == "" {
+		return nil, invalidOptions("No method was given; pass the request's method as it goes on the wire.")
+	}
+	return &message{headers: canonical, method: method, target: splitURL(rawURL)}, nil
 }
 
 func responseMessage(status int, headers map[string]string, request *Request) (*message, error) {
@@ -370,12 +375,7 @@ func componentValue(item componentID, m *message) (string, error) {
 		}
 		return strconv.Itoa(m.status), nil
 	case "@method":
-		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8). No
-		// request is sent without a method, so an empty one is a mistake in the call, never a
-		// value to sign.
-		if m.method == "" {
-			return "", invalidOptions("The signature covers %s, and no method was given; pass the method as it goes on the wire.", item.spec())
-		}
+		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8).
 		return m.method, nil
 	case "@authority":
 		return authority(m.target, m.headers)

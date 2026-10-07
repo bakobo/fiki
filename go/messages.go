@@ -124,7 +124,11 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 			return nil, err
 		}
 	}
-	base, err := buildBase(items, canonicalMessage(method, rawURL, sending), false, signerParams(key, opts))
+	m, err := canonicalMessage(method, rawURL, sending)
+	if err != nil {
+		return nil, err
+	}
+	base, err := buildBase(items, m, false, signerParams(key, opts))
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +200,9 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	}
 	m := &message{headers: sending, status: status}
 	if request != nil {
-		m.request = canonicalMessage(request.Method, request.URL, requestHeaders)
+		if m.request, err = canonicalMessage(request.Method, request.URL, requestHeaders); err != nil {
+			return nil, err
+		}
 	}
 	base, err := buildBase(items, m, true, signerParams(key, opts))
 	if err != nil {
