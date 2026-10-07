@@ -176,7 +176,14 @@ function checked(value, spec) {
   return value;
 }
 
-export const requestMessage = (method, url, headers) => ({ headers: lowered(headers), method, parts: splitUrl(url) });
+export function requestMessage(method, url, headers) {
+  // A method is the caller's to supply, and an absent one would otherwise be signed as the string
+  // "undefined". Required here, where every request and every response's request passes.
+  if (typeof method !== 'string' || method === '') {
+    throw new TypeError(`A request needs its method as a non-empty string, as sent; got ${String(method) || 'an empty string'}.`);
+  }
+  return { headers: lowered(headers), method, parts: splitUrl(url) };
+}
 
 export const responseMessage = (status, headers, request) => ({
   headers: lowered(headers),

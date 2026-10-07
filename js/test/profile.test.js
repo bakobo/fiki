@@ -80,6 +80,20 @@ describe('@method is the method as sent (@22g0xkr8)', () => {
   });
 });
 
+describe('a method is required (PR #5 hostile review, finding 3)', () => {
+  for (const method of [undefined, null, '', 42]) {
+    it(`refuses ${JSON.stringify(method) ?? 'undefined'} as a method rather than signing "undefined"`, async () => {
+      const base = { url: URL_, headers: {}, covered: ['@method'], created: AT, keyid: 'k' };
+      assert.throws(() => signatureBase({ ...base, method }), TypeError);
+      await assert.rejects(() => sign({ method }), TypeError);
+      const signed = await sign();
+      await assert.rejects(() => verify(signed, { method }), TypeError);
+      await assert.rejects(() => respond({ request: { ...REQUEST, method } }), TypeError);
+      await assert.rejects(async () => check(await respond(), { request: { ...REQUEST, method } }), TypeError);
+    });
+  }
+});
+
 describe('Content-Digest: every recognized member must match (RFC 9530)', () => {
   it('refuses two recognized digests when one mismatches', async () => {
     const good = await contentDigest(BODY);
