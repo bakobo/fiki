@@ -201,7 +201,9 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
         host = (parts.hostname or "").lower()
         # urlsplit's hostname drops an IP-literal's brackets, and RFC 3986 section 3.2.2 makes
         # them part of the host, so they are restored: [::1]:8443, never ::1:8443 (tick 2h2g).
-        if ":" in host:
+        # Decided from the authority as written, since an IPvFuture literal, [v1.example], has
+        # no colon to tell it by.
+        if parts.netloc.rpartition("@")[2].startswith("["):
             host = f"[{host}]"
         port = parts.port
         if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
