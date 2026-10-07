@@ -60,6 +60,7 @@ Some refusals are stricter than fiki-py's today, each in the fail-closed directi
 - A covered field value is checked for control characters on the value as received, and only then are spaces and tabs trimmed, so a value ending in CR LF is refused rather than read as the value without it (@3cceqvg3).
 - Under a minimum covered set, a keyid is required even when the verifier names the key (@6hsuwdh8).
 - A signer refuses a caller-supplied `Content-Digest` that does not hold for the body, and each header map is read once into one canonical form (@0ms4j0ef).
+- A signer refuses a keyid, nonce or tag that is not an RFC 8941 string, a label that is not an RFC 8941 key, and a `created` or `expires` beyond fifteen digits. A received URL whose authority cannot be read is `SignatureMismatch`, where Python raises a bare `ValueError`, and a 401 with an empty `Signature` header is `Unauthenticated` (@2r05k9g0).
 
 And a few edges are read as RFC 3986 and RFC 8941 write them (@8yucn7nv): an IPv6 literal in `@authority` keeps its brackets, where Python drops them; the parser reads tokens and decimals and refuses an integer of more than fifteen digits; and parsing is linear in the number of parameters and members.
 
