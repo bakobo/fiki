@@ -19,6 +19,28 @@
     </license>
   </licenses>
 
+  <!-- Maven Central requires name, description, url, licenses, developers and scm, and refuses a
+       deployment that lacks any of them (https://central.sonatype.org/publish/requirements/). -->
+  <developers>
+    <developer>
+      <name>Bakobo</name>
+      <organization>Bakobo</organization>
+      <organizationUrl>https://github.com/bakobo</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/bakobo/fiki.git</connection>
+    <developerConnection>scm:git:https://github.com/bakobo/fiki.git</developerConnection>
+    <url>https://github.com/bakobo/fiki</url>
+    <tag>java/v${project.version}</tag>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub</system>
+    <url>https://github.com/bakobo/fiki/issues</url>
+  </issueManagement>
+
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -52,4 +74,76 @@
       </plugin>
     </plugins>
   </build>
+
+  <!-- What a Maven Central release adds to an ordinary build, and only that: the sources and javadoc
+       jars Central requires beside every jar, a PGP signature on each file, and the Central
+       Portal's own publishing plugin. Kept in a profile so that `mvn test` and CI never need a
+       signing key. release-java.yml activates it; docs/releasing.md says where the credentials come
+       from. -->
+  <profiles>
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>3.4.0</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>3.12.0</version>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <!-- The bc signer reads the armored key from MAVEN_GPG_KEY and its passphrase from
+               MAVEN_GPG_PASSPHRASE, so the runner needs no gpg keyring and nothing is imported into
+               one. -Dgpg.skip turns signing off for a local dry run. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.8</version>
+            <configuration>
+              <signer>bc</signer>
+            </configuration>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.11.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>true</autoPublish>
+              <waitUntil>published</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
