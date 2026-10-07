@@ -50,7 +50,7 @@ It takes **BouncyCastle.Cryptography**, pinned exactly, rather than NSec.Cryptog
 
 The cost is a large library of which fiki uses one algorithm, and one more maintainer outside Bakobo in the supply chain. CI checks that the packed library declares BouncyCastle.Cryptography and nothing else, for each target framework.
 
-One consequence worth knowing: BouncyCastle refuses a public key that is not a valid curve point, or that has small order, where OpenSSL, which fiki-py uses, accepts the key and decides at verification. For a real key the two agree. For a degenerate one this port refuses with `SignatureMismatch` where fiki-py might accept a signature that anyone could have made.
+A key that is a small-order point, in any of its encodings, is refused as `MalformedKey` when it is decoded from a keyid, read from an AID, or returned by a resolver, before the algorithm or the signature is looked at. Against such a key a signature anyone can write verifies, and OpenSSL, which fiki-py uses, accepts it. The check is BouncyCastle's `Ed25519.ValidatePublicKeyPartial`, which also refuses bytes that are no canonical point on the curve; fiki-py reports those as a `SignatureMismatch` instead. `Key.ToAid` will not render such a key.
 
 ## How this port reproduces fiki-py
 

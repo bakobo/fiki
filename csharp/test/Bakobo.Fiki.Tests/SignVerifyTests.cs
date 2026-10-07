@@ -450,12 +450,13 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void ARawKeyidThatIsNotAPointOnTheCurveIsASignatureMismatch()
+        public void ARawKeyidThatIsNotACanonicalPointIsAMalformedKey()
         {
-            // OpenSSL accepts any 32 bytes as a public key and fails the verification, so fiki-py
-            // reports a mismatch; BouncyCastle refuses the point, and the port reports the same.
+            // y = 2^255 - 1 is not below p, so this is no canonical encoding of any point. fiki-py
+            // hands such bytes to OpenSSL and reports the failed verification as a mismatch; this
+            // port refuses the key itself, with small-order keys (SmallOrderTests).
             var keyId = Bytes.B64Url(Enumerable.Repeat((byte)0xff, 31).Concat(new byte[] { 0x7f }).ToArray());
-            Assert.Equal(FikiErrorKind.SignatureMismatch, Signed(keyId: keyId).Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedKey, Signed(keyId: keyId).Refused().Kind);
         }
     }
 }

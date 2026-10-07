@@ -1,4 +1,5 @@
 using System;
+using Org.BouncyCastle.Math.EC.Rfc8032;
 
 namespace Bakobo.Fiki
 {
@@ -23,6 +24,24 @@ namespace Bakobo.Fiki
         private const string UrlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
         internal static string ToAid(byte[] raw) => Qb64(Code, raw);
+
+        /// <summary>
+        /// True when 32 bytes are a key fiki will verify with: the canonical encoding of a point on
+        /// the curve that is not of small order. BouncyCastle 2.7.0's
+        /// <c>Ed25519.ValidatePublicKeyPartial</c> refuses a y of 0, 1 or p - 1 or either order-8
+        /// value (every encoding of the 8 small-order points, whatever the sign bit), any y at or
+        /// above p, and a y with no x on the curve, which is the set to refuse. It does not refuse a
+        /// point with a small-order component beside a large one, which OpenSSL accepts too; the
+        /// "Full" variant would, and would refuse more than fiki-py. Against a small-order key a
+        /// signature anyone can write verifies, so such a key is malformed, never attempted.
+        /// </summary>
+        internal static bool IsUsableKey(byte[] raw) => Ed25519.ValidatePublicKeyPartial(raw, 0);
+
+        internal static FikiException Unusable(string keyId) => new FikiException(
+            FikiErrorKind.MalformedKey,
+            $"The key that \"{keyId}\" names is not a usable Ed25519 public key: it is a point of small order, against which " +
+            "anyone can forge a signature, or no canonical point on the curve at all.",
+            keyId: keyId);
 
         /// <summary>A one-character code over 32 raw bytes.</summary>
         internal static string Qb64(char code, byte[] raw)
@@ -106,7 +125,8 @@ namespace Bakobo.Fiki
                     ? $"The AID \"{aid}\" is not valid base64url."
                     : $"The AID \"{aid}\" does not decode to a {RawLength}-byte key.");
             }
-            return Canonical(aid) ?? throw Malformed(aid, $"The AID \"{aid}\" is not the canonical spelling of its key.");
+            var raw = Canonical(aid) ?? throw Malformed(aid, $"The AID \"{aid}\" is not the canonical spelling of its key.");
+            return IsUsableKey(raw) ? raw : throw Unusable(aid);
         }
     }
 }

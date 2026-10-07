@@ -497,6 +497,12 @@ namespace Bakobo.Fiki
                         $"The key resolved for \"{keyId}\" is not a {KeyLength}-byte Ed25519 public key.",
                         keyId: keyId);
                 }
+                // A small-order key is refused here, in the key's place in section 9's order, rather
+                // than attempted: against it a signature anyone can write verifies.
+                if (!Aids.IsUsableKey(resolved))
+                {
+                    throw Aids.Unusable(keyId!);
+                }
                 aid = keyId!;
                 return resolved;
             }
@@ -523,6 +529,10 @@ namespace Bakobo.Fiki
                     FikiErrorKind.MalformedKey,
                     $"The keyid \"{keyId}\" is not the canonical base64url spelling of any key.",
                     keyId: keyId);
+            }
+            if (!Aids.IsUsableKey(raw))
+            {
+                throw Aids.Unusable(keyId);
             }
             aid = Aids.ToAid(raw);
             return raw;

@@ -66,19 +66,25 @@ namespace Bakobo.Fiki
         }
 
         /// <summary>Render a raw 32-byte Ed25519 public key as a non-transferable AID.</summary>
-        /// <exception cref="ArgumentException">The key is not 32 bytes.</exception>
+        /// <exception cref="ArgumentException">The key is not 32 bytes, or not a usable key: a small-order point, or no canonical point at all.</exception>
         public static string ToAid(byte[] raw)
         {
             if (raw.Length != Aids.RawLength)
             {
                 throw new ArgumentException($"An Ed25519 public key is {Aids.RawLength} bytes; this one is {raw.Length}.", nameof(raw));
             }
+            if (!Aids.IsUsableKey(raw))
+            {
+                // Refused here as VerifyingKey refuses it, so every AID this renders reads back.
+                throw new ArgumentException("These bytes are a small-order point or no point on the curve, not a usable Ed25519 public key.", nameof(raw));
+            }
             return Aids.ToAid(raw);
         }
 
         /// <summary>Recover the Ed25519 public key from a non-transferable AID.</summary>
         /// <exception cref="FikiException">
-        /// MalformedKey, for anything that is not the canonical 44-character <c>B…</c> spelling of a key.
+        /// MalformedKey, for anything that is not the canonical 44-character <c>B…</c> spelling of a key,
+        /// and for the spelling of a small-order point, against which anyone can forge a signature.
         /// </exception>
         public static PublicKey VerifyingKey(string aid) => new PublicKey(Aids.VerifyingKey(aid));
     }
