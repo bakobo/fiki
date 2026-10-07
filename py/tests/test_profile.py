@@ -877,6 +877,40 @@ def test_a_malformed_request_digest_outranks_a_mismatched_response_digest():
         check(headers, request=odd, body=b'{"done": false}')
 
 
+# --- keyid under a minimum (profile R1) ---
+
+def keyless_request():
+    """A request validly signed by KEY whose Signature-Input carries no keyid at all."""
+    covered = ["@method", "@authority", "@path", "@query", "content-digest"]
+    sending = {"Content-Digest": content_digest(BODY)}
+    base = signature_base(method="POST", url=URL, headers=sending, covered=covered, created=AT,
+                          keyid=None, alg="ed25519")
+    params = base.decode().rsplit('"@signature-params": ', 1)[1]
+    headers = {**sending, "Signature-Input": f"sig={params}",
+               "Signature": f"sig=:{base64.b64encode(KEY.sign(base)).decode()}:"}
+    return {"method": "POST", "url": URL, "body": BODY}, headers
+
+
+def test_without_a_minimum_an_expected_aid_stands_in_for_a_missing_keyid():
+    request, headers = keyless_request()
+    assert verify(request, headers, expected_aid=KEY.aid).aid == KEY.aid
+
+
+def test_under_a_minimum_a_keyid_is_required_even_with_an_expected_aid():
+    """The profile makes keyid REQUIRED (R1); an expected_aid checks it rather than replacing it."""
+    request, headers = keyless_request()
+    with pytest.raises(MissingKey):
+        verify(request, headers, expected_aid=KEY.aid, minimum=REQUEST_MINIMUM)
+
+
+def test_under_a_minimum_a_response_needs_a_keyid_even_with_an_expected_aid():
+    headers = respond()
+    params = headers["Signature-Input"]
+    headers["Signature-Input"] = params.split(";keyid=")[0] + ';alg="ed25519"'
+    with pytest.raises(MissingKey):
+        check(headers, expected_aid=KEY.aid, minimum=RESPONSE_MINIMUM)
+
+
 # --- one name, one value: header names equal case-insensitively are a caller error ---
 
 DUPLICATES = [

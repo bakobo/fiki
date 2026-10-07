@@ -410,7 +410,8 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     if expected_aid is not None and resolve is not None:
         raise TypeError("Pass expected_aid or resolve, not both; each decides the key alone.")
 
-    inner, signature = _read(headers, require_keyid=expected_aid is None,
+    # Under a minimum, the profile's keyid is required even beside an expected_aid (@7y9lfnzq).
+    inner, signature = _read(headers, require_keyid=expected_aid is None or minimum is not None,
                              require_created=minimum is not None)
     items = list(inner)
     check_covered(items, response=response)
@@ -651,8 +652,8 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
         # Here rather than when the key is resolved: keyid is REQUIRED, so its absence belongs
         # with the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
         raise MissingKey(
-            "This signature carries no keyid and no expected_aid was supplied, so there is no "
-            "key to verify it against."
+            "This signature carries no keyid, and the verifier needs one: it was given no "
+            "expected_aid, or it applies the profile's minimum, under which keyid is required."
         )
     if require_created and "created" not in member.params:
         # Only under a minimum, which is how a caller applies the KERI profile, where created is
