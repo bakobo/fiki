@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Release smoke test for com.bakobo:fiki, resolved from Maven Central, never built from source.
+     It exists only to resolve a classpath: release-java.yml runs
+     `mvn dependency:build-classpath -Dfiki.version=X.Y.Z` and then Smoke.java on that classpath.
+     Jackson reads the vector files; the library itself has no runtime dependencies. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.bakobo</groupId>
+  <artifactId>fiki-release-smoke</artifactId>
+  <version>0.0.0</version>
+  <packaging>pom</packaging>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.bakobo</groupId>
+      <artifactId>fiki</artifactId>
+      <version>${fiki.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.18.2</version>
+    </dependency>
+  </dependencies>
+</project>
