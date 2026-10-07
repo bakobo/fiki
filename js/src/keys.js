@@ -55,7 +55,30 @@ export function verifyingKey(aid) {
   // base64's alphabet includes "=", so a 44-character AID can be padded and still decode short.
   // Here the character class excludes "=", so 44 valid characters always decode to 33 bytes and a
   // length check would be unreachable code claiming to guard something.
-  return fromBase64Url('A' + aid.slice(1)).slice(1);
+  const decoded = fromBase64Url('A' + aid.slice(1));
+  // The second character's top two bits land in the pad byte the code replaced, so a non-zero pad
+  // would give one key two spellings. Only the canonical one, the one toAid produces, is the AID
+  // (bakobo/fiki#4).
+  if (decoded[0] !== 0) {
+    throw new MalformedKey(`The AID "${aid}" is not the canonical spelling of its key.`, { keyid: aid });
+  }
+  return decoded.slice(1);
+}
+
+// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
+// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
+const SPELLED_CODES = 'BDE';
+
+/** True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+ *
+ * That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
+ * decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
+ * this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+ */
+export function misspelledAid(keyid) {
+  if (keyid.length !== QB64_LEN || !SPELLED_CODES.includes(keyid[0])) return false;
+  if (!/^[A-Za-z0-9\-_]{43}$/.test(keyid.slice(1))) return true;
+  return fromBase64Url('A' + keyid.slice(1))[0] !== 0;
 }
 
 /** An Ed25519 key pair whose public half is rendered as a non-transferable AID. */
@@ -130,7 +153,11 @@ export class Key {
 
 /** Verify a raw signature against an AID's recovered key. */
 export async function verifySignature(aid, signature, data) {
-  const raw = verifyingKey(aid);
+  return verifyWithRaw(verifyingKey(aid), signature, data);
+}
+
+/** Verify a raw signature against a raw 32-byte Ed25519 public key. */
+export async function verifyWithRaw(raw, signature, data) {
   const key = await crypto.subtle.importKey('raw', raw, ALGORITHM, false, ['verify']);
   return crypto.subtle.verify(ALGORITHM, key, signature, data);
 }
