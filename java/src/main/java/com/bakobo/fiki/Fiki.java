@@ -404,19 +404,27 @@ public final class Fiki {
     /* ---------------------------------------------------------------- the signature base */
 
     /** A message as the base sees it: header names lowercased, values exactly as received. */
-    private record Message(Map<String, String> headers, String method, Target target, Integer status, Message request) {}
+    /**
+     * {@code received} is true on the verify side, where the message came from a peer: a target
+     * that cannot be read there is a defect of the message, coded, rather than the caller's
+     * mistake (@2r05k9g0).
+     */
+    private record Message(
+            Map<String, String> headers, String method, Target target, Integer status, Message request,
+            boolean received) {}
 
-    private static Message requestMessage(String method, String url, Map<String, String> headers) {
+    private static Message requestMessage(String method, String url, Map<String, String> headers, boolean received) {
         requireMethod(method);
         if (url == null) {
             throw new IllegalArgumentException("A request needs a URL.");
         }
-        return new Message(lowered(headers), method, Target.split(url), null, null);
+        return new Message(lowered(headers), method, Target.split(url), null, null, received);
     }
 
-    private static Message responseMessage(int status, Map<String, String> headers, Request request) {
-        Message answered = request == null ? null : requestMessage(request.method(), request.url(), request.headers());
-        return new Message(lowered(headers), null, null, status, answered);
+    private static Message responseMessage(int status, Map<String, String> headers, Request request, boolean received) {
+        Message answered = request == null ? null
+            : requestMessage(request.method(), request.url(), request.headers(), received);
+        return new Message(lowered(headers), null, null, status, answered, received);
     }
 
     private static void requireMethod(String method) {
@@ -431,7 +439,7 @@ public final class Fiki {
             String method, String url, Map<String, String> headers, List<String> covered, Params params) {
         List<Sfv.Item> items = components(covered);
         checkCovered(items, false);
-        return finish(linesFor(items, requestMessage(method, url, headers)), items, params);
+        return finish(linesFor(items, requestMessage(method, url, headers, false)), items, params);
     }
 
     /**
@@ -443,7 +451,7 @@ public final class Fiki {
             int status, Map<String, String> headers, List<String> covered, Params params, Request request) {
         List<Sfv.Item> items = components(covered);
         checkCovered(items, true);
-        return finish(linesFor(items, responseMessage(status, headers, request)), items, params);
+        return finish(linesFor(items, responseMessage(status, headers, request, false)), items, params);
     }
 
     private static byte[] finish(List<String> lines, List<Sfv.Item> items, Params params) {
@@ -579,7 +587,7 @@ public final class Fiki {
             case "@method":
                 return message.method();
             case "@authority":
-                return authority(message.target(), message.headers());
+                return authority(message.target(), message.headers(), message.received());
             // An empty path is the "/" the origin server would have received.
             case "@path":
                 return message.target().path();
@@ -647,7 +655,7 @@ public final class Fiki {
      * shape a server-side verifier actually holds. Nothing is normalized away there, because
      * without a scheme no port is a default port.
      */
-    private static String authority(Target target, Map<String, String> headers) {
+    private static String authority(Target target, Map<String, String> headers, boolean received) {
         if (target.authority() == null || target.authority().isEmpty()) {
             String host = headers.get("host");
             if (host == null) {
@@ -666,12 +674,12 @@ public final class Fiki {
         if (raw.startsWith("[")) {
             int close = raw.indexOf(']');
             if (close < 0) {
-                throw new IllegalArgumentException("The URL's IPv6 literal " + raw + " has no closing bracket.");
+                throw unreadable("The URL's IPv6 literal " + raw + " has no closing bracket.", received);
             }
             host = raw.substring(0, close + 1);
             String after = raw.substring(close + 1);
             if (!after.isEmpty() && !after.startsWith(":")) {
-                throw new IllegalArgumentException("The URL's authority " + raw + " has text after its IPv6 literal.");
+                throw unreadable("The URL's authority " + raw + " has text after its IPv6 literal.", received);
             }
             port = after.isEmpty() ? "" : after.substring(1);
         } else {
@@ -684,13 +692,26 @@ public final class Fiki {
         }
         if (!port.matches("[0-9]+") || port.replaceFirst("^0+(?=.)", "").length() > 5
                 || Integer.parseInt(port) > 65535) {
-            throw new IllegalArgumentException(
-                "The URL's port " + port + " is not a number from 0 to 65535.");
+            throw unreadable(
+                "The URL's port " + port + " is not a number from 0 to 65535.", received);
         }
         int number = Integer.parseInt(port);
         // Only a URL with a scheme has an authority of its own, so the scheme is never null here.
         Integer defaultPort = DEFAULT_PORTS.get(target.scheme());
         return defaultPort != null && number == defaultPort ? host : host + ":" + number;
+    }
+
+    /**
+     * A target that cannot be read: the caller's mistake when the caller is signing, and a base
+     * that cannot be built — a signature mismatch, as @2f227n4r makes every such base — when the
+     * URL came from a peer (@2r05k9g0).
+     */
+    private static RuntimeException unreadable(String why, boolean received) {
+        if (received) {
+            return new FikiException(FikiException.Kind.SignatureMismatch,
+                why + " There is no @authority to build the signature base from.");
+        }
+        return new IllegalArgumentException(why);
     }
 
     private static Map<String, String> lowered(Map<String, String> headers) {
@@ -836,7 +857,7 @@ public final class Fiki {
         boolean chosen = opts.covered() != null;
         List<Sfv.Item> items = components(chosen ? opts.covered() : DEFAULT_COVERED);
         coverBody(items, sending, opts.body(), chosen);
-        Message message = requestMessage(method, url, sending);
+        Message message = requestMessage(method, url, sending, false);
         if (opts.minimum() != null) {
             checkMinimum(items, opts.minimum(), requestHasBody(message.headers(), opts.body()), false);
         }
@@ -872,7 +893,7 @@ public final class Fiki {
         }
         List<Sfv.Item> items = components(covered);
         coverBody(items, sending, opts.body(), chosen);
-        Message message = responseMessage(status, sending, request);
+        Message message = responseMessage(status, sending, request, false);
         if (!chosen && hadBody) {
             if (!message.request().headers().containsKey(CONTENT_DIGEST)) {
                 throw new FikiException(
@@ -907,7 +928,7 @@ public final class Fiki {
     public static Verdict verifyRequest(
             String method, String url, Map<String, String> headers, VerifyOptions opts) {
         floored(opts.minimum(), REQUEST_MINIMUM);
-        return verify(requestMessage(method, url, headers), false, null, opts);
+        return verify(requestMessage(method, url, headers, true), false, null, opts);
     }
 
     /**
@@ -926,8 +947,10 @@ public final class Fiki {
             throw new IllegalArgumentException(
                 "Served authorities are a request policy; a response has no @authority of its own to check.");
         }
-        Message message = responseMessage(status, headers, request);
-        if (status == 401 && !message.headers().containsKey("signature")) {
+        Message message = responseMessage(status, headers, request, true);
+        // An empty Signature header signs nothing, so it takes the unsigned path too (@2r05k9g0).
+        String signature = message.headers().get("signature");
+        if (status == 401 && (signature == null || signature.isEmpty())) {
             throw new FikiException(
                 FikiException.Kind.Unauthenticated,
                 "The server answered 401 without signing the answer, so the request was not "
