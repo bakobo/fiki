@@ -150,6 +150,24 @@ namespace Bakobo.Fiki
             return output;
         }
 
+        /// <summary>
+        /// Refuse a label that is not an RFC 8941 dictionary key, since the headers it would label
+        /// could not be parsed back by any verifier, this port's included. fiki-py writes whatever
+        /// label it is given; refusing is a divergence that changes nothing on the wire, because no
+        /// such header is valid there (hostile review of bakobo/fiki#7, finding 3).
+        /// </summary>
+        private static void CheckLabel(string label)
+        {
+            if (!Sfv.IsKey(label))
+            {
+                throw new ArgumentException(
+                    $"The label \"{label}\" is not an RFC 8941 dictionary key, so no verifier could read the headers it " +
+                    "would label: it must begin with a lowercase letter or \"*\" and continue with lowercase letters, digits, " +
+                    "\"_\", \"-\", \".\" or \"*\".",
+                    nameof(label));
+            }
+        }
+
         private static long Clock() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         /// <summary>The raw verifying key, base64url and unpadded: the RFC 8037 JWK "x" form (@7xrx5evg).</summary>
@@ -159,6 +177,7 @@ namespace Bakobo.Fiki
             IEnumerable<KeyValuePair<string, string>>? headers, byte[]? body, IEnumerable<string>? covered, long? created,
             string label, long? expires, string? nonce, string? tag, string? keyId, IEnumerable<string>? minimum)
         {
+            CheckLabel(label);
             var floor = Floored(minimum, RequestMinimum);
             var sending = new List<KeyValuePair<string, string>>(headers ?? new KeyValuePair<string, string>[0]);
             var items = Components.Parse(covered ?? HttpSignatures.DefaultCovered);
@@ -178,6 +197,7 @@ namespace Bakobo.Fiki
             IEnumerable<KeyValuePair<string, string>>? headers, byte[]? body, IEnumerable<string>? covered, long? created,
             string label, long? expires, string? nonce, string? tag, string? keyId, IEnumerable<string>? minimum)
         {
+            CheckLabel(label);
             var floor = Floored(minimum, ResponseMinimum);
             var sending = new List<KeyValuePair<string, string>>(headers ?? new KeyValuePair<string, string>[0]);
             var chosen = covered != null;

@@ -345,6 +345,23 @@ namespace Bakobo.Fiki
         private const long FirstDate = -62_135_510_400;
         private const long LastDate = 253_402_300_799;
 
+        /// <summary>True when <paramref name="text"/> is an RFC 8941 key: a lowercase letter or "*", then lowercase letters, digits, "_", "-", "." and "*".</summary>
+        internal static bool IsKey(string text)
+        {
+            if (text.Length == 0 || KeyStart.IndexOf(text[0]) < 0)
+            {
+                return false;
+            }
+            foreach (var c in text)
+            {
+                if (KeyChars.IndexOf(c) < 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
         internal static SfDictionary ParseDictionary(string text)
         {
             var reader = new Reader(text);

@@ -135,5 +135,37 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(FikiErrorKind.DuplicateComponent, caught.Kind);
             Assert.Equal("\"x-7\";sf;req", caught.Component);
         }
+
+        // --- 3: a signer refuses a label that would make its own headers unparseable ---
+
+        [Theory]
+        [InlineData("bad label")]
+        [InlineData("Sig")]
+        [InlineData("")]
+        [InlineData("1sig")]
+        [InlineData("sig=")]
+        [InlineData("s\u00e9g")]
+        public void ASignerRefusesALabelThatIsNotAnRfc8941Key(string label)
+        {
+            // fiki-py writes any label it is given; this port refuses one its own verifier, and
+            // every other, could not parse back (a divergence, and no wire change).
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(Signer, "GET", Url, label: label));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignResponse(Signer, 200, label: label));
+        }
+
+        [Theory]
+        [InlineData("sig")]
+        [InlineData("a-b")]
+        [InlineData("x*1")]
+        [InlineData("*")]
+        [InlineData("signify")]
+        public void AValidLabelSignsAndVerifies(string label)
+        {
+            var request = HttpSignatures.SignRequest(Signer, "POST", Url, body: Signed, label: label);
+            Assert.StartsWith(label + "=(", request["Signature-Input"], StringComparison.Ordinal);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, request, VerifyOptions.MaxAge(60).WithBody(Signed)).Aid);
+            var response = HttpSignatures.SignResponse(Signer, 200, body: Signed, label: label);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, response, VerifyOptions.MaxAge(60).WithBody(Signed)).Aid);
+        }
     }
 }

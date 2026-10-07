@@ -62,3 +62,5 @@ fiki-py's behaviour is partly its dependencies' behaviour, so this port reproduc
 Each is checked against an oracle generated from the Python original (`test/Bakobo.Fiki.Tests/oracle/`), and the oracle scripts say how to regenerate it.
 
 One divergence is deliberate: an IPv6 literal keeps its brackets in `@authority`, so `https://[::1]:8443/x` gives `[::1]:8443` as RFC 9421 section 2.2.3 and RFC 3986 section 3.2.2 spell it, where fiki-py gives `::1:8443` (tick 2h2g). The JavaScript port keeps them too; no vector pins either form yet.
+
+Another is a refusal fiki-py does not make: `SignRequest` and `SignResponse` throw `ArgumentException` for a label that is not an RFC 8941 dictionary key, such as `"bad label"` or `"Sig"`, where fiki-py writes headers no verifier can parse. Nothing valid on the wire changes.
