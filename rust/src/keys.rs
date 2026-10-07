@@ -131,17 +131,49 @@ pub fn verifying_key(aid: &str) -> Result<VerifyingKey> {
             aid,
         )
     })?;
-    // ed25519-dalek 2.x accepts any 32 bytes here and defers point validation to verification, so
-    // this arm does not fire today. It is written rather than unwrapped because from_bytes is
-    // declared fallible: a future version that validates eagerly should surface as a malformed
-    // key, not as a panic.
-    VerifyingKey::from_bytes(&bytes).map_err(|_| {
+    // The decode does not check the bits the code character overwrote: the second character's top
+    // two bits land in the pad byte, so a non-zero pad would give one key two spellings. Only the
+    // canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
+    if to_aid(&bytes) != aid {
+        return Err(Error::detailed(
+            Kind::MalformedKey,
+            format!("The AID {aid} is not the canonical spelling of its key."),
+            aid,
+        ));
+    }
+    public_key(&bytes).ok_or_else(|| {
         Error::detailed(
             Kind::MalformedKey,
-            format!("The AID {aid} is not a valid key."),
+            format!("The AID {aid} is not a usable Ed25519 public key."),
             aid,
         )
     })
+}
+
+/// The Ed25519 public key for 32 raw bytes, or `None` for bytes no signature should be checked
+/// under (`this.i` @2t8xctts, @34qlc8r3, tick 27eo): anything that is not the canonical encoding of
+/// an on-curve point, and any small-order point, which has no secret behind it that only one party
+/// holds — under the identity point the signature 0x01 followed by 63 zero bytes verifies over any
+/// message.
+///
+/// Three tests, each catching what the others cannot. y must be below the field prime, because
+/// ed25519-dalek's decompression reduces y and so accepts its second spelling; decompression must
+/// succeed, which is the curve test; and `is_weak` refuses a small-order point under any encoding
+/// that decompresses, which includes x = 0 with the sign bit set, since x is zero only at y = 1
+/// and y = -1, both small-order.
+pub(crate) fn public_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
+    if !y_below_prime(raw) {
+        return None;
+    }
+    VerifyingKey::from_bytes(raw)
+        .ok()
+        .filter(|key| !key.is_weak())
+}
+
+/// Whether the little-endian y in an encoded point, sign bit cleared, is below p = 2^255 - 19.
+/// Only 19 values are not: 0x7f, then thirty 0xff, then a low byte of 0xed or more.
+fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
+    !(raw[31] & 0x7f == 0x7f && raw[1..31].iter().all(|b| *b == 0xff) && raw[0] >= 0xed)
 }
 
 /// An Ed25519 key pair whose public half is rendered as a non-transferable AID.
@@ -201,4 +233,41 @@ impl Key {
     pub fn sign(&self, data: &[u8]) -> [u8; 64] {
         self.signing.sign(data).to_bytes()
     }
+}
+
+// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
+// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
+const SPELLED_CODES: &[u8] = b"BDE";
+
+/// True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+///
+/// That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
+/// decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
+/// this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+pub(crate) fn misspelled_aid(keyid: &str) -> bool {
+    if keyid.len() != QB64_LEN || !SPELLED_CODES.contains(&keyid.as_bytes()[0]) {
+        return false;
+    }
+    if !keyid.bytes().all(|b| URL_ALPHABET.contains(&b)) {
+        return true;
+    }
+    // Forty-four base64url characters always decode to 33 bytes. Zeroing the pad byte and
+    // re-encoding gives the one canonical spelling of those key bytes, behind any code.
+    let mut decoded = decode(&format!("A{}", &keyid[1..]), URL_ALPHABET).unwrap_or_default();
+    if let Some(pad) = decoded.first_mut() {
+        *pad = 0;
+    }
+    b64url(&decoded).get(1..) != keyid.get(1..)
+}
+
+/// The raw key a keyid names in the RFC 8037 "x" form (@7xrx5evg), decoded strictly: exactly 43
+/// base64url characters, unpadded, that re-encode to themselves. A lenient decoder ignores the
+/// trailing bits, so a keyid that is not the key's own spelling could verify as whatever key it
+/// happened to decode to.
+pub(crate) fn raw_keyid(keyid: &str) -> Option<[u8; RAW_LEN]> {
+    if keyid.len() != 43 || !keyid.bytes().all(|b| URL_ALPHABET.contains(&b)) {
+        return None;
+    }
+    let raw: [u8; RAW_LEN] = decode(keyid, URL_ALPHABET)?.try_into().ok()?;
+    (b64url(&raw) == keyid).then_some(raw)
 }
