@@ -1,0 +1,720 @@
+{
+ "about": "http_sfv's verdict on each input: null when it does not parse, else its reserialization.",
+ "http_sfv": "0.9.9",
+ "dictionaries": [
+  {
+   "input": "sig=(\"@method\" \"@path\");created=1;keyid=\"k\"",
+   "parsed": "sig=(\"@method\" \"@path\");created=1;keyid=\"k\""
+  },
+  {
+   "input": "sig=:AAAA:",
+   "parsed": "sig=:AAAA:"
+  },
+  {
+   "input": "sig=:AAAA:, other=:BBBB:",
+   "parsed": "sig=:AAAA:, other=:BBBB:"
+  },
+  {
+   "input": "sig=:AAAA:,other=:BBBB:",
+   "parsed": "sig=:AAAA:, other=:BBBB:"
+  },
+  {
+   "input": "sig=:AAAA:\t,\tother=:BBBB:",
+   "parsed": "sig=:AAAA:, other=:BBBB:"
+  },
+  {
+   "input": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:",
+   "parsed": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+  },
+  {
+   "input": "a=1, a=2",
+   "parsed": "a=2"
+  },
+  {
+   "input": "a=1, b=2, a=3",
+   "parsed": "a=3, b=2"
+  },
+  {
+   "input": "a;x=1;x=2",
+   "parsed": "a;x=2"
+  },
+  {
+   "input": "a=(\"x\";p=1;p=2)",
+   "parsed": "a=(\"x\";p=2)"
+  },
+  {
+   "input": "",
+   "parsed": null
+  },
+  {
+   "input": " ",
+   "parsed": null
+  },
+  {
+   "input": "  a=1  ",
+   "parsed": "a=1"
+  },
+  {
+   "input": "\ta=1",
+   "parsed": null
+  },
+  {
+   "input": "a=1\t",
+   "parsed": "a=1"
+  },
+  {
+   "input": "a=1,",
+   "parsed": null
+  },
+  {
+   "input": "a=1, ",
+   "parsed": null
+  },
+  {
+   "input": ",a=1",
+   "parsed": null
+  },
+  {
+   "input": "a=1,,b=2",
+   "parsed": null
+  },
+  {
+   "input": "a=1 b=2",
+   "parsed": null
+  },
+  {
+   "input": "a=1 , b=2",
+   "parsed": "a=1, b=2"
+  },
+  {
+   "input": "A=1",
+   "parsed": null
+  },
+  {
+   "input": "*a=1",
+   "parsed": "*a=1"
+  },
+  {
+   "input": "1a=1",
+   "parsed": null
+  },
+  {
+   "input": "a.b-c_d*e=1",
+   "parsed": "a.b-c_d*e=1"
+  },
+  {
+   "input": "a B=1",
+   "parsed": null
+  },
+  {
+   "input": "a",
+   "parsed": "a"
+  },
+  {
+   "input": "a;b",
+   "parsed": "a;b"
+  },
+  {
+   "input": "a;b=?0",
+   "parsed": "a;b=?0"
+  },
+  {
+   "input": "a; b",
+   "parsed": "a;b"
+  },
+  {
+   "input": "a;  b=1",
+   "parsed": "a;b=1"
+  },
+  {
+   "input": "a;B=1",
+   "parsed": null
+  },
+  {
+   "input": "a=0",
+   "parsed": "a=0"
+  },
+  {
+   "input": "a=-0",
+   "parsed": "a=0"
+  },
+  {
+   "input": "a=007",
+   "parsed": "a=7"
+  },
+  {
+   "input": "a=-",
+   "parsed": null
+  },
+  {
+   "input": "a=-a",
+   "parsed": null
+  },
+  {
+   "input": "a=999999999999999",
+   "parsed": "a=999999999999999"
+  },
+  {
+   "input": "a=1000000000000000",
+   "parsed": null
+  },
+  {
+   "input": "a=-999999999999999",
+   "parsed": "a=-999999999999999"
+  },
+  {
+   "input": "a=9999999999999999",
+   "parsed": null
+  },
+  {
+   "input": "a=1.5",
+   "parsed": "a=1.5"
+  },
+  {
+   "input": "a=1.",
+   "parsed": "a=1.0"
+  },
+  {
+   "input": "a=-1.",
+   "parsed": "a=-1.0"
+  },
+  {
+   "input": "a=1.50",
+   "parsed": "a=1.5"
+  },
+  {
+   "input": "a=1.500",
+   "parsed": "a=1.5"
+  },
+  {
+   "input": "a=1.5000",
+   "parsed": null
+  },
+  {
+   "input": "a=123456789012.123",
+   "parsed": "a=123456789012.123"
+  },
+  {
+   "input": "a=1234567890123.1",
+   "parsed": null
+  },
+  {
+   "input": "a=-0.0",
+   "parsed": "a=0.0"
+  },
+  {
+   "input": "a=0.001",
+   "parsed": "a=0.001"
+  },
+  {
+   "input": "a=100.0",
+   "parsed": "a=100.0"
+  },
+  {
+   "input": "a=1..2",
+   "parsed": null
+  },
+  {
+   "input": "a=1.2.3",
+   "parsed": null
+  },
+  {
+   "input": "a=12345678901234567",
+   "parsed": null
+  },
+  {
+   "input": "a=0000000000000001",
+   "parsed": "a=1"
+  },
+  {
+   "input": "a=-0000000000000001",
+   "parsed": "a=-1"
+  },
+  {
+   "input": "a=0000000000000001;p",
+   "parsed": null
+  },
+  {
+   "input": "a=@0000000000000001",
+   "parsed": "a=@1"
+  },
+  {
+   "input": "a=(0000000000000001)",
+   "parsed": null
+  },
+  {
+   "input": "a=1;p=0000000000000001",
+   "parsed": "a=1;p=1"
+  },
+  {
+   "input": "a=\"x\"",
+   "parsed": "a=\"x\""
+  },
+  {
+   "input": "a=\"\"",
+   "parsed": "a=\"\""
+  },
+  {
+   "input": "a=\"\\\"q\\\"\"",
+   "parsed": "a=\"\\\"q\\\"\""
+  },
+  {
+   "input": "a=\"\\\\\"",
+   "parsed": "a=\"\\\\\""
+  },
+  {
+   "input": "a=\"\\x\"",
+   "parsed": null
+  },
+  {
+   "input": "a=\"unterminated",
+   "parsed": null
+  },
+  {
+   "input": "a=\"tab\there\"",
+   "parsed": null
+  },
+  {
+   "input": "a=\"caf\u00e9\"",
+   "parsed": null
+  },
+  {
+   "input": "a=\"\u007f\"",
+   "parsed": null
+  },
+  {
+   "input": "a=\"~\"",
+   "parsed": "a=\"~\""
+  },
+  {
+   "input": "a=tok",
+   "parsed": "a=tok"
+  },
+  {
+   "input": "a=*tok",
+   "parsed": "a=*tok"
+  },
+  {
+   "input": "a=t:o/k!#$%&'*+-.^_`|~",
+   "parsed": "a=t:o/k!#$%&'*+-.^_`|~"
+  },
+  {
+   "input": "a=Tok9",
+   "parsed": "a=Tok9"
+  },
+  {
+   "input": "a=t@k",
+   "parsed": null
+  },
+  {
+   "input": "a=::",
+   "parsed": "a=::"
+  },
+  {
+   "input": "a=:QQ==:",
+   "parsed": "a=:QQ==:"
+  },
+  {
+   "input": "a=:QQ=:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QQ:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QUJD:",
+   "parsed": "a=:QUJD:"
+  },
+  {
+   "input": "a=:QUJD=QQ==:",
+   "parsed": "a=:QUJDQQ==:"
+  },
+  {
+   "input": "a=:QQ=x=:",
+   "parsed": "a=:QQw=:"
+  },
+  {
+   "input": "a=:Q===:",
+   "parsed": null
+  },
+  {
+   "input": "a=:=QQ==:",
+   "parsed": "a=:QQ==:"
+  },
+  {
+   "input": "a=:Q:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QUJDRA:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QU JD:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QUJD",
+   "parsed": null
+  },
+  {
+   "input": "a=:-_-_:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QQ==QQ==:",
+   "parsed": "a=:QQQQ:"
+  },
+  {
+   "input": "a=:QQ=:=:",
+   "parsed": null
+  },
+  {
+   "input": "a=:QUI=:",
+   "parsed": "a=:QUI=:"
+  },
+  {
+   "input": "a=:QUJ:",
+   "parsed": null
+  },
+  {
+   "input": "a=:A===:",
+   "parsed": null
+  },
+  {
+   "input": "a=:AA=A:",
+   "parsed": null
+  },
+  {
+   "input": "a=:==:",
+   "parsed": "a=::"
+  },
+  {
+   "input": "a=:=:",
+   "parsed": "a=::"
+  },
+  {
+   "input": "a=?1",
+   "parsed": "a"
+  },
+  {
+   "input": "a=?0",
+   "parsed": "a=?0"
+  },
+  {
+   "input": "a=?2",
+   "parsed": null
+  },
+  {
+   "input": "a=?",
+   "parsed": null
+  },
+  {
+   "input": "a=?10",
+   "parsed": null
+  },
+  {
+   "input": "a=@0",
+   "parsed": "a=@0"
+  },
+  {
+   "input": "a=@1700000000",
+   "parsed": "a=@1700000000"
+  },
+  {
+   "input": "a=@-1",
+   "parsed": "a=@-1"
+  },
+  {
+   "input": "a=@1.5",
+   "parsed": null
+  },
+  {
+   "input": "a=@",
+   "parsed": null
+  },
+  {
+   "input": "a=@x",
+   "parsed": null
+  },
+  {
+   "input": "a=@253402300799",
+   "parsed": "a=@253402300799"
+  },
+  {
+   "input": "a=@253402300800",
+   "parsed": null
+  },
+  {
+   "input": "a=@-62135510400",
+   "parsed": "a=@-62135510400"
+  },
+  {
+   "input": "a=@-62135510401",
+   "parsed": null
+  },
+  {
+   "input": "a=@999999999999999",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"x\"",
+   "parsed": "a=%\"x\""
+  },
+  {
+   "input": "a=%\"\"",
+   "parsed": "a=%\"\""
+  },
+  {
+   "input": "a=%\"%c3%a9\"",
+   "parsed": "a=%\"%c3%a9\""
+  },
+  {
+   "input": "a=%\"%C3%A9\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%e9\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%25\"",
+   "parsed": "a=%\"%25\""
+  },
+  {
+   "input": "a=%\"%22\"",
+   "parsed": "a=%\"%22\""
+  },
+  {
+   "input": "a=%\"%7f\"",
+   "parsed": "a=%\"\u007f\""
+  },
+  {
+   "input": "a=%\"%1f\"",
+   "parsed": "a=%\"\u001f\""
+  },
+  {
+   "input": "a=%\"% a\"",
+   "parsed": "a=%\"%a\""
+  },
+  {
+   "input": "a=%\"%a \"",
+   "parsed": "a=%\"%a\""
+  },
+  {
+   "input": "a=%\"%+a\"",
+   "parsed": "a=%\"%a\""
+  },
+  {
+   "input": "a=%\"%-a\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%-0\"",
+   "parsed": "a=%\"%0\""
+  },
+  {
+   "input": "a=%\"%_a\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%g0\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%0\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%a",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"\u007f\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%x",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"un",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%\ta\"",
+   "parsed": "a=%\"%a\""
+  },
+  {
+   "input": "a=%\"%0x\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%a\u000b\"",
+   "parsed": "a=%\"%a\""
+  },
+  {
+   "input": "a=%\"\\\"",
+   "parsed": "a=%\"\\\""
+  },
+  {
+   "input": "a=()",
+   "parsed": "a=()"
+  },
+  {
+   "input": "a=( )",
+   "parsed": "a=()"
+  },
+  {
+   "input": "a=(  \"x\"  )",
+   "parsed": "a=(\"x\")"
+  },
+  {
+   "input": "a=(\"x\"\"y\")",
+   "parsed": null
+  },
+  {
+   "input": "a=(\"x\" \"y\");p",
+   "parsed": "a=(\"x\" \"y\");p"
+  },
+  {
+   "input": "a=(\"x\";q \"y\")",
+   "parsed": "a=(\"x\";q \"y\")"
+  },
+  {
+   "input": "a=(\"x\"",
+   "parsed": null
+  },
+  {
+   "input": "a=(",
+   "parsed": null
+  },
+  {
+   "input": "a=(\"x\")x",
+   "parsed": null
+  },
+  {
+   "input": "a=(1 2.5 tok ?0 :QQ==: @1 %\"d\")",
+   "parsed": "a=(1 2.5 tok ?0 :QQ==: @1 %\"d\")"
+  },
+  {
+   "input": "a=((\"x\"))",
+   "parsed": null
+  },
+  {
+   "input": "a=(\"x\"\t\"y\")",
+   "parsed": null
+  },
+  {
+   "input": "a=(\"x\",)",
+   "parsed": null
+  },
+  {
+   "input": "caf\u00e9=1",
+   "parsed": null
+  },
+  {
+   "input": "a=\u00e9",
+   "parsed": null
+  },
+  {
+   "input": "a=1;\u00e9",
+   "parsed": null
+  },
+  {
+   "input": "((((",
+   "parsed": null
+  },
+  {
+   "input": "not a dictionary (((",
+   "parsed": null
+  },
+  {
+   "input": "not a dictionary (\u00ab",
+   "parsed": null
+  },
+  {
+   "input": "indexed=\"?0\";signify=\"0BBWiqPdnUjfwk\"",
+   "parsed": "indexed=\"?0\";signify=\"0BBWiqPdnUjfwk\""
+  }
+ ],
+ "items": [
+  {
+   "input": "\"@path\"",
+   "parsed": "\"@path\""
+  },
+  {
+   "input": "\"@path\";req",
+   "parsed": "\"@path\";req"
+  },
+  {
+   "input": "\"@PATH\"",
+   "parsed": "\"@PATH\""
+  },
+  {
+   "input": "\"@path",
+   "parsed": null
+  },
+  {
+   "input": "\"@path\";req=?0",
+   "parsed": "\"@path\";req=?0"
+  },
+  {
+   "input": "\"@path\";req;sf",
+   "parsed": "\"@path\";req;sf"
+  },
+  {
+   "input": " \"@path\" ",
+   "parsed": "\"@path\""
+  },
+  {
+   "input": "\"@path\" x",
+   "parsed": null
+  },
+  {
+   "input": "\"x\";p=1.5",
+   "parsed": "\"x\";p=1.5"
+  },
+  {
+   "input": "\"x\";p=tok",
+   "parsed": "\"x\";p=tok"
+  },
+  {
+   "input": "\"x\";p=:QQ==:",
+   "parsed": "\"x\";p=:QQ==:"
+  },
+  {
+   "input": "\"x\";p=@5",
+   "parsed": "\"x\";p=@5"
+  },
+  {
+   "input": "\"x\";p=%\"d\"",
+   "parsed": "\"x\";p=%\"d\""
+  },
+  {
+   "input": "\"x\";p=\"s\"",
+   "parsed": "\"x\";p=\"s\""
+  },
+  {
+   "input": "\"x\";p=-3",
+   "parsed": "\"x\";p=-3"
+  },
+  {
+   "input": "\"x\"; p",
+   "parsed": "\"x\";p"
+  },
+  {
+   "input": "\"x\";p;p=2",
+   "parsed": "\"x\";p=2"
+  },
+  {
+   "input": "",
+   "parsed": null
+  }
+ ]
+}
