@@ -2,4 +2,5 @@
 kind: todo
 tags: java, keri
 created: 2026-09-24T11:31Z
+closed: 2026-10-07T19:41Z
 
