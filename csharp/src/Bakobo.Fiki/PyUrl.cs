@@ -414,19 +414,9 @@ namespace Bakobo.Fiki
         }
     }
 
-    /// <summary>Python's <c>str.strip()</c> and <c>str.lower()</c>, as fiki-py applies them to headers.</summary>
+    /// <summary>Python's <c>str.lower()</c>, as fiki-py applies it to header names.</summary>
     internal static class PyText
     {
-        // str.isspace(): bidirectional class WS, B or S, or category Zs. Listed rather than taken
-        // from char.IsWhiteSpace, which omits U+001C..U+001F.
-        private const string Space =
-            "\t\n\v\f\r\u001c\u001d\u001e\u001f \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004" +
-            "\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000";
-
-        private static readonly char[] SpaceChars = Space.ToCharArray();
-
-        internal static string Strip(string text) => text.Trim(SpaceChars);
-
         /// <summary>
         /// Lowercase as Python does. Its full case mapping lowers U+0130 to two characters, "i" and a
         /// combining dot, where the invariant culture gives one.

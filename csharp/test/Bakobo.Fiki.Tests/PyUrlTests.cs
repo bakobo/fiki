@@ -57,15 +57,6 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Theory]
-        [InlineData("  a b \u00a0", "a b")]
-        [InlineData("\u001cx\u001f", "x")]
-        [InlineData("\u3000x\u2028", "x")]
-        [InlineData("\u200bx", "\u200bx")] // ZERO WIDTH SPACE is not whitespace to Python
-        [InlineData("", "")]
-        public void StripRemovesWhatPythonCallsWhitespace(string input, string expected) =>
-            Assert.Equal(expected, PyText.Strip(input));
-
-        [Theory]
         [InlineData("Content-Digest", "content-digest")]
         [InlineData("\u0130x", "i\u0307x")]
         [InlineData("\u00c9", "\u00e9")]

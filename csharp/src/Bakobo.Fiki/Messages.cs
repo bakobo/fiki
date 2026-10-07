@@ -403,7 +403,9 @@ namespace Bakobo.Fiki
             }
             // Fail closed: a length that is not a plain decimal, negative ones included, is not
             // evidence that there is no body.
-            length = PyText.Strip(length);
+            // Only SP and HTAB are trimmed (this.i @56qu7gyw), so a length with a CR or any other
+            // byte beside its digits is not a plain decimal, and counts as a body.
+            length = Components.OwsTrimmed(length);
             var plain = length.Length > 0;
             var zero = true;
             foreach (var c in length)

@@ -226,10 +226,18 @@ namespace Bakobo.Fiki
             var lowered = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var header in headers)
             {
-                lowered[PyText.Lower(header.Key)] = PyText.Strip(header.Value);
+                lowered[PyText.Lower(header.Key)] = OwsTrimmed(header.Value);
             }
             return lowered;
         }
+
+        /// <summary>
+        /// A field value with leading and trailing SP and HTAB removed, and nothing else: RFC 9110
+        /// section 5.5 makes only those optional whitespace (this.i @56qu7gyw). fiki-py's str.strip
+        /// also removes CR, LF and Unicode whitespace, so "admin" followed by CR LF verified there as
+        /// "admin"; here it stays in the value, and <see cref="ValueOf"/> refuses it as a mismatch.
+        /// </summary>
+        internal static string OwsTrimmed(string value) => value.Trim(' ', '\t');
 
         internal static Message RequestMessage(string method, string url, IEnumerable<KeyValuePair<string, string>> headers) =>
             new Message(Lowered(headers), method, PyUrl.Split(url), null, null);
