@@ -5,8 +5,9 @@
 [![Go](https://github.com/bakobo/fiki/actions/workflows/ci-go.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-go.yml)
 [![Rust](https://github.com/bakobo/fiki/actions/workflows/ci-rust.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-rust.yml)
 [![Java](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml)
+[![C#](https://github.com/bakobo/fiki/actions/workflows/ci-csharp.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-csharp.yml)
 
-Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), no KERI dependencies. Python, JavaScript, Go, Rust, and Java.
+Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), no KERI dependencies. Python, JavaScript, Go, Rust, Java, and C#.
 
 The public half of an Ed25519 key is rendered as a non-transferable AID — a 44-character `B…` string in CESR's `Ed25519N` encoding — and that string is both the identifier and the verifying key. A verifier needs no key event log, no directory lookup, and no network call to recover it. A client registers its AID once with whoever it calls, and signs from then on. There is nothing to rotate and nothing to fetch.
 
@@ -30,10 +31,11 @@ cd fiki
 | Go | Go 1.22+ | `cd go && go test ./...` |
 | Rust | Rust 1.75+ | `cd rust && cargo test` |
 | Java | JDK 17+, Maven | `cd java && mvn test` |
+| C# | .NET 10 SDK | `cd csharp && dotnet test` |
 
-One badge per language above, each clickable through to that port's workflow — so a red badge says *which* port broke rather than that something did. A change under `vectors/` triggers all five, because the vectors are the shared contract.
+One badge per language above, each clickable through to that port's workflow — so a red badge says *which* port broke rather than that something did. A change under `vectors/` triggers all six, because the vectors are the shared contract.
 
-The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all.
+The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all; C# fetches `BouncyCastle.Cryptography`, because .NET's has no Ed25519 yet, along with xUnit and coverlet for the tests.
 
 A green run means that implementation reproduces all 37 shared conformance vectors — including RFC 9421's own published Ed25519 signature, byte for byte.
 
@@ -47,7 +49,7 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Five implementations, all at 0.5.0, all conforming to vectors format 1. The wire behaviour is settled enough that changing it now means a vectors-format bump and five coordinated releases.
+Six implementations, all at 0.5.0, all conforming to vectors format 1. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
 
 The APIs are not frozen. Nothing is published to a package registry yet, except Go, which needs no registry — `go get github.com/bakobo/fiki/go@v0.5.0` works today. Its first consumer, [heti](https://github.com/bakobo/heti), pins fiki by commit rather than by version.
 
@@ -65,19 +67,20 @@ vectors/              conformance vectors, shared and normative
   accepts.json            requests every implementation must accept, and the verdict
   refusals.json           requests every implementation must refuse, and the error
   keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 2;
-                          only the Python port runs it so far
+                          only the Python and C# ports run it so far
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
 rust/                 the Rust implementation
 java/                 the Java implementation
+csharp/               the C# implementation, for .NET and .NET Framework
 ```
 
 A new port adds a directory here rather than a repository, so the vectors cannot fork and drift apart. See `this.i` for why that mattered enough to shape the layout.
 
 ## Versions, and which ones interoperate
 
-Each implementation versions independently — a fix in the Go port does not force an empty release of the other four. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
+Each implementation versions independently — a fix in the Go port does not force an empty release of the other five. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
 
 ```
 fiki (Python)      0.5.0    vectors format 1
@@ -85,25 +88,26 @@ fiki (JavaScript)  0.5.0    vectors format 1
 fiki (Go)          0.5.0    vectors format 1
 fiki (Rust)        0.5.0    vectors format 1
 fiki (Java)        0.5.0    vectors format 1
+fiki (C#)          0.5.0    vectors format 1
 ```
 
 Same format, interchangeable. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 
-Releases are tagged per port: `py/v0.5.0`, `js/v0.5.0`, `go/v0.5.0`, `rust/v0.5.0`, `java/v0.5.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other four follow it for consistency.
+Releases are tagged per port: `py/v0.5.0`, `js/v0.5.0`, `go/v0.5.0`, `rust/v0.5.0`, `java/v0.5.0`, `csharp/v0.5.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other five follow it for consistency.
 
 ## Conformance
 
 Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakobo party authored, pin the signature base and the signing algorithm — including on the signing side, since B.1.4 publishes the Ed25519 private key and Ed25519 is deterministic. The `vectors/` set pins what the RFC cannot: the AID lens, `@query`, `Content-Digest`, the freshness rules, and the refusal to sign a body that nothing digests.
 
-No implementation is the reference. The vectors are, and all five answer to them equally.
+No implementation is the reference. The vectors are, and all six answer to them equally.
 
-`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it; the other four do not yet.
+`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it, and the C# port runs it; the other four do not yet.
 
 ## Contributing a port
 
 Add a top-level directory, run `vectors/*.json`, and export the vectors format you satisfy. If your port needs a case the vectors do not have, add it to `vectors/generate.py` and regenerate — every other port then has to satisfy it too, which is the point.
 
-Per-language build and test notes live with each implementation: [`py/`](py/README.md), [`js/`](js/README.md), [`go/`](go/README.md), [`rust/`](rust/README.md), and [`java/`](java/README.md).
+Per-language build and test notes live with each implementation: [`py/`](py/README.md), [`js/`](js/README.md), [`go/`](go/README.md), [`rust/`](rust/README.md), [`java/`](java/README.md), and [`csharp/`](csharp/README.md).
 
 ## License
 

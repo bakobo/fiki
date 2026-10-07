@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bakobo.Fiki/Bakobo.Fiki.csproj" />
+  </Folder>
+  <Folder Name="/test/">
+    <Project Path="test/Bakobo.Fiki.Tests/Bakobo.Fiki.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,89 @@
+name: C#
+
+# One workflow per language, so the badge on the README says WHICH port is red rather than that
+# something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
+# report independently too). A change under vectors/ triggers every one of them, because the
+# vectors are the shared contract and a change there is a change to all six. This suite also reads
+# the two documents under docs/ that it checks against: the user guide's C# samples and the KERI
+# profile's title line.
+on:
+  push:
+    branches: [main]
+    paths: ["csharp/**", "vectors/**", "docs/user-guide.md", "docs/keri-profile.md", ".github/workflows/ci-csharp.yml"]
+  pull_request:
+    paths: ["csharp/**", "vectors/**", "docs/user-guide.md", "docs/keri-profile.md", ".github/workflows/ci-csharp.yml"]
+  # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
+  # that made it, so there is no way to ask for one after the fact without a fresh commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # An explicit name, because a required status check is matched by NAME and all the ports
+    # called this job `test` -- indistinguishable contexts a ruleset cannot name.
+    name: csharp
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux runs net10.0 under the coverage gate. Windows runs net10.0 and net481, because the
+        # library's netstandard2.0 asset is a claim about .NET Framework, and only .NET Framework
+        # itself can check it (`this.i` @5l4p36rl). The test project adds net481 only on Windows.
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: csharp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: Check formatting
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet format Fiki.slnx --verify-no-changes
+      # 100% line and branch coverage of the library, or the run fails: coverlet's threshold is set
+      # in the test project and applies whenever coverage is collected.
+      - name: Run tests under the coverage gate
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet test Fiki.slnx -p:CollectCoverage=true
+      - name: Run tests on .NET and .NET Framework
+        if: matrix.os == 'windows-latest'
+        run: dotnet test Fiki.slnx
+
+  # Exactly one RUNTIME dependency, BouncyCastle.Cryptography (`this.i` @5l4p36rl): xUnit, coverlet
+  # and System.Text.Json are the test project's, and a consumer of the package inherits none of
+  # them. This checks what the packed artifact actually declares rather than what the project file
+  # appears to say.
+
+  dependencies:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: csharp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: Pack the library
+        run: dotnet pack src/Bakobo.Fiki/Bakobo.Fiki.csproj -c Release -o pack
+      - name: Assert the package depends on BouncyCastle.Cryptography and nothing else
+        run: |
+          unzip -p pack/Bakobo.Fiki.0.5.0.nupkg Bakobo.Fiki.nuspec > pack/Bakobo.Fiki.nuspec
+          echo "--- declared dependencies ---"
+          grep -A12 '<dependencies>' pack/Bakobo.Fiki.nuspec
+          # The expected set, asserted for each target framework, and the set of target frameworks
+          # asserted too. Checking for the ABSENCE of other lines would pass on an empty or missing
+          # file, which is the wrong shape for a check.
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          ns = {"n": "http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd"}
+          groups = ET.parse("pack/Bakobo.Fiki.nuspec").getroot().findall(".//n:dependencies/n:group", ns)
+          found = {g.get("targetFramework"): sorted((d.get("id"), d.get("version"))
+                   for d in g.findall("n:dependency", ns)) for g in groups}
+          expected = {tfm: [("BouncyCastle.Cryptography", "[2.7.0]")] for tfm in (".NETStandard2.0", "net10.0")}
+          print(found)
+          assert found == expected, f"declared {found}, expected {expected}"
+          PY
