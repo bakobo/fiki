@@ -35,6 +35,7 @@ from fiki.errors import (
     SignatureMismatch,
     SignatureTooOld,
     UncoveredBody,
+    UnsupportedComponent,
     UnsupportedAlgorithm,
 )
 
@@ -486,10 +487,27 @@ def test_a_content_digest_with_misplaced_padding_is_malformed_on_every_interpret
 
 @pytest.mark.parametrize("how", _RESPELLINGS)
 def test_a_signature_input_with_misplaced_padding_is_malformed(how):
+    """On a covered component's parameter, where a well-spelled byte sequence parses and is then
+    refused as UnsupportedComponent, so only fiki's own scan makes this MalformedSignatureInput."""
     request, headers = signed()
-    headers["Signature-Input"] += f";x=:{_respelled(':AAAAAAAAAAAA==:', how)[1:]}"
+    padded = f":{base64.b64encode(b'0123456789').decode()}:"
+    headers["Signature-Input"] = headers["Signature-Input"].replace(
+        '("@method"', f'("@method";x={_respelled(padded, how)}', 1
+    )
     with pytest.raises(MalformedSignatureInput):
         verify_request(headers=headers, max_age=None, **request)
+
+
+def test_a_well_padded_byte_sequence_on_a_component_reaches_the_component_check():
+    """The control for the test above: the same position, correctly spelled."""
+    request, headers = signed()
+    padded = f":{base64.b64encode(b'0123456789').decode()}:"
+    headers["Signature-Input"] = headers["Signature-Input"].replace(
+        '("@method"', f'("@method";x={padded}', 1
+    )
+    with pytest.raises(UnsupportedComponent):
+        verify_request(headers=headers, max_age=None, **request)
+
 
 
 def test_a_signature_missing_its_padding_is_malformed_on_every_interpreter():
