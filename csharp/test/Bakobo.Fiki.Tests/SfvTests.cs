@@ -150,12 +150,21 @@ namespace Bakobo.Fiki.Tests
         [InlineData("@5", "5", false)]
         [InlineData("5", "@5", false)]
         [InlineData("\"5\"", "5", false)]
+        [InlineData("1.50", "1.5", true)]
+        [InlineData("-1.50", "-1.5", true)]
+        [InlineData("-0.0", "0", true)]
+        [InlineData("?0", "0.0", true)]
+        [InlineData("10", "1.0", false)]
         public void ValuesCompareAsPythonComparesThem(string left, string right, bool equal)
         {
             var a = Sfv.ParseItem(left).Value;
             var b = Sfv.ParseItem(right).Value;
             Assert.Equal(equal, a.PyEquals(b));
             Assert.Equal(equal, b.PyEquals(a));
+            // The set-friendly identity agrees with Python's == on every pair (bakobo/fiki#7).
+            var x = Components.Identity(Sfv.ParseItem("\"c\";p=" + left));
+            var y = Components.Identity(Sfv.ParseItem("\"c\";p=" + right));
+            Assert.Equal(equal, x == y);
         }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using Xunit;
 
@@ -87,6 +88,52 @@ namespace Bakobo.Fiki.Tests
             var answered = new Shifting(given, "unused");
             new Request("GET", Url, answered);
             Assert.Equal(1, answered.Enumerations);
+        }
+
+        // --- 2: a long covered list costs linear work ---
+
+        private static string[] Distinct(int count) => Enumerable.Range(0, count).Select(i => $"x-{i}").ToArray();
+
+        private static double Seconds(Action action)
+        {
+            var clock = Stopwatch.StartNew();
+            action();
+            return clock.Elapsed.TotalSeconds;
+        }
+
+        [Fact]
+        public void FiftyThousandDistinctCoveredComponentsAreCheckedInWellUnderASecond()
+        {
+            // fiki-py bounds neither the header nor the list, so neither does this port; the work is
+            // linear, as py's set in check_covered makes it.
+            var covered = Distinct(50000);
+            var input = "sig=(" + string.Join(" ", covered.Select(c => "\"" + c + "\"")) + ");created=1;keyid=\"k\"";
+            var headers = new Dictionary<string, string> { { "Signature-Input", input }, { "Signature", "sig=:" + Convert.ToBase64String(new byte[64]) + ":" } };
+            var verify = Seconds(() => Assert.Equal(FikiErrorKind.MissingComponent, Assert.Throws<FikiException>(() =>
+                HttpSignatures.VerifyRequest("GET", Url, headers, VerifyOptions.DecliningFreshness().WithExpectedAid(Signer.Aid))).Kind));
+            var sign = Seconds(() => Assert.Equal(FikiErrorKind.MissingComponent, Assert.Throws<FikiException>(() =>
+                HttpSignatures.SignatureBase("GET", Url, new Dictionary<string, string>(), covered, 1, "k")).Kind));
+            Assert.True(verify < 1, $"verifying took {verify}s");
+            Assert.True(sign < 1, $"building the base took {sign}s");
+        }
+
+        [Fact]
+        public void FiftyThousandParametersOrMembersParseInWellUnderASecond()
+        {
+            var parameters = "sig=(\"@method\")" + string.Concat(Enumerable.Range(0, 50000).Select(i => $";p{i}=1"));
+            var members = string.Join(", ", Enumerable.Range(0, 50000).Select(i => $"m{i}=:AAAA:"));
+            Assert.True(Seconds(() => Sfv.ParseDictionary(parameters)) < 1);
+            Assert.True(Seconds(() => Sfv.ParseDictionary(members)) < 1);
+        }
+
+        [Fact]
+        public void ADuplicateAtTheEndOfALongListIsStillFoundWhateverItsParameterOrder()
+        {
+            var covered = Distinct(50000).Concat(new[] { "\"x-7\";req;sf", "\"x-7\";sf;req" }).ToArray();
+            var caught = Assert.Throws<FikiException>(() =>
+                HttpSignatures.ResponseSignatureBase(200, new Dictionary<string, string>(), covered, 1, "k"));
+            Assert.Equal(FikiErrorKind.DuplicateComponent, caught.Kind);
+            Assert.Equal("\"x-7\";sf;req", caught.Component);
         }
     }
 }

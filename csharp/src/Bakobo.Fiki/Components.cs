@@ -78,29 +78,58 @@ namespace Bakobo.Fiki
         internal static bool IsReq(SfItem item) => item.Params.TryGet(ReqParam, out var value) && value!.IsTrue;
 
         /// <summary>What two identifiers must share to be the same component. Parameter order is not it.</summary>
-        internal static bool SameComponent(SfItem a, SfItem b)
+        internal static bool SameComponent(SfItem a, SfItem b) => string.Equals(Identity(a), Identity(b), StringComparison.Ordinal);
+
+        /// <summary>
+        /// py's <c>identity()</c> as one string, so a set can hold it: the value, then the parameters
+        /// sorted by name, each value spelled so that two compare equal exactly when Python's
+        /// <c>==</c> says they are (<see cref="SfValue.PyEquals"/>). Every part is length-prefixed,
+        /// so no text can impersonate a separator.
+        /// </summary>
+        internal static string Identity(SfItem item)
         {
-            if (!a.Value.PyEquals(b.Value) || a.Params.Count != b.Params.Count)
+            var key = new StringBuilder(ValueKey(item.Value));
+            var parameters = new List<KeyValuePair<string, SfValue>>(item.Params);
+            parameters.Sort((x, y) => string.CompareOrdinal(x.Key, y.Key));
+            foreach (var parameter in parameters)
             {
-                return false;
+                key.Append(';').Append(Prefixed(parameter.Key)).Append('=').Append(ValueKey(parameter.Value));
             }
-            var left = Sorted(a.Params);
-            var right = Sorted(b.Params);
-            for (var i = 0; i < left.Count; i++)
-            {
-                if (!string.Equals(left[i].Key, right[i].Key, StringComparison.Ordinal) || !left[i].Value.PyEquals(right[i].Value))
-                {
-                    return false;
-                }
-            }
-            return true;
+            return key.ToString();
         }
 
-        private static List<KeyValuePair<string, SfValue>> Sorted(SfParameters parameters)
+        private static string Prefixed(string text) => text.Length.ToString(CultureInfo.InvariantCulture) + ":" + text;
+
+        private static string ValueKey(SfValue value)
         {
-            var sorted = new List<KeyValuePair<string, SfValue>>(parameters);
-            sorted.Sort((x, y) => string.CompareOrdinal(x.Key, y.Key));
-            return sorted;
+            switch (value.Type)
+            {
+                case SfType.Integer:
+                case SfType.Decimal:
+                case SfType.Boolean:
+                    return "n" + Prefixed(Number(value));
+                case SfType.String:
+                case SfType.Token:
+                case SfType.DisplayString:
+                    return "t" + Prefixed(value.Text);
+                case SfType.ByteSequence:
+                    return "b" + Prefixed(Convert.ToBase64String(value.Bytes));
+                default:
+                    return "d" + Prefixed(value.Integer.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+
+        // A number's value with no trailing fractional zeros, so 1, 1.0 and true share a spelling.
+        private static string Number(SfValue value)
+        {
+            var number = value.Type == SfType.Integer ? value.Integer : value.Type == SfType.Decimal ? value.Decimal : value.Boolean ? 1 : 0;
+            if (number == 0)
+            {
+                // Zero, including a negative zero, which a runtime may print with its sign.
+                return "0";
+            }
+            var text = number.ToString(CultureInfo.InvariantCulture);
+            return text.IndexOf('.') >= 0 ? text.TrimEnd('0').TrimEnd('.') : text;
         }
 
         internal static bool Contains(IEnumerable<SfItem> items, SfItem wanted)
@@ -122,18 +151,17 @@ namespace Bakobo.Fiki
         /// </summary>
         internal static void CheckCovered(IList<SfItem> items, bool response)
         {
-            for (var i = 0; i < items.Count; i++)
+            // A set, as py's check_covered keeps one, so a long list costs linear work.
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in items)
             {
-                for (var j = 0; j < i; j++)
+                if (!seen.Add(Identity(item)))
                 {
-                    if (SameComponent(items[i], items[j]))
-                    {
-                        throw new FikiException(
-                            FikiErrorKind.DuplicateComponent,
-                            $"The covered components name {SpecOf(items[i])} twice, so the signature base would not be " +
-                            "what either copy says it is.")
-                        { Component = SpecOf(items[i]) };
-                    }
+                    throw new FikiException(
+                        FikiErrorKind.DuplicateComponent,
+                        $"The covered components name {SpecOf(item)} twice, so the signature base would not be " +
+                        "what either copy says it is.")
+                    { Component = SpecOf(item) };
                 }
             }
 

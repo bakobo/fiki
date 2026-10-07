@@ -202,18 +202,22 @@ namespace Bakobo.Fiki
     {
         private readonly List<KeyValuePair<string, SfValue>> _entries = new List<KeyValuePair<string, SfValue>>();
 
+        // Where each key sits, so a set or a lookup is constant work however many there are.
+        private readonly Dictionary<string, int> _index = new Dictionary<string, int>(StringComparer.Ordinal);
+
         internal int Count => _entries.Count;
 
         internal void Set(string key, SfValue value)
         {
-            var at = IndexOf(key);
-            if (at < 0)
+            var entry = new KeyValuePair<string, SfValue>(key, value);
+            if (_index.TryGetValue(key, out var at))
             {
-                _entries.Add(new KeyValuePair<string, SfValue>(key, value));
+                _entries[at] = entry;
             }
             else
             {
-                _entries[at] = new KeyValuePair<string, SfValue>(key, value);
+                _index[key] = _entries.Count;
+                _entries.Add(entry);
             }
         }
 
@@ -226,7 +230,7 @@ namespace Bakobo.Fiki
             return at >= 0;
         }
 
-        private int IndexOf(string key) => _entries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        private int IndexOf(string key) => _index.TryGetValue(key, out var at) ? at : -1;
 
         internal string Serialize()
         {
@@ -292,26 +296,30 @@ namespace Bakobo.Fiki
     {
         private readonly List<KeyValuePair<string, SfMember>> _members = new List<KeyValuePair<string, SfMember>>();
 
+        // Where each key sits, so a set or a lookup is constant work however many there are.
+        private readonly Dictionary<string, int> _index = new Dictionary<string, int>(StringComparer.Ordinal);
+
         internal int Count => _members.Count;
 
         internal void Set(string key, SfMember member)
         {
-            var at = _members.FindIndex(m => string.Equals(m.Key, key, StringComparison.Ordinal));
-            if (at < 0)
+            var entry = new KeyValuePair<string, SfMember>(key, member);
+            if (_index.TryGetValue(key, out var at))
             {
-                _members.Add(new KeyValuePair<string, SfMember>(key, member));
+                _members[at] = entry;
             }
             else
             {
-                _members[at] = new KeyValuePair<string, SfMember>(key, member);
+                _index[key] = _members.Count;
+                _members.Add(entry);
             }
         }
 
         internal bool TryGet(string key, out SfMember? member)
         {
-            var at = _members.FindIndex(m => string.Equals(m.Key, key, StringComparison.Ordinal));
-            member = at < 0 ? null : _members[at].Value;
-            return at >= 0;
+            var found = _index.TryGetValue(key, out var at);
+            member = found ? _members[at].Value : null;
+            return found;
         }
 
         public IEnumerator<KeyValuePair<string, SfMember>> GetEnumerator() => _members.GetEnumerator();
