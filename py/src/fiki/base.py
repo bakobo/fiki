@@ -222,8 +222,17 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             )
         return str(status)
     if name == "@method":
-        # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
-        return message.method
+        # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8). A request
+        # has a method, so an absent or empty one is a caller who lost it, never an empty line.
+        method = message.method
+        if not isinstance(method, str):
+            raise TypeError(f"A request's method is a string; this one is {method!r}.")
+        if not method:
+            raise ValueError(
+                "The method is empty, and a request always has one, so there is no @method to "
+                "sign or to check."
+            )
+        return method
     if name == "@authority":
         return _authority(message.parts, message.headers)
     if name == "@path":

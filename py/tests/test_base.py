@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from fiki import signature_base
+from fiki.base import Request, response_signature_base
 from fiki.errors import MissingComponent, SignatureMismatch, UnsupportedComponent
 
 BASE_ARGS = dict(created=1618884473, keyid="test-key-ed25519")
@@ -171,3 +172,26 @@ def test_only_spaces_and_tabs_are_trimmed_from_the_edges_of_a_value():
     assert line_for("@authority", url="/foo", headers={"Host": " Example.com\t"}) == (
         '"@authority": example.com'
     )
+
+
+def test_an_empty_method_is_a_caller_error_rather_than_an_empty_line():
+    """A request has a method; an empty string is a caller who lost it, and signing "@method: "
+    would bind nothing a verifier could check."""
+    with pytest.raises(ValueError):
+        line_for("@method", method="")
+
+
+def test_a_missing_method_is_a_caller_error():
+    with pytest.raises(TypeError):
+        line_for("@method", method=None)
+
+
+def test_an_empty_method_is_not_refused_when_nothing_covers_it():
+    assert line_for("@path", method="") == '"@path": /foo'
+
+
+def test_an_empty_method_in_the_request_a_response_answers_is_a_caller_error():
+    with pytest.raises(ValueError):
+        response_signature_base(status=200, headers={}, covered=['"@method";req'],
+                                request=Request(method="", url="https://example.com/"),
+                                **BASE_ARGS)

@@ -432,3 +432,17 @@ def test_spaces_and_tabs_at_the_edge_of_a_covered_field_still_verify():
                               covered=[*DEFAULT_COVERED, "x-scope", "content-digest"])
     headers["X-Scope"] = " \tadmin\t "
     assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
+
+
+def test_an_empty_method_is_never_signed():
+    with pytest.raises(ValueError):
+        sign_request(key=KEY, method="", url=URL)
+    with pytest.raises(TypeError):
+        sign_request(key=KEY, method=None, url=URL)
+
+
+def test_an_empty_method_is_a_caller_error_when_verifying():
+    request, headers = signed()
+    request["method"] = ""
+    with pytest.raises(ValueError):
+        verify_request(headers=headers, max_age=None, **request)
