@@ -678,9 +678,11 @@ function parse(raw, name, ErrorClass) {
 
 /** The key to verify with, the identity to report, and the keyid as received.
  *
- * In section 9's order: whether the keyid names a key at all (malformed-key, from fiki or from the
- * resolver) before whether it is the one the client expected (unknown-key), before whether its key
- * state has a key that can sign alone (unknown-key, unsupported-signer).
+ * In section 9's order as far as fiki can see it without asking anyone (@0ekvjgsp): the keyid's
+ * own spelling (malformed-key), then whether it is the one the client expected (unknown-key), and
+ * only then the resolver. A keyid that is not the expected one is refused without a lookup, so
+ * untrusted input never makes the verifier wait on one; the resolver's own refusals therefore
+ * apply only to the expected keyid.
  */
 async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
   const expect = () => {
@@ -709,31 +711,19 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
         { keyid },
       );
     }
-    // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-    // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9). Its MalformedKey
-    // is reported at once; anything else it throws waits until the keyid is known to be expected.
-    let raw = null;
-    let deferred = null;
-    try {
-      raw = (await resolve(keyid)) ?? null;
-    } catch (error) {
-      if (error instanceof MalformedKey) throw error;
-      deferred = error;
-    }
-    if (raw !== null) {
-      if (!(raw instanceof Uint8Array) || raw.length !== KEY_LENGTH) {
-        throw new MalformedKey(`The key resolved for "${keyid}" is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
-          keyid,
-        });
-      }
-      checkKey(raw, keyid);
-    }
     expect();
-    if (deferred !== null) throw deferred;
-    if (raw === null) {
+    // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+    // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+    const raw = await resolve(keyid);
+    if (raw === null || raw === undefined) {
       throw new UnknownKey(`No key is known for the keyid "${keyid}", so the signature cannot be checked.`, { keyid });
     }
-    return { raw, aid: keyid, keyid };
+    if (!(raw instanceof Uint8Array) || raw.length !== KEY_LENGTH) {
+      throw new MalformedKey(`The key resolved for "${keyid}" is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
+        keyid,
+      });
+    }
+    return { raw: checkKey(raw, keyid), aid: keyid, keyid };
   }
   // Strictly: a lenient decoder discards characters outside the alphabet and ignores trailing
   // bits, so a keyid that is not the key's encoding could verify as whatever key it happened to

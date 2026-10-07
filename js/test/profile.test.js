@@ -249,9 +249,12 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
   });
 });
 
-describe('a malformed keyid outranks an unexpected one (Copilot review of PR #5, C3)', () => {
-  // Section 9 puts malformed-key ahead of unknown-key, so the keyid is checked for being a key at
-  // all, by fiki and by the resolver, before it is compared with the one the client expected.
+describe('a malformed keyid outranks an unexpected one, and an unexpected one is never looked up', () => {
+  // Section 9 puts malformed-key ahead of unknown-key, so the keyid's own spelling is checked first
+  // (Copilot review of PR #5, C3). A keyid that is not the expected one is then refused WITHOUT
+  // calling the resolver, so an attacker cannot make a verifier wait on a lookup for a keyid it is
+  // about to refuse; the resolver's own MalformedKey is consulted only for the expected keyid
+  // (hostile review at fae18bc, `this.i` @0ekvjgsp).
   const EXPECTED = cesr('E', new Uint8Array(32).fill(7));
   const refusesAs = async (keyid, resolve, ErrorClass) => {
     const signed = await sign({ keyid });
@@ -263,35 +266,35 @@ describe('a malformed keyid outranks an unexpected one (Copilot review of PR #5,
   const group = (keyid) => {
     throw new errors.UnsupportedSigner(`${keyid} is a group.`, { keyid });
   };
+  const never = () => new Promise(() => {});
+  const untouched = () => {
+    throw new Error('the resolver was called for a keyid that was not expected');
+  };
 
   it('reports a raw keyid that is not a key as malformed', async () => {
     await refusesAs('not-a-key', null, errors.MalformedKey);
   });
 
-  it('reports a misspelled AID as malformed, through a resolver', async () => {
-    await refusesAs('E' + '!'.repeat(43), () => raw(KEY), errors.MalformedKey);
+  it('reports a misspelled AID as malformed, without calling the resolver', async () => {
+    await refusesAs('E' + '!'.repeat(43), untouched, errors.MalformedKey);
   });
 
-  it("reports the resolver's own MalformedKey refusal as malformed", async () => {
-    await refusesAs('not-an-aid', malformed, errors.MalformedKey);
-  });
-
-  it('reports a resolved key that is not a key as malformed', async () => {
-    await refusesAs(AID, () => new Uint8Array(5), errors.MalformedKey);
-    const identity = new Uint8Array(32);
-    identity[0] = 1;
-    await refusesAs(AID, () => identity, errors.MalformedKey);
-  });
-
-  it('reports an unexpected keyid as unknown ahead of an unsupported signer or a key nobody holds', async () => {
+  it('refuses an unexpected keyid without calling the resolver, even one that never answers', async () => {
+    await refusesAs(AID, never, errors.UnknownKey);
+    await refusesAs(AID, untouched, errors.UnknownKey);
+    await refusesAs('not-an-aid', malformed, errors.UnknownKey);
     await refusesAs(AID, group, errors.UnknownKey);
-    await refusesAs(AID, () => null, errors.UnknownKey);
-    await refusesAs(AID, () => raw(KEY), errors.UnknownKey);
   });
 
-  it('still reports an unsupported signer when the keyid is the expected one', async () => {
-    const signed = await sign({ keyid: AID });
-    await assert.rejects(() => verify(signed, { expectedKeyid: AID, resolve: group }), errors.UnsupportedSigner);
+  it("consults the resolver's own refusals for the expected keyid", async () => {
+    const check = async (keyid, resolve, ErrorClass) => {
+      const signed = await sign({ keyid });
+      await assert.rejects(() => verify(signed, { expectedKeyid: keyid, resolve }), ErrorClass);
+    };
+    await check('not-an-aid', malformed, errors.MalformedKey);
+    await check(AID, () => new Uint8Array(5), errors.MalformedKey);
+    await check(AID, group, errors.UnsupportedSigner);
+    await check(AID, () => null, errors.UnknownKey);
   });
 
   it('keeps a caller-defined keyid that is not an AID working', async () => {
