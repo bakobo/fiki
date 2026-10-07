@@ -125,7 +125,8 @@ fn component_value(
     headers: &BTreeMap<String, String>,
 ) -> Result<String> {
     match component {
-        "@method" => Ok(method.to_ascii_uppercase()),
+        // Section 2.2.1: the method as sent, with no case transformation (`this.i` @22g0xkr8).
+        "@method" => Ok(method.to_string()),
         "@authority" => authority(target, headers),
         "@path" => Ok(target.path.clone()),
         // Section 2.2.7: the whole query string including the leading "?", percent-encoding

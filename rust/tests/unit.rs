@@ -139,9 +139,11 @@ fn derived_components() {
         line("@query", "GET", "https://example.com/p?baz=bat%2Dman", &[]),
         r#""@query": ?baz=bat%2Dman"#
     );
+    // The method as sent, with no case transformation (`this.i` @22g0xkr8, RFC 9421 section
+    // 2.2.1): "post" and "POST" are different methods.
     assert_eq!(
         line("@method", "post", "https://example.com/f", &[]),
-        r#""@method": POST"#
+        r#""@method": post"#
     );
     assert_eq!(
         line(
@@ -562,4 +564,22 @@ fn expires_is_enforced_even_when_max_age_is_declined() {
     )
     .unwrap_err();
     assert_eq!(err.kind, Kind::SignatureExpired);
+}
+
+#[test]
+fn a_request_signed_with_a_lowercase_method_does_not_verify_as_uppercase() {
+    let out = sign_request(
+        &key(),
+        "post",
+        URL_QUERY,
+        &BTreeMap::new(),
+        &SignOptions {
+            created: Some(SIGNED_AT),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    verify_request("post", URL_QUERY, &out, &VerifyOptions::default()).unwrap();
+    let err = verify_request("POST", URL_QUERY, &out, &VerifyOptions::default()).unwrap_err();
+    assert_eq!(err.kind, Kind::SignatureMismatch);
 }
