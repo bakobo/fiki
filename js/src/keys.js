@@ -36,6 +36,36 @@ export function toAid(raw) {
   return CODE + toBase64Url(padded).slice(1);
 }
 
+// libsodium's has_small_order blocklist (tick 27eo, `this.i` @4wcwlqd6): the encodings of the
+// points whose order divides 8, plus the non-canonical y = p and y = p + 1, compared with the sign
+// bit of the last byte masked. Under such a key a fixed signature verifies over any message, so it
+// binds nothing; test/small-order.test.js decodes every entry and checks its order.
+const hex = (text) => Uint8Array.from(text.match(/../g), (pair) => parseInt(pair, 16));
+export const SMALL_ORDER = Object.freeze([
+  hex('00'.repeat(32)), // order 4
+  hex('01' + '00'.repeat(31)), // the identity, order 1
+  hex('26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05'), // order 8
+  hex('c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a'), // order 8
+  hex('ec' + 'ff'.repeat(30) + '7f'), // p - 1, order 2
+  hex('ed' + 'ff'.repeat(30) + '7f'), // p, a non-canonical 0, order 4
+  hex('ee' + 'ff'.repeat(30) + '7f'), // p + 1, a non-canonical 1, the identity
+]);
+
+const smallOrder = (raw) =>
+  SMALL_ORDER.some((entry) => entry.every((byte, i) => (i === RAW_LEN - 1 ? raw[i] & 0x7f : raw[i]) === byte));
+
+/** Refuse a 32-byte public key of small order, which binds no signature to anything (27eo). */
+export function checkKey(raw, keyid) {
+  if (smallOrder(raw)) {
+    throw new MalformedKey(
+      `The key for "${keyid}" is a small-order Ed25519 point, under which a signature can be ` +
+        'forged for any message, so it is not a key fiki will verify with.',
+      { keyid },
+    );
+  }
+  return raw;
+}
+
 /** Recover the raw 32-byte Ed25519 public key from a non-transferable AID. */
 export function verifyingKey(aid) {
   if (typeof aid !== 'string' || aid.length !== QB64_LEN || !aid.startsWith(CODE)) {
@@ -62,7 +92,7 @@ export function verifyingKey(aid) {
   if (decoded[0] !== 0) {
     throw new MalformedKey(`The AID "${aid}" is not the canonical spelling of its key.`, { keyid: aid });
   }
-  return decoded.slice(1);
+  return checkKey(decoded.slice(1), aid);
 }
 
 // The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:

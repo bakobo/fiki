@@ -48,7 +48,7 @@ import {
   UnknownKey,
   UnsupportedAlgorithm,
 } from './errors.js';
-import { misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
+import { checkKey, misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
 import { parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
@@ -655,7 +655,7 @@ async function resolveKey(expectedAid, keyid, resolve) {
         keyid,
       });
     }
-    return { raw, aid: keyid, keyid };
+    return { raw: checkKey(raw, keyid), aid: keyid, keyid };
   }
   // Strictly: a lenient decoder discards characters outside the alphabet and ignores trailing
   // bits, so a keyid that is not the key's encoding could verify as whatever key it happened to
@@ -668,7 +668,7 @@ async function resolveKey(expectedAid, keyid, resolve) {
       { keyid },
     );
   }
-  return { raw, aid: toAid(raw), keyid };
+  return { raw: checkKey(raw, keyid), aid: toAid(raw), keyid };
 }
 
 /** Parse a Content-Digest into the members fiki computes, or refuse it as MalformedDigest.
