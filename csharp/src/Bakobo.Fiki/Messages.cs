@@ -665,6 +665,15 @@ namespace Bakobo.Fiki
                 // with the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
                 throw MissingKey();
             }
+            if (requireCreated && !list.Params.Contains("keyid"))
+            {
+                // Under a minimum, which is how a caller applies the KERI profile, keyid is REQUIRED
+                // even when an expected AID names the key (the profile's section 4; the ruling from
+                // the review of bakobo/fiki#8). MissingKey, fiki-py's kind for an absent keyid.
+                throw new FikiException(
+                    FikiErrorKind.MissingKey,
+                    "This signature carries no keyid, which the verifier's policy requires even though the key was named.");
+            }
             if (requireCreated && !list.Params.Contains("created"))
             {
                 // Only under a minimum, which is how a caller applies the KERI profile, where created is

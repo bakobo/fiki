@@ -66,3 +66,5 @@ One divergence is deliberate: an IPv6 literal keeps its brackets in `@authority`
 Another is a refusal fiki-py does not make: `SignRequest` and `SignResponse` throw `ArgumentException` for a label that is not an RFC 8941 dictionary key, such as `"bad label"` or `"Sig"`, where fiki-py writes headers no verifier can parse. Nothing valid on the wire changes.
 
 A third: headers holding two field names equal case-insensitively, such as `X-Role` and `x-role`, are refused with `ArgumentException` on every signing and verifying entry point, the paired `Request` included, as the Rust port refuses them (conductor ruling D-Q9ZT). fiki-py keeps the later value; refusing means no message verifies over one value while carrying another an application might read.
+
+And under a minimum covered set, a signature with no keyid is `MissingKey` even when `WithExpectedAid` names the key, since the KERI profile makes keyid required; fiki-py on main accepts it, and bakobo/fiki#9 brings it into line.
