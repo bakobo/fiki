@@ -131,6 +131,16 @@ pub fn verifying_key(aid: &str) -> Result<VerifyingKey> {
             aid,
         )
     })?;
+    // The decode does not check the bits the code character overwrote: the second character's top
+    // two bits land in the pad byte, so a non-zero pad would give one key two spellings. Only the
+    // canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
+    if to_aid(&bytes) != aid {
+        return Err(Error::detailed(
+            Kind::MalformedKey,
+            format!("The AID {aid} is not the canonical spelling of its key."),
+            aid,
+        ));
+    }
     // ed25519-dalek 2.x accepts any 32 bytes here and defers point validation to verification, so
     // this arm does not fire today. It is written rather than unwrapped because from_bytes is
     // declared fallible: a future version that validates eagerly should surface as a malformed

@@ -87,6 +87,9 @@ fn malformed_aids_are_refused() {
         &format!("B{}", "!".repeat(43)), // outside the alphabet
         // "=" is inside base64's alphabet, so a lenient decoder would take this and decode short.
         &format!("B{}==", "A".repeat(41)),
+        // SEED_AID with a bit set in the pad byte the code character replaces: the same 32 key
+        // bytes under a second spelling, which would give one key two identifiers.
+        "BQOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
     ] {
         assert_eq!(
             verifying_key(aid).unwrap_err().kind,
