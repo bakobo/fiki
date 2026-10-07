@@ -15,6 +15,9 @@ on:
   # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
   # that made it, so there is no way to ask for one after the fact without a fresh commit.
   workflow_dispatch:
+  # release-csharp.yml calls this workflow, so a release runs exactly the suite CI runs rather than a
+  # copy of it that drifts.
+  workflow_call:
 
 permissions:
   contents: read
