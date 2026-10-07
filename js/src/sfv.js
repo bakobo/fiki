@@ -6,10 +6,11 @@
 // chain. The usual argument against writing your own parser holds where the grammar is open-ended;
 // this one's entire output surface is pinned byte for byte by the shared vectors.
 //
-// What is deliberately NOT here: integers beyond the plain form, decimals, tokens, inner-list
-// items with their own parameters, and every field type RFC 9421 never puts in these two headers.
-// A parser that accepts less than the spec can only refuse things fiki would not have understood
-// anyway, which is the safe direction.
+// What is deliberately NOT here: decimals, tokens, and every field type RFC 9421 never puts in
+// these two headers. A parser that accepts less than the spec can only refuse things fiki would
+// not have understood anyway, which is the safe direction. Inner-list items DO carry parameters,
+// because RFC 9421 section 2.4's `req` is one, and fiki decides what a parameter means only after
+// the parse, where refusing it can name the component rather than the syntax (@7f28p7xk).
 
 // Thrown by this module alone and never exported: the parser cannot know WHICH header it is
 // reading, and the taxonomy distinguishes an unparsable Signature from an unparsable
@@ -100,8 +101,10 @@ function parseInteger(cursor) {
   if (cursor.peek() === '-') cursor.at += 1;
   while (!cursor.done && /[0-9]/.test(cursor.peek())) cursor.at += 1;
   const digits = cursor.text.slice(start, cursor.at);
-  if (!/^-?[0-9]+$/.test(digits)) {
-    throw new MalformedSyntax(`Expected an integer at offset ${start} of ${cursor.text}.`);
+  // RFC 8941 section 3.3.1 caps an integer at fifteen digits, which is also what keeps it exact
+  // in a JavaScript number: a longer one would round, and a rounded `created` is a different one.
+  if (!/^-?[0-9]{1,15}$/.test(digits)) {
+    throw new MalformedSyntax(`Expected an integer of at most 15 digits at offset ${start} of ${cursor.text}.`);
   }
   return Number(digits);
 }
@@ -146,17 +149,22 @@ function parseInnerList(cursor) {
       cursor.take();
       break;
     }
-    items.push(parseBareItem(cursor));
-    // RFC 9421 never puts parameters on the members of a covered-component list, and accepting
-    // them would mean carrying a shape nothing here can render back.
-    if (!cursor.done && cursor.peek() === ';') {
-      throw new MalformedSyntax('fiki does not handle parameters on covered components.');
-    }
+    items.push({ value: parseBareItem(cursor), params: parseParameters(cursor) });
     if (!cursor.done && cursor.peek() !== ' ' && cursor.peek() !== ')') {
       throw new MalformedSyntax(`Expected a space or ")" at offset ${cursor.at}.`);
     }
   }
   return { items, params: parseParameters(cursor) };
+}
+
+/** Parse one RFC 8941 item with its parameters, the whole of `text`: `"@path";req`. */
+export function parseItem(text) {
+  const cursor = new Cursor(text);
+  cursor.skipSpace();
+  const item = { value: parseBareItem(cursor), params: parseParameters(cursor) };
+  cursor.skipSpace();
+  if (!cursor.done) throw new MalformedSyntax(`Unexpected text after the item at offset ${cursor.at} of ${text}.`);
+  return item;
 }
 
 /** Parse an RFC 8941 dictionary whose members are inner lists or byte sequences. */
@@ -199,9 +207,12 @@ const serializeBareItem = (value) => {
 const serializeParameters = (params) =>
   [...params].map(([key, value]) => (value === true ? `;${key}` : `;${key}=${serializeBareItem(value)}`)).join('');
 
+/** Serialize one item with its parameters: `{value: '@path', params: {req: true}}` is `"@path";req`. */
+export const serializeItem = ({ value, params }) => `${serializeBareItem(value)}${serializeParameters(params)}`;
+
 /** Serialize an inner list of covered components with its signature parameters. */
 export function serializeInnerList({ items, params }) {
-  return `(${items.map(serializeBareItem).join(' ')})${serializeParameters(params)}`;
+  return `(${items.map(serializeItem).join(' ')})${serializeParameters(params)}`;
 }
 
 /** Serialize a byte sequence as a dictionary member, which is how RFC 9421 carries a signature. */
