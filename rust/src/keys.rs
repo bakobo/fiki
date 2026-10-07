@@ -151,18 +151,29 @@ pub fn verifying_key(aid: &str) -> Result<VerifyingKey> {
 }
 
 /// The Ed25519 public key for 32 raw bytes, or `None` for bytes no signature should be checked
-/// under: a small-order point (`this.i` @2t8xctts, tick 27eo), which has no secret behind it that
-/// only one party holds — under the identity point the signature 0x01 followed by 63 zero bytes
-/// verifies over any message.
+/// under (`this.i` @2t8xctts, @34qlc8r3, tick 27eo): anything that is not the canonical encoding of
+/// an on-curve point, and any small-order point, which has no secret behind it that only one party
+/// holds — under the identity point the signature 0x01 followed by 63 zero bytes verifies over any
+/// message.
 ///
-/// ed25519-dalek 2.x's `from_bytes` accepts most other 32 bytes and defers point validation to
-/// verification; its error arm is handled rather than unwrapped because a future version that
-/// validates eagerly should surface as a malformed key, not as a panic. `is_weak` tests the
-/// decompressed point, so it catches a small-order point under any encoding that decompresses.
+/// Three tests, each catching what the others cannot. y must be below the field prime, because
+/// ed25519-dalek's decompression reduces y and so accepts its second spelling; decompression must
+/// succeed, which is the curve test; and `is_weak` refuses a small-order point under any encoding
+/// that decompresses, which includes x = 0 with the sign bit set, since x is zero only at y = 1
+/// and y = -1, both small-order.
 pub(crate) fn public_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
+    if !y_below_prime(raw) {
+        return None;
+    }
     VerifyingKey::from_bytes(raw)
         .ok()
         .filter(|key| !key.is_weak())
+}
+
+/// Whether the little-endian y in an encoded point, sign bit cleared, is below p = 2^255 - 19.
+/// Only 19 values are not: 0x7f, then thirty 0xff, then a low byte of 0xed or more.
+fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
+    !(raw[31] & 0x7f == 0x7f && raw[1..31].iter().all(|b| *b == 0xff) && raw[0] >= 0xed)
 }
 
 /// An Ed25519 key pair whose public half is rendered as a non-transferable AID.

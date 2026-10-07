@@ -1809,3 +1809,72 @@ fn an_empty_method_is_a_caller_error_wherever_at_method_is_built() {
     let err = response_base(200, Some(&methodless), &["@status", "\"@method\";req"]);
     assert_eq!(kind_of(err), Kind::InvalidArgument);
 }
+
+// --- a key must be the canonical encoding of an on-curve point (@34qlc8r3, tick 27eo) ---
+
+/// p = 2^255 - 19, little-endian, plus `k`, for a y coordinate at or above the field prime.
+fn prime_plus(k: u8) -> [u8; 32] {
+    let mut y = [0xffu8; 32];
+    y[0] = 0xed + k;
+    y[31] = 0x7f;
+    y
+}
+
+/// Encodings no signature should be checked under that are not small-order points themselves.
+fn non_canonical_keys() -> Vec<[u8; 32]> {
+    // The first small y with no point on the curve, found rather than hardcoded so the test says
+    // what it is looking for; ed25519-dalek's own decompression is the judge of "on the curve".
+    let off_curve = (2u8..=255)
+        .map(|y| {
+            let mut bytes = [0u8; 32];
+            bytes[0] = y;
+            bytes
+        })
+        .find(|bytes| ed25519_dalek::VerifyingKey::from_bytes(bytes).is_err())
+        .expect("some small y is off the curve");
+    let mut identity_with_sign = [0u8; 32];
+    identity_with_sign[0] = 1;
+    identity_with_sign[31] = 0x80;
+    let mut minus_one_with_sign = [0xffu8; 32];
+    minus_one_with_sign[0] = 0xec;
+    vec![
+        off_curve,
+        prime_plus(2),
+        prime_plus(18),
+        identity_with_sign,
+        minus_one_with_sign,
+        [0xffu8; 32],
+    ]
+}
+
+#[test]
+fn a_y_at_or_above_the_prime_is_a_second_spelling_that_decompresses() {
+    // What makes the byte test necessary: the library alone would take the second spelling.
+    let decompresses = |k| ed25519_dalek::VerifyingKey::from_bytes(&prime_plus(k)).is_ok();
+    assert!((2..=18).any(decompresses));
+}
+
+#[test]
+fn a_non_canonical_or_off_curve_key_is_malformed_on_every_path() {
+    for bytes in non_canonical_keys() {
+        let sent = forged_under(&encode(&bytes, B64URL, false));
+        assert_eq!(
+            sent.kind(VerifyOptions::default()),
+            Kind::MalformedKey,
+            "{bytes:02x?}"
+        );
+
+        let resolver: Resolver = Arc::new(move |_: &str| Ok(Some(bytes)));
+        let err = forged_under(&aid())
+            .verify(resolving(resolver))
+            .unwrap_err();
+        assert_eq!(err.kind, Kind::MalformedKey, "{bytes:02x?}");
+
+        let as_aid = fiki::to_aid(&bytes);
+        assert_eq!(
+            verifying_key(&as_aid).unwrap_err().kind,
+            Kind::MalformedKey,
+            "{as_aid}"
+        );
+    }
+}
