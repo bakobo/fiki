@@ -342,7 +342,9 @@ public final class Fiki {
 
         /**
          * The {@code @authority} values this verifier serves; a covered one outside the set is a
-         * {@code SignatureMismatch}. Requests only (@3cceqvg3).
+         * {@code SignatureMismatch}, and supplying them makes {@code @authority} required, so a
+         * signature that does not cover it is {@code InsufficientCoverage} (@605z9tnw). Requests
+         * only (@3cceqvg3).
          */
         public VerifyOptions withAuthorities(Set<String> authorities) {
             return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
@@ -1058,6 +1060,11 @@ public final class Fiki {
                 response ? hasContent(opts.body()) : requestHasBody(found, opts.body()),
                 // By the request's content alone, as signResponse decides it (@7p9s3g9k).
                 request != null && hasContent(request.body()));
+        }
+        // Served authorities bind the signature to a host only if it commits to one, so supplying
+        // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+        if (opts.authorities() != null) {
+            checkMinimum(items, List.of("@authority"), false, false);
         }
 
         String keyid = (String) inner.param("keyid");
