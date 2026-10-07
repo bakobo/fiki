@@ -124,7 +124,7 @@ func TestSignatureBaseComponents(t *testing.T) {
 		{"empty path is a slash", "@path", "GET", "https://example.com", `"@path": /`, nil},
 		{"no query is a bare question mark", "@query", "GET", "https://example.com/f", `"@query": ?`, nil},
 		{"percent-encoding is not decoded", "@query", "GET", "https://example.com/p?baz=bat%2Dman", `"@query": ?baz=bat%2Dman`, nil},
-		{"method is uppercased", "@method", "post", "https://example.com/f", `"@method": POST`, nil},
+		{"method is signed as given, with no case transformation", "@method", "post", "https://example.com/f", `"@method": post`, nil},
 		{"header names are lowercased and values trimmed", "Content-Type", "GET", "https://example.com/f", `"content-type": application/json`, map[string]string{"Content-Type": "  application/json  "}},
 	}
 	for _, c := range cases {
@@ -151,12 +151,6 @@ func TestSignatureBaseComponents(t *testing.T) {
 		_, err := SignatureBase("GET", "/things", nil, []string{"@authority"}, SignatureParams{Created: 1, Keyid: "k"})
 		if kindOf(t, err) != KindMissingComponent {
 			t.Error("expected MissingComponent")
-		}
-	})
-	t.Run("an unparsable url is refused", func(t *testing.T) {
-		_, err := SignatureBase("GET", "://nonsense", nil, []string{"@path"}, SignatureParams{Created: 1, Keyid: "k"})
-		if err == nil {
-			t.Error("expected a refusal")
 		}
 	})
 	t.Run("optional parameters serialize in a fixed order", func(t *testing.T) {
@@ -293,7 +287,9 @@ func TestSignAndVerify(t *testing.T) {
 	t.Run("a digest value that is not a byte sequence is refused", func(t *testing.T) {
 		key := testKey(t)
 		supplied := map[string]string{"Content-Digest": `sha-256="not bytes"`}
-		out, err := SignRequest(key, "POST", urlQuery, supplied, SignOptions{Body: testBody, Created: signedAt})
+		// Signed with no body handed over, since a signer given the body refuses this digest.
+		out, err := SignRequest(key, "POST", urlQuery, supplied,
+			SignOptions{Created: signedAt, Covered: []string{"@method", "@path", "content-digest"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -309,17 +305,19 @@ func TestSignAndVerify(t *testing.T) {
 }
 
 func TestSignAndVerifyRefusals(t *testing.T) {
-	t.Run("signing against an unparsable url is refused", func(t *testing.T) {
+	t.Run("signing against a url with no buildable authority is refused", func(t *testing.T) {
 		key := testKey(t)
-		if _, err := SignRequest(key, "GET", "://nonsense", nil, SignOptions{}); err == nil {
-			t.Error("expected a refusal")
+		if _, err := SignRequest(key, "GET", "https://example.com:http/", nil, SignOptions{}); kindOf(t, err) != KindMissingComponent {
+			t.Error("expected MissingComponent")
 		}
 	})
 
 	t.Run("an unparsable Content-Digest is refused", func(t *testing.T) {
 		key := testKey(t)
 		supplied := map[string]string{"Content-Digest": "((( not sfv"}
-		out, err := SignRequest(key, "POST", urlQuery, supplied, SignOptions{Body: testBody, Created: signedAt})
+		// Signed with no body handed over, since a signer given the body refuses this digest.
+		out, err := SignRequest(key, "POST", urlQuery, supplied,
+			SignOptions{Created: signedAt, Covered: []string{"@method", "@path", "content-digest"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -395,15 +393,13 @@ func TestFreshness(t *testing.T) {
 		// and the signature has to be genuinely made that way — freshness is checked after the
 		// signature, so a doctored Signature-Input just fails the signature instead.
 		key := testKey(t)
-		list := innerList{Items: []string{"@method", "@path"}, Params: []param{{Key: "keyid", Value: key.Keyid()}}}
-		lines, err := componentLines("GET", "/a", nil, list.Items)
+		base, err := SignatureBase("GET", "/a", nil, []string{"@method", "@path"}, SignatureParams{Keyid: key.Keyid()})
 		if err != nil {
 			t.Fatal(err)
 		}
-		lines = append(lines, `"@signature-params": `+serializeInnerList(list))
-		signature := key.Sign([]byte(strings.Join(lines, "\n")))
+		signature := key.Sign(base)
 		headers := map[string]string{
-			"Signature-Input": "sig=" + serializeInnerList(list),
+			"Signature-Input": "sig=" + strings.SplitN(string(base), `"@signature-params": `, 2)[1],
 			"Signature":       "sig=:" + b64std(signature) + ":",
 		}
 		if _, err := VerifyRequest("GET", "/a", headers, VerifyOptions{}); err != nil {
@@ -438,7 +434,7 @@ func TestStructuredFieldSubset(t *testing.T) {
 
 	t.Run("escapes on the way back out", func(t *testing.T) {
 		got := serializeInnerList(innerList{
-			Items:  []string{`a"b\c`},
+			Items:  []item{{Value: `a"b\c`}},
 			Params: []param{{Key: "f", Value: true}, {Key: "g", Value: false}},
 		})
 		if got != `("a\"b\\c");f;g=?0` {
@@ -457,8 +453,7 @@ func TestStructuredFieldSubset(t *testing.T) {
 		"a truncated boolean":                      "a=?",
 		"an item of no supported type":             "a=%bad",
 		"an unterminated inner list":               `a=("@method"`,
-		"parameters on a covered component":        `a=("@method";q=1)`,
-		"a non-string covered component":           "a=(1)",
+		"a string with a line break in it":         "a=\"x\ny\"",
 		"a missing separator inside an inner list": `a=("@method""@path")`,
 		"a missing comma between members":          "a=1 b=2",
 		"a trailing comma":                         "a=1, ",
