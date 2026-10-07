@@ -9,3 +9,4 @@ created: 2026-10-07T17:51Z
 - 2026-10-07T18:05Z 2026-10-07: from java #10: fiki-py signs a CR/LF label (refuses CR/LF in keyid/nonce/tag); py raises a bare ValueError for a bad port in a RECEIVED URL on verify (java returns SignatureMismatch) — pick one coded refusal for all ports.
 - 2026-10-07T18:43Z 2026-10-07: go (on main) silently skips CR/LF inside an RFC 8941 byte sequence when decoding (Go's base64 decoder ignores \r\n), so a Signature with CR/LF inserted still verifies — malleability, not forgery. Refuse anything outside the base64 alphabet in every port (py fixed in #9, 5d3cdcf).
 - 2026-10-07T18:45Z 2026-10-07: java (#10) now refuses a non-positive maxAge or skew as a caller error, citing the profile; check the profile text and align every port (py accepts skew 0 today?).
+- 2026-10-07T18:49Z 2026-10-07: also tick 3ap7 (Python guide sample writes the seed file 0644; C# fixed in #7) — fold into the docs PR.
