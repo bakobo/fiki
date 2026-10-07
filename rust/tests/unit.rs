@@ -167,6 +167,25 @@ fn derived_components() {
         line("@authority", "GET", "https://[::1]/f", &[]),
         r#""@authority": [::1]"#
     );
+    // An IPv6 literal keeps its brackets with a port too (RFC 3986 section 3.2.2), and a default
+    // port is still dropped (`this.i` @4pz4mcgq).
+    assert_eq!(
+        line("@authority", "GET", "https://[::1]:8443/f", &[]),
+        r#""@authority": [::1]:8443"#
+    );
+    assert_eq!(
+        line("@authority", "GET", "https://[::1]:443/f", &[]),
+        r#""@authority": [::1]"#
+    );
+    // The path and query as sent: no dot segments removed, nothing decoded or re-encoded.
+    assert_eq!(
+        line("@path", "GET", "https://x.example/a/../b/./%7Ec:d", &[]),
+        r#""@path": /a/../b/./%7Ec:d"#
+    );
+    assert_eq!(
+        line("@query", "GET", "https://x.example/f?a=%2f&b= c", &[]),
+        r#""@query": ?a=%2f&b= c"#
+    );
 }
 
 #[test]
