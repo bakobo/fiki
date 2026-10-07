@@ -9,9 +9,12 @@ package fiki
 // open-ended; this one is a few hundred lines whose every output is checked against committed
 // bytes shared with four other implementations.
 //
-// What is deliberately NOT here: decimals, tokens, inner-list items with their own parameters, and
-// every field type RFC 9421 never puts in these two headers. A parser that accepts less than the
-// spec can only refuse things fiki would not have understood anyway.
+// What is deliberately NOT here: inner lists nested in parameters, and every field type RFC 9421
+// never puts in these two headers. A parser that accepts less than the spec can only refuse things
+// fiki would not have understood anyway. Tokens and decimals ARE read, though fiki never accepts
+// one anywhere it matters, so that a header carrying one is refused for what it means — an
+// unsupported component parameter, an unknown signature parameter — rather than as unparsable,
+// which is the refusal fiki-py gives it (`this.i` @9z57sejw).
 
 import (
 	"encoding/base64"
@@ -28,30 +31,46 @@ var errSyntax = errors.New("structured field syntax")
 
 type param struct {
 	Key   string
-	Value any // string, int64, bool, or []byte
+	Value any // string, int64, bool, []byte, token, or decimal
+}
+
+// sfToken and sfDecimal keep the two bare-item types fiki never acts on distinct from a string, so
+// that they serialize back as they arrived. A decimal is kept as its own text.
+type (
+	sfToken   string
+	sfDecimal string
+)
+
+// item is a bare item with its parameters, as an inner list carries it.
+type item struct {
+	Value  any
+	Params []param
 }
 
 // innerList is a covered-component list with its signature parameters, in the order they arrived.
 // Order is load-bearing on the verify side: a verifier that reorders what it received computes a
 // different base and rejects a good signature.
 type innerList struct {
-	Items  []string
+	Items  []item
 	Params []param
 }
 
-func (l innerList) param(key string) (any, bool) {
-	for _, p := range l.Params {
-		if p.Key == key {
-			return p.Value, true
-		}
-	}
-	return nil, false
-}
+func (l innerList) param(key string) (any, bool) { return paramValue(l.Params, key) }
 
 type member struct {
 	IsList bool
 	List   innerList
 	Value  any
+}
+
+// paramValue is the value a parameter list gives key, and whether it gives one at all.
+func paramValue(params []param, key string) (any, bool) {
+	for _, p := range params {
+		if p.Key == key {
+			return p.Value, true
+		}
+	}
+	return nil, false
 }
 
 type cursor struct {
@@ -122,6 +141,11 @@ func (c *cursor) parseString() (string, error) {
 		case '"':
 			return out.String(), nil
 		default:
+			// RFC 8941 section 3.3.3: visible ASCII and space only, so a line break can never
+			// travel inside a string into a line of the signature base.
+			if ch < ' ' || ch > '~' {
+				return "", fmt.Errorf("%w: a string carries a byte outside visible ASCII", errSyntax)
+			}
 			out.WriteByte(ch)
 		}
 	}
@@ -145,19 +169,47 @@ func (c *cursor) parseByteSequence() ([]byte, error) {
 	return raw, nil
 }
 
-func (c *cursor) parseInteger() (int64, error) {
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+// parseNumber reads an RFC 8941 integer, or a decimal kept as its text.
+func (c *cursor) parseNumber() (any, error) {
 	start := c.at
 	if c.peek() == '-' {
 		c.at++
 	}
-	for !c.done() && c.peek() >= '0' && c.peek() <= '9' {
+	digits := c.at
+	for !c.done() && isDigit(c.peek()) {
 		c.at++
 	}
-	value, err := strconv.ParseInt(c.text[start:c.at], 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%w: expected an integer at offset %d", errSyntax, start)
+	if c.peek() == '.' && c.at > digits && c.at-digits <= 12 {
+		c.at++
+		fraction := c.at
+		for !c.done() && isDigit(c.peek()) {
+			c.at++
+		}
+		if c.at == fraction || c.at-fraction > 3 {
+			return nil, fmt.Errorf("%w: a decimal has one to three fractional digits", errSyntax)
+		}
+		return sfDecimal(c.text[start:c.at]), nil
 	}
+	if c.at == digits || c.at-digits > 15 {
+		return nil, fmt.Errorf("%w: expected an integer at offset %d", errSyntax, start)
+	}
+	value, _ := strconv.ParseInt(c.text[start:c.at], 10, 64) // at most 15 digits: cannot overflow
 	return value, nil
+}
+
+func isTokenChar(b byte) bool {
+	return isDigit(b) || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') ||
+		strings.IndexByte("!#$%&'*+-.^_`|~:/", b) >= 0
+}
+
+func (c *cursor) parseToken() sfToken {
+	start := c.at
+	for !c.done() && isTokenChar(c.peek()) {
+		c.at++
+	}
+	return sfToken(c.text[start:c.at])
 }
 
 func (c *cursor) parseBareItem() (any, error) {
@@ -177,8 +229,10 @@ func (c *cursor) parseBareItem() (any, error) {
 			return nil, fmt.Errorf("%w: a boolean is ?0 or ?1", errSyntax)
 		}
 		return flag == '1', nil
-	case ch == '-' || (ch >= '0' && ch <= '9'):
-		return c.parseInteger()
+	case ch == '-' || isDigit(ch):
+		return c.parseNumber()
+	case ch == '*' || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'):
+		return c.parseToken(), nil
 	default:
 		return nil, fmt.Errorf("%w: unsupported item at offset %d", errSyntax, c.at)
 	}
@@ -186,6 +240,12 @@ func (c *cursor) parseBareItem() (any, error) {
 
 func (c *cursor) parseParameters() ([]param, error) {
 	var params []param
+	// Where each key sits, so a duplicated key overwrites its first value in place, as RFC 8941
+	// section 4.2.3.2 says a parser must, without rescanning every earlier parameter: a scan per
+	// parameter made a long Signature-Input cost quadratic time before it was refused
+	// (bakobo/fiki#6). A duplicated parameter therefore cannot smuggle a second value past a
+	// check that reads the first.
+	at := map[string]int{}
 	for !c.done() && c.peek() == ';' {
 		c.at++
 		c.skipSpace()
@@ -193,16 +253,19 @@ func (c *cursor) parseParameters() ([]param, error) {
 		if err != nil {
 			return nil, err
 		}
+		var value any = true
 		if !c.done() && c.peek() == '=' {
 			c.at++
-			value, err := c.parseBareItem()
-			if err != nil {
+			if value, err = c.parseBareItem(); err != nil {
 				return nil, err
 			}
-			params = append(params, param{Key: key, Value: value})
+		}
+		if i, seen := at[key]; seen {
+			params[i].Value = value
 			continue
 		}
-		params = append(params, param{Key: key, Value: true})
+		at[key] = len(params)
+		params = append(params, param{Key: key, Value: value})
 	}
 	return params, nil
 }
@@ -219,23 +282,21 @@ func (c *cursor) parseInnerList() (innerList, error) {
 			c.at++
 			break
 		}
-		item, err := c.parseBareItem()
+		value, err := c.parseBareItem()
 		if err != nil {
 			return list, err
 		}
-		text, ok := item.(string)
-		if !ok {
-			return list, fmt.Errorf("%w: fiki's covered components are strings", errSyntax)
-		}
-		// RFC 9421 never puts parameters on the members of a covered-component list, and
-		// accepting them would mean carrying a shape nothing here can render back.
-		if !c.done() && c.peek() == ';' {
-			return list, fmt.Errorf("%w: parameters on a covered component", errSyntax)
+		// Parameters on a covered component are read, not refused here: "@path";req is how a
+		// response names its request's path, and any other parameter is refused by name later,
+		// as an unsupported component rather than as an unparsable header.
+		params, err := c.parseParameters()
+		if err != nil {
+			return list, err
 		}
 		if !c.done() && c.peek() != ' ' && c.peek() != ')' {
 			return list, fmt.Errorf("%w: expected a space or ) at offset %d", errSyntax, c.at)
 		}
-		list.Items = append(list.Items, text)
+		list.Items = append(list.Items, item{Value: value, Params: params})
 	}
 	params, err := c.parseParameters()
 	if err != nil {
@@ -309,12 +370,19 @@ func serializeBareItem(value any) string {
 		return `"` + strings.ReplaceAll(strings.ReplaceAll(v, `\`, `\\`), `"`, `\"`) + `"`
 	case int64:
 		return strconv.FormatInt(v, 10)
-	default:
-		// Only false reaches here: RFC 8941 renders a true-valued parameter as a bare key, which
-		// serializeParameters does before calling this, and fiki never puts a boolean in an item
-		// position. A "?1" arm would be unreachable.
+	case sfToken:
+		return string(v)
+	case sfDecimal:
+		return string(v)
+	case []byte:
+		return ":" + base64.StdEncoding.EncodeToString(v) + ":"
+	case bool:
+		if v {
+			return "?1"
+		}
 		return "?0"
 	}
+	panic(fmt.Sprintf("fiki: no RFC 8941 serialization for %T", value)) // a bug in fiki, not input
 }
 
 func serializeParameters(params []param) string {
@@ -332,8 +400,8 @@ func serializeParameters(params []param) string {
 // serializeInnerList renders a covered-component list with its signature parameters.
 func serializeInnerList(list innerList) string {
 	quoted := make([]string, len(list.Items))
-	for i, item := range list.Items {
-		quoted[i] = serializeBareItem(item)
+	for i, member := range list.Items {
+		quoted[i] = serializeBareItem(member.Value) + serializeParameters(member.Params)
 	}
 	return "(" + strings.Join(quoted, " ") + ")" + serializeParameters(list.Params)
 }
