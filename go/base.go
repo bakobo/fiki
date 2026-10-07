@@ -254,18 +254,21 @@ func authority(t target, headers map[string]string) (string, error) {
 			Component: "@authority",
 		}
 	}
-	host, port := hostinfo, ""
-	if open := strings.IndexByte(hostinfo, '['); open >= 0 {
+	var host, port string
+	if strings.HasPrefix(hostinfo, "[") {
 		// An IP literal keeps its brackets: RFC 3986 section 3.2.2 makes them part of the host,
-		// and @authority is built from the host (this.i @8f6txftu).
-		literal, rest, closed := strings.Cut(hostinfo[open+1:], "]")
+		// and @authority is built from the host (this.i @8f6txftu). Nothing but ":port" may
+		// follow the "]", or text after it would be dropped from the authority (bakobo/fiki#6).
+		literal, rest, closed := strings.Cut(hostinfo[1:], "]")
 		if !closed {
 			return "", unbuildable("opens an IP literal it never closes")
 		}
-		host = "[" + literal + "]"
-		_, port, _ = strings.Cut(rest, ":")
-	} else if strings.Contains(hostinfo, "]") {
-		return "", unbuildable("closes an IP literal it never opened")
+		if rest != "" && !strings.HasPrefix(rest, ":") {
+			return "", unbuildable("has text after its IP literal that is not a port")
+		}
+		host, port = "["+literal+"]", strings.TrimPrefix(rest, ":")
+	} else if strings.ContainsAny(hostinfo, "[]") {
+		return "", unbuildable("has a bracket outside an IP literal")
 	} else {
 		host, port, _ = strings.Cut(hostinfo, ":")
 	}
