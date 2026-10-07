@@ -19,6 +19,8 @@
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/bakobo/fiki</PackageProjectUrl>
     <RepositoryUrl>https://github.com/bakobo/fiki</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>rfc9421;http-message-signatures;ed25519;keri;aid</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
