@@ -49,7 +49,7 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations, all at 0.5.0, all conforming to vectors format 1. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
+Six implementations, all at 0.5.0, all conforming to vectors format 1 and to the KERI profile's keri vectors format 2. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
 
 The APIs are not frozen. Nothing is published to a package registry yet, except Go, which needs no registry — `go get github.com/bakobo/fiki/go@v0.5.0` works today. Its first consumer, [heti](https://github.com/bakobo/heti), pins fiki by commit rather than by version.
 
@@ -67,7 +67,7 @@ vectors/              conformance vectors, shared and normative
   accepts.json            requests every implementation must accept, and the verdict
   refusals.json           requests every implementation must refuse, and the error
   keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 2;
-                          only the Python and C# ports run it so far
+                          all six ports run it
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
@@ -83,15 +83,15 @@ A new port adds a directory here rather than a repository, so the vectors cannot
 Each implementation versions independently — a fix in the Go port does not force an empty release of the other five. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
 
 ```
-fiki (Python)      0.5.0    vectors format 1
-fiki (JavaScript)  0.5.0    vectors format 1
-fiki (Go)          0.5.0    vectors format 1
-fiki (Rust)        0.5.0    vectors format 1
-fiki (Java)        0.5.0    vectors format 1
-fiki (C#)          0.5.0    vectors format 1
+fiki (Python)      0.5.0    vectors format 1    keri vectors format 2
+fiki (JavaScript)  0.5.0    vectors format 1    keri vectors format 2
+fiki (Go)          0.5.0    vectors format 1    keri vectors format 2
+fiki (Rust)        0.5.0    vectors format 1    keri vectors format 2
+fiki (Java)        0.5.0    vectors format 1    keri vectors format 2
+fiki (C#)          0.5.0    vectors format 1    keri vectors format 2
 ```
 
-Same format, interchangeable. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
+Same format, interchangeable; the two columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 
 Releases are tagged per port: `py/v0.5.0`, `js/v0.5.0`, `go/v0.5.0`, `rust/v0.5.0`, `java/v0.5.0`, `csharp/v0.5.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other five follow it for consistency.
 
@@ -101,7 +101,7 @@ Two oracles stand behind fiki. RFC 9421's own Appendix B vectors, which no Bakob
 
 No implementation is the reference. The vectors are, and all six answer to them equally.
 
-`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates and runs it, and the C# port runs it; the other four do not yet.
+`vectors/keri/` is a separate contract with its own format number (`this.i` @8vwrexxc). It pins the [KERI profile of RFC 9421](docs/keri-profile.md) that keripy, KERIA and signify-ts implement — responses bound to their request with `req`, keyids that are KERI AIDs resolved by the verifier, a minimum covered set, and refusals named by the profile's neutral codes — and it also carries, as static data, the legacy-dialect messages KERIA's and signify-ts's tests pin today. The Python port generates it, and all six ports run it. How to sign and verify under the profile, in each language, is in the [user guide](docs/user-guide.md#signing-with-a-keri-identifier).
 
 ## Contributing a port
 

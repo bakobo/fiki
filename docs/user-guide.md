@@ -40,11 +40,14 @@ Generate a key once, print the AID, and register it. Then sign.
 ### Python
 
 ```python
+import os
 from fiki import Key, sign_request
 
 key = Key.generate()
 print(key.aid)              # register this
-open("seed.bin", "wb").write(key.seed)
+fd = os.open("seed.bin", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "wb") as f:  # readable by you alone
+    f.write(key.seed)
 
 url = "https://api.example.com/things?limit=1"
 body = b'{"hello": "world"}'
@@ -217,9 +220,393 @@ Omitting it entirely is an error, not a default. That is the point: the decision
 
 Clock skew is tolerated at 5 seconds by default and is adjustable, because two hosts disagreeing by a second is ordinary and a verifier that treats it as an attack is unusable.
 
+## Signing with a KERI identifier
+
+Everything above uses fiki's own model, where the identifier is the key. fiki also implements the [KERI profile of RFC 9421](keri-profile.md), which is what keripy, KERIA and signify-ts speak, and there the identifier is a KERI AID whose current key lives in a key event log. A transferable AID, the `E…` kind, does not contain its current key, so a verifier has to look it up.
+
+To sign under an AID, name it as the `keyid` and sign with that AID's current key. The request is then no longer self-verifying: only a verifier that can resolve the AID can check it. Pass the profile's minimum covered set too. It is `@method`, `@path` and `@query`, plus `content-digest` whenever there is a body, and with it fiki refuses to sign anything a profile verifier would refuse rather than letting the verifier find out. The method is signed exactly as given, so pass it as it will go on the wire.
+
+### Python
+
+```python
+from fiki import REQUEST_MINIMUM, sign_request
+
+headers = sign_request(
+    key=key,                   # the AID's current signing key
+    keyid=aid,                 # e.g. "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx"
+    method="POST",             # exactly as it will go on the wire
+    url=url,
+    body=body,
+    minimum=REQUEST_MINIMUM,   # refuse to sign what a profile verifier would refuse
+)
+```
+
+### JavaScript
+
+```js
+import { Key, REQUEST_MINIMUM, signRequest } from '@bakobo/fiki';
+
+const headers = await signRequest({
+  key,                       // the AID's current signing key
+  keyid: aid,                // e.g. 'EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6'
+  method: 'POST',            // exactly as it will go on the wire; fiki never changes its case
+  url,
+  body,
+  minimum: REQUEST_MINIMUM,  // refuse to sign what a profile verifier would refuse
+});
+```
+
+### Go
+
+```go
+headers, err := fiki.SignRequest(key, "POST", url, nil, fiki.SignOptions{
+	Keyid:   aid,                 // name the AID; the verifier resolves it
+	Body:    body,                // covered by a Content-Digest, returned among the headers
+	Minimum: fiki.RequestMinimum, // refuse to sign what a profile verifier would refuse
+})
+```
+
+### Rust
+
+```rust
+// The keyid is the signer's KERI AID rather than its key; only a verifier that can resolve the
+// AID to its current key can check the signature.
+let headers = sign_request(
+    key,
+    "POST",
+    "https://keria.example.com/identifiers",
+    &BTreeMap::new(),
+    &SignOptions {
+        body: Some(br#"{"name": "alice"}"#.to_vec()),
+        keyid: Some("ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx".into()),
+        // Refuse to sign anything a KERI-profile verifier would refuse.
+        minimum: Some(REQUEST_MINIMUM.map(String::from).to_vec()),
+        ..Default::default()
+    },
+)?;
+```
+
+### Java
+
+```java
+Key key = Key.fromSeed(HexFormat.of().parseHex(
+    "02030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021"));
+String aid = "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx";   // whose current key is `key`
+
+String url = "https://keria.example.com/identifiers";
+byte[] body = "{\"name\": \"alice\"}".getBytes(UTF_8);
+Map<String, String> headers = Fiki.signRequest(key, "POST", url, Map.of(),
+    Fiki.SignOptions.none().withBody(body).withKeyid(aid).withMinimum(Fiki.REQUEST_MINIMUM));
+```
+
+### C#
+
+```csharp
+var headers = HttpSignatures.SignRequest(key, "POST", url, body: body,
+    keyId: aid,                                  // the AID; the verifier resolves it
+    minimum: HttpSignatures.RequestMinimum);     // refuse what a profile verifier would refuse
+```
+
+A covered list that falls short of the minimum is refused as `InsufficientCoverage` at signing time. Covering more is allowed, and the default covered set, which adds `@authority`, already does; the profile asks a signer that signs for a third party to keep `@authority` covered.
+
+## Verifying with a resolver
+
+The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep.
+
+The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is shaped like an AID and is not its canonical spelling is `MalformedKey` before the resolver sees it. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
+
+Pass the minimum here as well. A verifier that enforces it refuses a signature over too little even when the signature is valid, refuses a body that arrived without a covered `content-digest`, and requires `created`. Without a minimum, fiki checks what was signed and applies no coverage policy of its own. `authorities` lists the `@authority` values this server answers for, so that a request signed for one service cannot be replayed to another.
+
+### Python
+
+```python
+from fiki import REQUEST_MINIMUM, verify_request
+
+def resolve(keyid):
+    return key_state.get(keyid)   # 32 raw bytes of the current key, or None
+
+verdict = verify_request(
+    method="POST", url=url, headers=headers, body=body,
+    max_age=300, skew=60,
+    minimum=REQUEST_MINIMUM,
+    resolve=resolve,
+    authorities={"keria.example.com"},   # the authorities this server answers for
+)
+```
+
+### JavaScript
+
+```js
+import { REQUEST_MINIMUM, verifyRequest } from '@bakobo/fiki';
+
+const verdict = await verifyRequest({
+  method, url, headers, body,
+  maxAge: 300,
+  minimum: REQUEST_MINIMUM,
+  resolve: async (keyid) => keyState.get(keyid) ?? null,  // 32 raw bytes, or null
+});
+verdict.keyid;  // the AID the resolver vouched for; verdict.aid is the same
+```
+
+### Go
+
+```go
+resolve := func(keyid string) ([]byte, error) {
+	key, ok := keyState[keyid] // the current key of the KEL you hold for keyid
+	if !ok {
+		return nil, nil // no KEL: fiki refuses the message as UnknownKey
+	}
+	return key, nil
+}
+maxAge, skew := int64(300), int64(60)
+verdict, err := fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
+	Body:        body,
+	Resolve:     resolve,
+	Minimum:     fiki.RequestMinimum,
+	MaxAge:      &maxAge,
+	Skew:        &skew,
+	Authorities: []string{"keria.example.com"}, // the authorities this server answers for
+})
+// verdict.Keyid is the AID the resolver vouched for; verdict.AID is the same.
+```
+
+A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. Three fields distinguish nil from empty: a nil `Minimum` applies no minimum, a nil `Authorities` checks no authority while an empty one serves nothing, and a nil `Body` is no body while an empty one is a body of no bytes.
+
+### Rust
+
+```rust
+// The resolver maps a keyid to the 32 raw bytes of its CURRENT key, from the verifier's own
+// key state. It is authoritative: fiki never decodes the keyid as a key instead. None means
+// "no key known", which fiki reports as Kind::UnknownKey.
+let resolve: Resolver = Arc::new(move |keyid: &str| Ok(key_state.get(keyid).copied()));
+
+let verdict = verify_request(
+    "POST",
+    "https://keria.example.com/identifiers",
+    headers,
+    &VerifyOptions {
+        max_age: Some(300),
+        body: Some(body.to_vec()),
+        resolve: Some(resolve),
+        minimum: Some(REQUEST_MINIMUM.map(String::from).to_vec()),
+        ..Default::default()
+    },
+)?;
+assert_eq!(verdict.aid, "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx");
+```
+
+A `Resolver` is an `Arc<dyn Fn(&str) -> fiki::Result<Option<[u8; 32]>> + Send + Sync>`. It refuses with `Err(Error::detailed(Kind::UnsupportedSigner, "...", keyid))`; `Error::new` and `Error::detailed` are public for that purpose.
+
+### Java
+
+```java
+Map<String, byte[]> keyState = ...;   // each AID to the raw 32 bytes of its current signing key
+Fiki.Resolver resolver = keyid -> keyState.get(keyid);   // 32 raw bytes, or null if unknown
+Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
+    Fiki.VerifyOptions.maxAge(300).withBody(body).withResolver(resolver)
+        .withMinimum(Fiki.REQUEST_MINIMUM));
+String signer = verdict.keyid();   // the AID the resolver vouched for
+```
+
+A Java resolver refuses by throwing `new FikiException(FikiException.Kind.UnsupportedSigner, message, keyid)`.
+
+### C#
+
+```csharp
+Func<string, byte[]?> resolve = keyid =>
+    keyState.TryGetValue(keyid, out var current) ? current : null;   // null: UnknownKey
+
+var verdict = HttpSignatures.VerifyRequest("POST", url, headers,
+    VerifyOptions.MaxAge(300).WithSkew(60).WithBody(body)
+        .WithResolver(resolve)
+        .WithMinimum(HttpSignatures.RequestMinimum)
+        .WithAuthorities(new[] { "keria.example.com" }));   // the authorities this server answers for
+// verdict.Aid is the AID the resolver vouched for
+```
+
+A C# resolver refuses by throwing:
+
+```csharp
+throw new FikiException(FikiErrorKind.UnsupportedSigner,
+    "This AID's key state has no single key that satisfies its threshold.", keyid);
+```
+
+The verdict's AID is the keyid the resolver vouched for, so the authorization step is the same as before: compare it with the AID you expect.
+
+## Signing and verifying a response
+
+The profile signs responses too, and binds each one to the request it answers. By default a signed response covers `@status`, a digest of its own body, and the request's `@method`, `@path` and `@query` marked `req` (RFC 9421 §2.4), plus the request's `content-digest` when the request had content. So an intermediary can neither change the status or the body nor attach the response to a different question. Pass the request with the body it carried: a response that binds `"content-digest";req` is checked against that body, and fiki cannot check a body it was not given, so verifying one against a request with no body is a mistake in the call. A request that had content and no `Content-Digest` to bind is refused as `UncoveredBody` at signing time. To name the covered list yourself, spell a request component with the port's `req` helper, which turns `@path` into `"@path";req`.
+
+A client names the AID it expects to be talking to, and a response signed by any other is refused as `UnknownKey`, however valid its signature. An unsigned 401 is `Unauthenticated`, checked before anything else, because a server that refuses a request before it knows which agent it is cannot sign the refusal; its body is not to be trusted. `authorities` applies to requests only.
+
+### Python
+
+```python
+from fiki import RESPONSE_MINIMUM, Request, sign_response
+
+request = Request(method="POST", url=url, headers=request_headers, body=body)
+response_headers = sign_response(
+    key=agent,
+    keyid=agent_aid,
+    status=201,
+    request=request,           # the request it answers, which "req" components are read from
+    body=response_body,
+    minimum=RESPONSE_MINIMUM,
+)
+```
+
+```python
+from fiki import RESPONSE_MINIMUM, verify_response
+
+verdict = verify_response(
+    status=201, headers=response_headers, body=response_body, request=request,
+    max_age=300,
+    minimum=RESPONSE_MINIMUM,
+    resolve=resolve,
+    expected_keyid=agent_aid,  # the AID this client is talking to
+)
+```
+
+### JavaScript
+
+```js
+import { RESPONSE_MINIMUM, signResponse } from '@bakobo/fiki';
+
+const request = { method, url, headers: requestHeaders, body: requestBody };
+const responseHeaders = await signResponse({
+  key,
+  keyid: aid,
+  status: 200,
+  request,                    // the request it answers, which "req" components are read from
+  body: responseBody,
+  minimum: RESPONSE_MINIMUM,
+});
+```
+
+```js
+import { RESPONSE_MINIMUM, verifyResponse } from '@bakobo/fiki';
+
+const verdict = await verifyResponse({
+  status: 200, headers: responseHeaders, body: responseBody, request,
+  maxAge: 300,
+  minimum: RESPONSE_MINIMUM,
+  resolve,
+  expectedKeyid: aid,         // the AID this client is talking to
+});
+```
+
+### Go
+
+```go
+request := &fiki.Request{Method: "POST", URL: url, Headers: headers, Body: body}
+responseBody := []byte(`{"done": true}`)
+responseHeaders, err := fiki.SignResponse(agentKey, 200, request, nil, fiki.SignOptions{
+	Keyid:   agentAID,
+	Body:    responseBody,
+	Minimum: fiki.ResponseMinimum,
+})
+```
+
+```go
+verdict, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
+	Body:          responseBody,
+	Resolve:       resolve,
+	Minimum:       fiki.ResponseMinimum,
+	ExpectedKeyid: agentAID, // the AID you meant to talk to (profile R1)
+	MaxAge:        &maxAge,
+	Skew:          &skew,
+})
+```
+
+### Rust
+
+```rust
+// `request` is the request being answered, with the body that arrived. By default the
+// response covers @status, its own body's digest, and the request's method, path, query and
+// digest, each marked `req` -- which binds the answer to the question.
+let response_headers = sign_response(
+    agent,
+    200,
+    Some(&request),
+    &BTreeMap::new(),
+    &SignOptions {
+        body: Some(br#"{"done": true}"#.to_vec()),
+        keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
+        minimum: Some(RESPONSE_MINIMUM.map(String::from).to_vec()),
+        ..Default::default()
+    },
+)?;
+```
+
+```rust
+// A client names the AID it is talking to, so a response signed by anyone else is refused.
+let verdict = verify_response(
+    200,
+    response_headers,
+    Some(request),
+    &VerifyOptions {
+        max_age: Some(300),
+        body: Some(br#"{"done": true}"#.to_vec()),
+        resolve: Some(resolve),
+        expected_keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
+        minimum: Some(RESPONSE_MINIMUM.map(String::from).to_vec()),
+        ..Default::default()
+    },
+)?;
+assert_eq!(
+    verdict.keyid.as_deref(),
+    Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6")
+);
+```
+
+### Java
+
+```java
+Key agent = Key.fromSeed(HexFormat.of().parseHex(
+    "030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122"));
+String agentAid = "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6";
+byte[] responseBody = "{\"done\": true}".getBytes(UTF_8);
+
+Fiki.Request asked = new Fiki.Request("POST", url, requestHeaders, body);
+Map<String, String> responseHeaders = Fiki.signResponse(agent, 201, asked, Map.of(),
+    Fiki.SignOptions.none().withBody(responseBody).withKeyid(agentAid)
+        .withMinimum(Fiki.RESPONSE_MINIMUM));
+```
+
+```java
+Fiki.Verdict answer = Fiki.verifyResponse(201, responseHeaders, asked,
+    Fiki.VerifyOptions.maxAge(300).withBody(responseBody).withResolver(resolver)
+        .withExpectedKeyid(agentAid).withMinimum(Fiki.RESPONSE_MINIMUM));
+```
+
+### C#
+
+```csharp
+var request = new Request("POST", url, requestHeaders, body);   // the request it answers
+var responseHeaders = HttpSignatures.SignResponse(agent, 201, request,
+    body: responseBody, keyId: agentAid,
+    minimum: HttpSignatures.ResponseMinimum);
+```
+
+```csharp
+var answer = HttpSignatures.VerifyResponse(201, responseHeaders,
+    VerifyOptions.MaxAge(300).WithBody(responseBody).WithRequest(request)
+        .WithResolver(resolve)
+        .WithExpectedKeyId(agentAid)                 // the AID this client is talking to
+        .WithMinimum(HttpSignatures.ResponseMinimum));
+```
+
+In every port, `request_headers` (or its equivalent) is the request as it arrived, signature headers and `Content-Digest` included.
+
+The binding is to what was asked, not to one particular request: two identical GETs produce identical `req` values, so a recorded response to the first can answer the second while it is still fresh. The profile accepts that, and explains why, in [§3](keri-profile.md#3-covered-components).
+
+### Legacy KERI signatures
+
+fiki implements only the profile's canonical mode. The legacy mode KERIA and signify-ts deploy today, with its `Signify-Resource` header and non-RFC signature base, is not verified by fiki (`this.i` @8vwrexxc); verify it with keripy or KERIA, or, for an imbu-style server, with [heti](https://github.com/bakobo/heti)'s KERI dialect.
+
 ## Handling errors
 
-Every refusal has a named type, and the names are identical across all six languages because the conformance vectors pin them. Catch the base type to mean "this request was not usable", or discriminate when you care which obstacle you hit.
+Every refusal of a message has a name, and the names are the same in all six languages: `SignatureMismatch` is `SignatureMismatch` everywhere. Catch the base type to mean "this message was not usable", or discriminate when you care which obstacle you hit.
 
 The ones worth handling separately:
 
@@ -229,7 +616,161 @@ The ones worth handling separately:
 - `UncoveredBody` — raised at *signing* time, when you named a covered set that omits `content-digest` while handing over a body. Add it, or do not pass the body.
 - `MissingSignature` / `MissingSignatureInput` — the request is not signed at all, which usually means an unauthenticated caller rather than a broken one.
 
-Access differs by language: Python and JavaScript use exception classes, Go exposes `Error.Kind`, Rust exposes `Error.kind`, Java exposes `FikiException.kind()`, and C# exposes `FikiException.Kind`, whose `FikiErrorKind` names are these.
+The KERI profile added five more, and one older name matters more under it:
+
+- `UnknownKey` — the resolver has no key for the keyid, or a response came from an AID other than the one you expected.
+- `UnsupportedSigner` — the AID's key state has no single key that can sign alone. fiki never decides this itself; a resolver raises it and fiki carries it out.
+- `InsufficientCoverage` — the signature may well be valid, and it covers less than the minimum you asked for.
+- `DuplicateComponent` — the covered list names one component twice.
+- `Unauthenticated` — an unsigned 401 answered your request. Do not trust its body.
+- `MissingKey` — the signature carries no keyid and you supplied no key. Under the profile, where `keyid` is required, this is the profile's `malformed-signature-input`.
+
+The vectors used to pin all of these names, and they no longer do. `vectors/` still pins fiki's names, but `vectors/keri/` names refusals by the profile's neutral codes (`unknown-key`, `insufficient-coverage`, and so on), because signify-ts reads those files too. The names stay aligned across the ports by deliberate parity rather than by a shared oracle, and §9 of the [profile](keri-profile.md#9-refusals) maps each one to its code.
+
+A mistake in the *call*, as opposed to a defect in the message, is not one of these. Passing both an expected AID and a resolver, a minimum smaller than the profile's, or verifying a response that binds the request's digest against a request with no body are bugs in your code, and each port reports them in its own idiom so that catching fiki's refusals cannot swallow them:
+
+| Language | A refusal of the message | A mistake in the call |
+|---|---|---|
+| Python | a subclass of `FikiError` | `ValueError`, or `TypeError` for arguments that cannot go together |
+| JavaScript | a subclass of `FikiError` | `TypeError` |
+| Go | a `*fiki.Error`, discriminated by `Kind` | an error wrapping `fiki.ErrInvalidOptions`, never a `*fiki.Error` |
+| Rust | a `fiki::Error`, discriminated by `kind` | a `fiki::Error` of `Kind::InvalidArgument` |
+| Java | a `FikiException`, discriminated by `kind()` | `IllegalArgumentException` |
+| C# | a `FikiException`, discriminated by `Kind` | `ArgumentException` |
+
+Rust is the exception worth knowing: its call mistakes share the `fiki::Error` type, so match on `kind` rather than treating every `Err` as a refusal.
+
+### Python
+
+```python
+from fiki import errors
+from fiki.errors import FikiError
+
+def refusal(verify) -> str:
+    try:
+        verify()
+    except errors.UnknownKey as e:
+        return f"no key state for {e.keyid}"
+    except errors.UnsupportedSigner as e:
+        return f"no single key of {e.keyid} signs alone"
+    except errors.InsufficientCoverage as e:
+        return f"the signature does not cover {e.component}"
+    except errors.DuplicateComponent as e:
+        return f"the covered list names {e.component} twice"
+    except errors.Unauthenticated:
+        return "an unsigned 401; its body is not to be trusted"
+    except FikiError as e:
+        return type(e).__name__
+    return "verified"
+
+def group(keyid):
+    raise errors.UnsupportedSigner(
+        "This AID's key state has no single key that satisfies its threshold.", keyid=keyid
+    )
+```
+
+### JavaScript
+
+```js
+import { FikiError, errors } from '@bakobo/fiki';
+
+try {
+  await verifyRequest({ /* ... */ });
+} catch (e) {
+  if (e instanceof errors.UnknownKey) { /* the resolver has no key state for e.keyid */ }
+  else if (e instanceof errors.UnsupportedSigner) { /* e.keyid's key state has no single signer */ }
+  else if (e instanceof errors.InsufficientCoverage) { /* the signature does not cover e.component */ }
+  else if (e instanceof errors.DuplicateComponent) { /* e.component is listed twice */ }
+  else if (e instanceof errors.Unauthenticated) { /* an unsigned 401: do not trust its body */ }
+  else if (e instanceof FikiError) { /* any other refusal; e.constructor.name names it */ }
+  else throw e;
+}
+```
+
+### Go
+
+```go
+describe := func(err error) string {
+	var refusal *fiki.Error
+	switch {
+	case errors.Is(err, fiki.ErrInvalidOptions):
+		return "a mistake in the call, not in the message"
+	case errors.As(err, &refusal):
+		switch refusal.Kind {
+		case fiki.KindUnknownKey:
+			return "no key state for " + refusal.Keyid
+		case fiki.KindUnsupportedSigner:
+			return "no single key of " + refusal.Keyid + " signs alone"
+		case fiki.KindInsufficientCoverage:
+			return "the signature does not cover " + refusal.Component
+		case fiki.KindDuplicateComponent:
+			return "the covered list names " + refusal.Component + " twice"
+		case fiki.KindUnauthenticated:
+			return "an unsigned 401; its body is not to be trusted"
+		}
+		return refusal.Kind
+	}
+	return err.Error()
+}
+```
+
+### Rust
+
+```rust
+// Every refusal is an Err(fiki::Error) whose `kind` names the condition and whose
+// `detail` carries the offending value, such as the keyid or the missing component.
+// The KERI profile added these kinds:
+let err = result.unwrap_err();
+match err.kind {
+    Kind::UnknownKey => {}           // no key is known for the keyid
+    Kind::UnsupportedSigner => {}    // the AID's key state has no single signing key
+    Kind::InsufficientCoverage => {} // valid, but covers less than the verifier requires
+    Kind::DuplicateComponent => {}   // the covered list names a component twice
+    Kind::Unauthenticated => {}      // a 401 the server did not sign
+    Kind::InvalidArgument => {}      // the call is wrong, not the message
+    _ => {}                          // the kinds that predate the profile
+}
+```
+
+### Java
+
+```java
+try {
+    Fiki.verifyRequest("POST", url, headers, policy);
+} catch (FikiException e) {
+    String why = switch (e.kind()) {
+        case UnknownKey -> "no key state for " + e.detail();
+        case UnsupportedSigner -> "no single signer for " + e.detail();
+        case InsufficientCoverage -> "does not cover " + e.detail();
+        case DuplicateComponent -> "covers " + e.detail() + " twice";
+        case Unauthenticated -> "refused before the agent was known";
+        default -> e.kind().name();
+    };
+}
+```
+
+### C#
+
+```csharp
+try
+{
+    verify();
+}
+catch (FikiException e)
+{
+    return e.Kind switch
+    {
+        FikiErrorKind.UnknownKey => "no key state for " + e.KeyId,
+        FikiErrorKind.UnsupportedSigner => "no single key of " + e.KeyId + " signs alone",
+        FikiErrorKind.InsufficientCoverage => "the signature does not cover " + e.Component,
+        FikiErrorKind.DuplicateComponent => "the covered list names " + e.Component + " twice",
+        FikiErrorKind.Unauthenticated => "an unsigned 401; its body is not to be trusted",
+        _ => e.Kind.ToString(),
+    };
+}
+```
+
+Each carries the value it is about — the keyid or the component — as a field rather than only in the message, so you can log or translate it without parsing prose.
 
 ## Choosing your own covered set
 
@@ -256,12 +797,12 @@ The safe shape is the default and the portable one is explicit, because a browse
 
 [heti](https://github.com/bakobo/heti) is fiki's first consumer and speaks fiki's dialect through `VanillaRfc9421Dialect`, which delegates to fiki and maps its errors onto heti's own code taxonomy. A fiki-signed request verifies through heti unchanged.
 
-heti also speaks a second, older dialect — the KERI flavour that keria and signify-ts use. That one covers less (no query string, no host, no body) and is not interchangeable with fiki's; which dialect a service accepts is a deployment decision rather than a fallback chain.
+heti also speaks a second, older dialect — the legacy KERI flavour that KERIA and signify-ts deploy today, which is not the KERI profile above and which fiki does not verify. That one covers less (no query string, no host, no body) and is not interchangeable with fiki's; which dialect a service accepts is a deployment decision rather than a fallback chain.
 
 ## These samples are tested
 
-Every snippet above is exercised by a test in its own port — `py/tests/test_guide.py`, `js/test/guide.test.js`, `go/guide_test.go`, `rust/examples/guide.rs`, `java/.../GuideTest.java`, `csharp/test/Bakobo.Fiki.Tests/GuideTests.cs`. A guide whose code does not run is worse than no guide, so a rename that would break your copy-paste breaks the suite first.
+Every snippet above, the KERI-profile ones included, is exercised by a test in its own port — `py/tests/test_guide.py`, `js/test/guide.test.js`, `go/guide_test.go`, `rust/examples/guide.rs`, `java/.../GuideTest.java`, `csharp/test/Bakobo.Fiki.Tests/GuideTests.cs`. The Python and C# tests also check that the guide shows the tested code line for line. A guide whose code does not run is worse than no guide, so a rename that would break your copy-paste breaks the suite first.
 
 ## Which version works with which
 
-Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All six are at vectors format 1 today; the C# port also satisfies the KERI profile's set, `vectors/keri/`, at its own format 2, as fiki-py does. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
+Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All six are at vectors format 1 today, and all six also satisfy the KERI profile's set, `vectors/keri/`, at its own format 2. Five ports export that second number as a constant too (`KERI_VECTORS_FORMAT`, or `KeriVectorsFormat` in Go and C#); fiki-py pins it in its test suite but does not yet export it. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
