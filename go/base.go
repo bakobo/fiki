@@ -297,8 +297,9 @@ func lowerHeaders(headers map[string]string) map[string]string {
 	out := make(map[string]string, len(headers))
 	for name, value := range headers {
 		// Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-		// values are stripped of leading and trailing whitespace.
-		out[strings.ToLower(name)] = strings.TrimSpace(value)
+		// values lose leading and trailing SP and HTAB only (RFC 9110 section 5.5). Trimming CR,
+		// LF or NUL as well would let "admin\r\n" verify as "admin"; left in, valueOf refuses it.
+		out[strings.ToLower(name)] = strings.Trim(value, " \t")
 	}
 	return out
 }
