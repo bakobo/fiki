@@ -22,7 +22,7 @@ namespace Bakobo.Fiki.Tests
             // guide: signing
             var key = Key.Generate();                  // or Key.FromSeed(seed)
             Console.WriteLine(key.Aid);                // register this
-            File.WriteAllBytes("seed.bin", key.Seed);
+            byte[] seed = key.Seed;                    // 32 bytes: store them where only you can read them
 
             var url = "https://api.example.com/things?limit=1";
             var body = Encoding.UTF8.GetBytes("{\"hello\": \"world\"}");
@@ -30,8 +30,7 @@ namespace Bakobo.Fiki.Tests
             // headers -> Signature-Input, Signature, Content-Digest
             // end guide
 
-            Assert.Equal(key.Seed, File.ReadAllBytes("seed.bin"));
-            File.Delete("seed.bin");
+            Assert.Equal(key.Aid, Key.FromSeed(seed).Aid);
             Assert.StartsWith("B", key.Aid, StringComparison.Ordinal);
             Assert.Equal(32, key.Seed.Length);
             Assert.Equal(new[] { "Signature-Input", "Signature", "Content-Digest" }, headers.Keys.ToArray());

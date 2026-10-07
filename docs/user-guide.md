@@ -107,7 +107,7 @@ using Bakobo.Fiki;
 
 var key = Key.Generate();                  // or Key.FromSeed(seed)
 Console.WriteLine(key.Aid);                // register this
-File.WriteAllBytes("seed.bin", key.Seed);
+byte[] seed = key.Seed;                    // 32 bytes: store them where only you can read them
 
 var url = "https://api.example.com/things?limit=1";
 var body = Encoding.UTF8.GetBytes("{\"hello\": \"world\"}");
