@@ -253,45 +253,77 @@ public final class Fiki {
     public record Verdict(String aid, List<String> covered, String keyid) {}
 
     /**
+     * A verifier's freshness decision: a maximum age in seconds, or {@link #DECLINED}. A value
+     * rather than a nullable number, so that no constructor can leave the decision unstated
+     * (this.i @67shl6c5, @3e7wnyvg).
+     */
+    public record Freshness(Long maxAge) {
+        /** The freshness check, explicitly declined. An {@code expires} is enforced regardless. */
+        public static final Freshness DECLINED = new Freshness(null);
+
+        public Freshness {
+            if (maxAge != null && maxAge <= 0) {
+                throw new IllegalArgumentException(
+                    "A maximum age is a positive number of seconds; to skip the age check, decline it.");
+            }
+        }
+    }
+
+    /**
      * The verifier's policy and the body it has in hand.
      *
-     * <p>{@code maxAge} is a {@link Long} rather than a {@code long} because there is no default:
-     * seconds of tolerance, or an explicit {@link #decliningFreshness()}. Both defaults would be
-     * wrong (this.i @67shl6c5).
+     * <p>There is no default freshness: {@link #maxAge(long)} or {@link #decliningFreshness()},
+     * and the canonical constructor refuses a null {@link Freshness}. Both defaults would be wrong
+     * (this.i @67shl6c5).
      */
     public record VerifyOptions(
-            Long maxAge, byte[] body, String expectedAid, Long skew, Long now, Resolver resolver,
+            Freshness freshness, byte[] body, String expectedAid, Long skew, Long now, Resolver resolver,
             List<String> minimum, String expectedKeyid, Set<String> authorities) {
+
+        public VerifyOptions {
+            if (freshness == null) {
+                throw new IllegalArgumentException(
+                    "State a freshness decision: a maximum age, or Freshness.DECLINED to decline the check.");
+            }
+            if (skew != null && skew <= 0) {
+                throw new IllegalArgumentException("A clock skew allowance is a positive number of seconds.");
+            }
+        }
 
         /** Decline the freshness check, explicitly. */
         public static VerifyOptions decliningFreshness() {
-            return new VerifyOptions(null, null, null, null, null, null, null, null, null);
+            return new VerifyOptions(Freshness.DECLINED, null, null, null, null, null, null, null, null);
         }
 
         public static VerifyOptions maxAge(long seconds) {
-            return new VerifyOptions(seconds, null, null, null, null, null, null, null, null);
+            return new VerifyOptions(new Freshness(seconds), null, null, null, null, null, null, null, null);
+        }
+
+        /** The maximum age in seconds, or null when the check is declined. */
+        public Long maxAge() {
+            return freshness.maxAge();
         }
 
         public VerifyOptions withBody(byte[] body) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         /** The key the verifier already knows this message should be signed by; authoritative. */
         public VerifyOptions withExpectedAid(String aid) {
-            return new VerifyOptions(maxAge, body, aid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, aid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         public VerifyOptions withNow(long now) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         public VerifyOptions withSkew(long skew) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         /** Resolve the keyid through the caller's own key state (@6g9zjsv9). */
         public VerifyOptions withResolver(Resolver resolver) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         /**
@@ -300,12 +332,12 @@ public final class Fiki {
          * signature covering less is refused even though it verifies (@7f28p7xk).
          */
         public VerifyOptions withMinimum(List<String> minimum) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
 
         /** Refuse a signature by any other keyid, as {@code UnknownKey} (profile R1). */
         public VerifyOptions withExpectedKeyid(String keyid) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, keyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, keyid, authorities);
         }
 
         /**
@@ -313,7 +345,7 @@ public final class Fiki {
          * {@code SignatureMismatch}. Requests only (@3cceqvg3).
          */
         public VerifyOptions withAuthorities(Set<String> authorities) {
-            return new VerifyOptions(maxAge, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
         }
     }
 
@@ -342,9 +374,26 @@ public final class Fiki {
                         + "plainly, as \"@path\", or in its serialized form, as '\"@path\";req'.",
                     spec);
             }
-            return new Sfv.Item(lower((String) item.value()), item.params());
+            return new Sfv.Item(named(lower((String) item.value()), spec), item.params());
         }
-        return new Sfv.Item(lower(spec), List.of());
+        return new Sfv.Item(named(lower(spec), spec), List.of());
+    }
+
+    private static final Pattern FIELD_NAME = Pattern.compile("[a-z0-9!#$%&'*+.^_`|~-]+");
+
+    /**
+     * A caller's component name, refused when it could not be serialized faithfully: every name
+     * an RFC 8941 string, and a field name an HTTP field name, lowercase tchar (@3e7wnyvg).
+     */
+    private static String named(String name, String spec) {
+        boolean derived = name.startsWith("@");
+        boolean ok = derived ? name.chars().allMatch(c -> c >= 0x20 && c <= 0x7e) : FIELD_NAME.matcher(name).matches();
+        if (!ok) {
+            throw new IllegalArgumentException(
+                "The component " + spec.replaceAll("[^\\x20-\\x7e]", "?") + " is not "
+                    + (derived ? "an RFC 8941 string" : "an HTTP field name") + ", so it cannot be signed.");
+        }
+        return name;
     }
 
     private static List<Sfv.Item> components(List<String> specs) {
@@ -703,12 +752,14 @@ public final class Fiki {
         if (port.isEmpty()) {
             return host;
         }
-        if (!port.matches("[0-9]+") || port.replaceFirst("^0+(?=.)", "").length() > 5
-                || Integer.parseInt(port) > 65535) {
+        // Any run of ASCII digits, its leading zeros stripped BEFORE the length check, so no
+        // padding reaches parseInt and :000080 is port 80 (@3e7wnyvg).
+        String digits = port.replaceFirst("^0+(?=.)", "");
+        if (!port.matches("[0-9]+") || digits.length() > 5 || Integer.parseInt(digits) > 65535) {
             throw unreadable(
                 "The URL's port " + port + " is not a number from 0 to 65535.", received);
         }
-        int number = Integer.parseInt(port);
+        int number = Integer.parseInt(digits);
         // Only a URL with a scheme has an authority of its own, so the scheme is never null here.
         Integer defaultPort = DEFAULT_PORTS.get(target.scheme());
         return defaultPort != null && number == defaultPort ? host : host + ":" + number;
@@ -931,7 +982,8 @@ public final class Fiki {
         // The check verifyResponse will make, made first: a signer does not vouch for a request
         // digest that the request body it was handed contradicts (bakobo/fiki#4).
         if (request != null && request.body() != null && bindsRequestDigest(items)) {
-            compareDigest(readDigest(message.request().headers().get(CONTENT_DIGEST)), request.body());
+            // Through the base-value path, so an absent digest is MissingComponent (@3e7wnyvg).
+            compareDigest(readDigest(valueOf(component(req(CONTENT_DIGEST)), message)), request.body());
         }
         checkCovered(items, true);
         byte[] base = finish(linesFor(items, message), items, params(key, opts));
@@ -1320,6 +1372,29 @@ public final class Fiki {
         return new Resolved(Key.trusted(raw, keyid), Key.toAid(raw));
     }
 
+    /**
+     * a + b and a - b, held at Long.MAX_VALUE or Long.MIN_VALUE instead of wrapping, so a limit
+     * of Long.MAX_VALUE means no limit rather than a negative one, and a clock at either extreme
+     * still compares the right way (@3e7wnyvg).
+     */
+    private static long sum(long a, long b) {
+        try {
+            return Math.addExact(a, b);
+        } catch (ArithmeticException e) {
+            // Only upward: b is always a skew, which is positive, so a sum overflows only past
+            // Long.MAX_VALUE.
+            return Long.MAX_VALUE;
+        }
+    }
+
+    private static long difference(long a, long b) {
+        try {
+            return Math.subtractExact(a, b);
+        } catch (ArithmeticException e) {
+            return b < 0 ? Long.MAX_VALUE : Long.MIN_VALUE;
+        }
+    }
+
     /** Enforce the verifier's {@code maxAge}, then the signer's {@code expires} (section 9). */
     private static void checkFreshness(Sfv.InnerList inner, VerifyOptions opts) {
         Long expires = (Long) inner.param("expires");
@@ -1338,20 +1413,20 @@ public final class Fiki {
                     "This signature carries no created timestamp, so its age cannot be checked "
                         + "against the " + maxAge + "-second limit you asked for.");
             }
-            if (stamp - created > maxAge + skew) {
+            if (difference(stamp, created) > sum(maxAge, skew)) {
                 throw new FikiException(
                     FikiException.Kind.SignatureTooOld,
                     "This signature was created at " + created + ", which is more than " + maxAge
                         + " seconds before " + stamp + ", so it is too old to accept.");
             }
-            if (created - stamp > skew) {
+            if (difference(created, stamp) > skew) {
                 throw new FikiException(
                     FikiException.Kind.SignatureTooOld,
                     "This signature claims to have been created at " + created + ", which is in the "
                         + "future relative to " + stamp + " by more than the " + skew + "-second skew allowance.");
             }
         }
-        if (expires != null && stamp > expires + skew) {
+        if (expires != null && stamp > sum(expires, skew)) {
             throw new FikiException(
                 FikiException.Kind.SignatureExpired,
                 "This signature expired at " + expires + " and it is now " + stamp

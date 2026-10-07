@@ -243,7 +243,7 @@ class UnitTest {
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
             "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT + 400))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withSkew(0).withNow(SIGNED_AT + 301))));
+            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withSkew(1).withNow(SIGNED_AT + 302))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
             "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT - 60))));
         Fiki.verifyRequest("POST", URL_QUERY, out,
