@@ -5,3 +5,4 @@ created: 2026-10-07T17:51Z
 - 2026-10-07T17:54Z 2026-10-07: fiki-py also reports a malformed keyid as UnknownKey when expected_keyid is set (both with and without a resolver), breaking section 9 order; js fixed it on #5 (42d17f4). Include in the sweep.
 - 2026-10-07T17:56Z 2026-10-07: fiki-py also returns MissingSignature (not Unauthenticated) for a 401 whose Signature header is empty; go fixed it on #6 (4a193e1).
 - 2026-10-07T18:00Z 2026-10-07: go (#6) also reports a malformed keyid as UnknownKey when an expected keyid is set (out of section 9 order), like py; it does not call the resolver for an unexpected keyid. js order since e3c094a: local spelling check, then expected mismatch without resolving, then resolve.
+- 2026-10-07T18:02Z 2026-10-07: a method must be an RFC 9110 token, not merely non-empty (go #6 still signs ' ' when @method is not covered; hostile fix-pass finding, Low). Apply in every port.
