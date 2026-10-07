@@ -28,7 +28,6 @@ from dataclasses import dataclass
 
 import http_sfv
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from .base import (
     CONTENT_DIGEST,
@@ -67,7 +66,7 @@ from .errors import (
     UnknownKey,
     UnsupportedAlgorithm,
 )
-from .keys import misspelled_aid, to_aid, verifying_key
+from .keys import misspelled_aid, public_key, to_aid, verifying_key
 
 ALG = "ed25519"
 
@@ -682,8 +681,8 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
 def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | None):
     """The key to verify with, the identity to report, and the keyid as received."""
     if expected_aid is not None:
-        public_key = verifying_key(expected_aid)
-        return public_key, to_aid(public_key.public_bytes_raw()), keyid
+        expected = verifying_key(expected_aid)
+        return expected, to_aid(expected.public_bytes_raw()), keyid
     if not keyid:
         raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "
@@ -709,7 +708,7 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
                 f'The key resolved for "{keyid}" is not a {_KEY_LENGTH}-byte Ed25519 public key.',
                 keyid=keyid,
             )
-        return Ed25519PublicKey.from_public_bytes(bytes(raw)), keyid, keyid
+        return public_key(bytes(raw), keyid), keyid, keyid
     # Strictly, as keys.py decodes an AID: a lenient decoder discards characters outside the
     # alphabet and ignores trailing bits, so a keyid that is not the key's encoding could verify
     # as whatever key it happened to decode to. Only the one canonical spelling is a key.
@@ -725,8 +724,7 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
             f'The keyid "{keyid}" is not the canonical base64url spelling of any key.',
             keyid=keyid,
         )
-    public_key = Ed25519PublicKey.from_public_bytes(raw)
-    return public_key, to_aid(public_key.public_bytes_raw()), keyid
+    return public_key(raw, keyid), to_aid(raw), keyid
 
 
 def _check_digest(header: str | None, body: bytes | None) -> None:

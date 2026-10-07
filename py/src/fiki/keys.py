@@ -32,6 +32,67 @@ _PAD = b"\x00"
 _QB64_LEN = 44
 
 
+# Curve25519's field prime and the twisted Edwards constant d of RFC 8032 section 5.1.
+_P = 2**255 - 19
+_D = -121665 * pow(121666, -1, _P) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+
+
+def _decode_point(raw: bytes) -> tuple[int, int] | None:
+    """RFC 8032 section 5.1.3: the point ``raw`` encodes, or None where that procedure fails.
+
+    It fails for y at or above p, for a y with no x on the curve, and for the sign bit set where
+    x is 0, which are exactly the encodings that are not a canonical on-curve point.
+    """
+    y = int.from_bytes(raw, "little")
+    sign, y = y >> 255, y & ((1 << 255) - 1)
+    if y >= _P:
+        return None
+    u, v = (y * y - 1) % _P, (_D * y * y + 1) % _P
+    x = u * pow(v, 3, _P) * pow(u * pow(v, 7, _P), (_P - 5) // 8, _P) % _P
+    if v * x * x % _P == (-u) % _P:
+        x = x * _SQRT_M1 % _P
+    if v * x * x % _P != u or (x == 0 and sign):
+        return None
+    return (_P - x if x & 1 != sign else x), y
+
+
+def _small_order(x: int, y: int) -> bool:
+    """True when [8]P is the identity: three doublings by RFC 8032 section 5.1.4's formula."""
+    X, Y, Z = x, y, 1
+    for _ in range(3):
+        a, b, c = X * X, Y * Y, 2 * Z * Z
+        h = a + b
+        e, g = h - (X + Y) ** 2, a - b
+        f = c + g
+        X, Y, Z = e * f % _P, g * h % _P, f * g % _P
+    return X == 0 and Y == Z
+
+
+def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
+    """The Ed25519 public key ``raw`` encodes, refused unless it is one an honest signer holds.
+
+    Raises :class:`~fiki.errors.MalformedKey`, before any signature is examined, for an encoding
+    that is not a canonical on-curve point or for a point of small order (@37wdchu5). Under the
+    identity point, the key 0x01 followed by 31 zero bytes, a signature of 0x01 followed by 63
+    zero bytes verifies over any message, and OpenSSL accepts it.
+    """
+    point = _decode_point(raw)
+    if point is None:
+        raise MalformedKey(
+            f'The key for "{keyid}" is not the canonical encoding of a point on the Ed25519 '
+            "curve, so no signature could be checked against it.",
+            keyid=keyid,
+        )
+    if _small_order(*point):
+        raise MalformedKey(
+            f'The key for "{keyid}" is a point of small order, under which a signature can be '
+            "forged for any message, so no signature is checked against it.",
+            keyid=keyid,
+        )
+    return Ed25519PublicKey.from_public_bytes(raw)
+
+
 def to_aid(raw: bytes) -> str:
     """Render a raw 32-byte Ed25519 public key as a non-transferable AID."""
     return _CODE + base64.urlsafe_b64encode(_PAD + raw).decode("ascii")[1:]
@@ -103,7 +164,7 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
     """Recover the Ed25519 public key from a non-transferable AID.
 
     Raises :class:`~fiki.errors.MalformedKey` for anything that is not a 44-character ``B…``
-    string over the base64url alphabet.
+    string over the base64url alphabet, and for a key :func:`public_key` refuses.
     """
     if len(aid) != _QB64_LEN or not aid.startswith(_CODE):
         raise MalformedKey(
@@ -130,4 +191,4 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
     # spellings. Only the canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
     if to_aid(decoded[len(_PAD):]) != aid:
         raise MalformedKey(f'The AID "{aid}" is not the canonical spelling of its key.', keyid=aid)
-    return Ed25519PublicKey.from_public_bytes(decoded[len(_PAD):])
+    return public_key(decoded[len(_PAD):], aid)
