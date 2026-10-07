@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -46,9 +47,17 @@ def test_this_port_satisfies_the_vectors_format_it_is_running(name):
 
 def test_the_vectors_are_where_every_port_can_reach_them():
     """A port that cannot find these has forked them, which is what the layout exists to prevent."""
+    # The repository root as git knows it, not a directory name: a worktree or a clone under
+    # another name holds the vectors in exactly the right place.
+    root = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=Path(__file__).resolve().parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     assert VECTORS.is_dir()
-    assert VECTORS.name == "vectors"
-    assert VECTORS.parent.name == "fiki"
+    assert VECTORS == Path(root).resolve() / "vectors"
 
 
 @pytest.mark.parametrize("case", cases("aid-lens.json"))

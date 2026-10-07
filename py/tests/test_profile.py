@@ -875,3 +875,90 @@ def test_a_malformed_request_digest_outranks_a_mismatched_response_digest():
     odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
     with pytest.raises(MalformedDigest):
         check(headers, request=odd, body=b'{"done": false}')
+
+
+# --- keyid under a minimum (profile R1) ---
+
+def keyless_request():
+    """A request validly signed by KEY whose Signature-Input carries no keyid at all."""
+    covered = ["@method", "@authority", "@path", "@query", "content-digest"]
+    sending = {"Content-Digest": content_digest(BODY)}
+    base = signature_base(method="POST", url=URL, headers=sending, covered=covered, created=AT,
+                          keyid=None, alg="ed25519")
+    params = base.decode().rsplit('"@signature-params": ', 1)[1]
+    headers = {**sending, "Signature-Input": f"sig={params}",
+               "Signature": f"sig=:{base64.b64encode(KEY.sign(base)).decode()}:"}
+    return {"method": "POST", "url": URL, "body": BODY}, headers
+
+
+def test_without_a_minimum_an_expected_aid_stands_in_for_a_missing_keyid():
+    request, headers = keyless_request()
+    assert verify(request, headers, expected_aid=KEY.aid).aid == KEY.aid
+
+
+def test_under_a_minimum_a_keyid_is_required_even_with_an_expected_aid():
+    """The profile makes keyid REQUIRED (R1); an expected_aid checks it rather than replacing it."""
+    request, headers = keyless_request()
+    with pytest.raises(MissingKey):
+        verify(request, headers, expected_aid=KEY.aid, minimum=REQUEST_MINIMUM)
+
+
+def test_under_a_minimum_a_response_needs_a_keyid_even_with_an_expected_aid():
+    headers = respond()
+    params = headers["Signature-Input"]
+    headers["Signature-Input"] = params.split(";keyid=")[0] + ';alg="ed25519"'
+    with pytest.raises(MissingKey):
+        check(headers, expected_aid=KEY.aid, minimum=RESPONSE_MINIMUM)
+
+
+# --- one name, one value: header names equal case-insensitively are a caller error ---
+
+DUPLICATES = [
+    pytest.param({"X-Role": "user", "x-role": "admin"}, id="x-role"),
+    pytest.param({"Content-Digest": content_digest(BODY), "content-digest": content_digest(b"")},
+                 id="content-digest"),
+    pytest.param({"SIGNATURE": "sig=:AAAA:", "Signature": "sig=:AAAA:"}, id="signature"),
+]
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_signing_a_request_with_a_header_named_twice_is_a_caller_error(dup):
+    with pytest.raises(ValueError):
+        sign(headers=dup, covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    with pytest.raises(ValueError):
+        signature_base(method="POST", url=URL, headers=dup, covered=["@method"], created=AT,
+                       keyid="k")
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_verifying_a_request_with_a_header_named_twice_is_a_caller_error(dup):
+    request, headers = sign(headers={"X-Role": "user"},
+                            covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    headers.update({k: v for k, v in dup.items() if k not in headers})
+    assert len({k.lower() for k in headers}) < len(headers)
+    with pytest.raises(ValueError):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_a_response_or_its_request_with_a_header_named_twice_is_a_caller_error(dup):
+    doubled = Request(method="POST", url=URL, headers=dup, body=BODY)
+    with pytest.raises(ValueError):
+        respond(headers=dup)
+    with pytest.raises(ValueError):
+        respond(request=doubled)
+    with pytest.raises(ValueError):
+        response_signature_base(status=200, headers=dup, covered=["@status"], created=AT,
+                                keyid="k")
+    headers = respond()
+    with pytest.raises(ValueError):
+        check(headers, request=doubled)
+    headers.update({k: v for k, v in dup.items() if k not in headers})
+    with pytest.raises(ValueError):
+        check(headers)
+
+
+def test_a_header_named_in_any_one_case_is_read_the_same():
+    request, headers = sign(headers={"X-ROLE": "admin"},
+                            covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    assert verify(request, headers).covered[-1] == "x-role"

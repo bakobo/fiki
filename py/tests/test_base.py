@@ -12,7 +12,8 @@ from __future__ import annotations
 import pytest
 
 from fiki import signature_base
-from fiki.errors import MissingComponent, UnsupportedComponent
+from fiki.base import Request, response_signature_base
+from fiki.errors import MissingComponent, SignatureMismatch, UnsupportedComponent
 
 BASE_ARGS = dict(created=1618884473, keyid="test-key-ed25519")
 
@@ -52,6 +53,25 @@ def test_an_empty_path_is_the_slash_the_origin_server_sees():
 def test_authority_lowercases_the_host_and_omits_a_default_port():
     """Section 2.2.3. Both halves matter: a proxy and a client must agree on this string."""
     assert line_for("@authority", url="https://EXAMPLE.com:443/f") == '"@authority": example.com'
+
+
+@pytest.mark.parametrize(
+    "url, authority",
+    [
+        ("https://[::1]:8443/x", "[::1]:8443"),
+        ("https://[::1]/x", "[::1]"),
+        ("https://[2001:DB8::1]:443/x", "[2001:db8::1]"),
+        ("http://[2001:db8::1]:8080/x", "[2001:db8::1]:8080"),
+        # An IPvFuture literal has no colon, and is still an IP-literal (RFC 3986 section 3.2.2).
+        ("https://[v1.example]/x", "[v1.example]"),
+        ("https://[v1.example]:8443/x", "[v1.example]:8443"),
+        ("https://user@[v1.example]:443/x", "[v1.example]"),
+    ],
+)
+def test_authority_keeps_the_brackets_of_an_ipv6_literal(url, authority):
+    """RFC 3986 section 3.2.2 spells an IPv6 host as an IP-literal, brackets included, and RFC
+    9421 section 2.2.3 builds @authority from that host (tick 2h2g)."""
+    assert line_for("@authority", url=url) == f'"@authority": {authority}'
 
 
 def test_authority_keeps_a_non_default_port():
@@ -127,3 +147,55 @@ def test_a_host_header_port_is_preserved_because_no_scheme_declares_it_default()
 def test_covering_authority_with_neither_a_url_authority_nor_a_host_header_is_refused():
     with pytest.raises(MissingComponent):
         line_for("@authority", url="/things")
+
+
+# Characters str.strip() removes that are not RFC 9110 optional whitespace. Each is refused at the
+# edge of a value exactly as inside one, because the check runs on the value as received and only
+# SP and HTAB are trimmed afterwards (tick 4r5h).
+_EDGE_CONTROLS = ["\r\n", "\r", "\n", "\x0b", "\x0c", "\x1c", "\x85", "\xa0", "\u2003"]
+
+
+@pytest.mark.parametrize("edge", _EDGE_CONTROLS, ids=[repr(e) for e in _EDGE_CONTROLS])
+@pytest.mark.parametrize("where", ["leading", "trailing"])
+def test_a_control_character_at_the_edge_of_a_value_is_refused_not_trimmed(edge, where):
+    value = edge + "admin" if where == "leading" else "admin" + edge
+    with pytest.raises(SignatureMismatch):
+        line_for("X-Scope", headers={"X-Scope": value})
+
+
+@pytest.mark.parametrize("edge", _EDGE_CONTROLS, ids=[repr(e) for e in _EDGE_CONTROLS])
+def test_a_control_character_at_the_edge_of_a_host_is_refused_not_trimmed(edge):
+    with pytest.raises(SignatureMismatch):
+        line_for("@authority", url="/foo", headers={"Host": "example.com" + edge})
+
+
+def test_only_spaces_and_tabs_are_trimmed_from_the_edges_of_a_value():
+    """RFC 9110 section 5.5: SP and HTAB are the optional whitespace around a field value."""
+    line = line_for("X-Scope", headers={"X-Scope": " \t admin \t "})
+    assert line == '"x-scope": admin'
+    assert line_for("@authority", url="/foo", headers={"Host": " Example.com\t"}) == (
+        '"@authority": example.com'
+    )
+
+
+def test_an_empty_method_is_a_caller_error_rather_than_an_empty_line():
+    """A request has a method; an empty string is a caller who lost it, and signing "@method: "
+    would bind nothing a verifier could check."""
+    with pytest.raises(ValueError):
+        line_for("@method", method="")
+
+
+def test_a_missing_method_is_a_caller_error():
+    with pytest.raises(TypeError):
+        line_for("@method", method=None)
+
+
+def test_an_empty_method_is_not_refused_when_nothing_covers_it():
+    assert line_for("@path", method="") == '"@path": /foo'
+
+
+def test_an_empty_method_in_the_request_a_response_answers_is_a_caller_error():
+    with pytest.raises(ValueError):
+        response_signature_base(status=200, headers={}, covered=['"@method";req'],
+                                request=Request(method="", url="https://example.com/"),
+                                **BASE_ARGS)
