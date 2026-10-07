@@ -211,7 +211,8 @@ namespace Bakobo.Fiki
                 request == null ? null : RequestMessage(request.Method, request.Url, request.Headers));
 
         /// <summary>
-        /// The authority, normalized per section 2.2.3: lowercase host, default port omitted. A
+        /// The authority, normalized per section 2.2.3: lowercase host, default port omitted, and an
+        /// IPv6 literal in its brackets. A
         /// relative URL falls back to the Host header, which in HTTP/1.1 is the authority, and then
         /// nothing is normalized away, since without a scheme no port is a default port.
         /// </summary>
@@ -220,6 +221,13 @@ namespace Bakobo.Fiki
             if (parts.Netloc.Length > 0)
             {
                 var host = PyText.Lower(parts.Hostname ?? "");
+                // An IPv6 literal keeps its brackets, lowercased inside them, as RFC 9421 section
+                // 2.2.3 and RFC 3986 section 3.2.2 spell it. fiki-py drops them (tick 2h2g); this
+                // port and the js port do not.
+                if (parts.HostIsIPLiteral)
+                {
+                    host = "[" + host + "]";
+                }
                 var port = parts.Port;
                 if (port == null || (DefaultPorts.TryGetValue(parts.Scheme, out var standard) && standard == port))
                 {

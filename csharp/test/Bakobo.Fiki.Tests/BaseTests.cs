@@ -66,12 +66,27 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal("\"@authority\": h:80", LineFor("@authority", url: "ftp://h:80/"));
         }
 
-        [Fact]
-        public void AuthorityDropsIPv6BracketsAsFikiPyDoes()
+        [Theory]
+        [InlineData("https://[::1]:8080/", "[::1]:8080")]
+        [InlineData("https://[::1]/", "[::1]")]
+        [InlineData("https://[::1]:8443/x", "[::1]:8443")]
+        [InlineData("https://[::1]/x", "[::1]")]
+        [InlineData("https://[2001:DB8::1]:443/x", "[2001:db8::1]")]
+        [InlineData("https://user@[FE80::1%25eTh0]:8/x", "[fe80::1%25eth0]:8")]
+        [InlineData("https://[v1.FE]/x", "[v1.fe]")]
+        public void AnIPv6AuthorityKeepsItsBrackets(string url, string authority)
         {
-            // py builds f"{host}:{port}" from urlsplit's .hostname, which carries no brackets.
-            Assert.Equal("\"@authority\": ::1:8080", LineFor("@authority", url: "https://[::1]:8080/"));
+            // A deliberate divergence from fiki-py (tick 2h2g), which builds the host from
+            // urlsplit's .hostname and so drops the brackets. RFC 9421 section 2.2.3 takes the
+            // target URI's authority, and RFC 3986 section 3.2.2 spells an IPv6 host as the
+            // IP-literal "[::1]"; the js port keeps them too.
+            Assert.Equal("\"@authority\": " + authority, LineFor("@authority", url: url));
         }
+
+        [Fact]
+        public void AnIPv6HostHeaderKeepsItsBrackets() =>
+            Assert.Equal("\"@authority\": [::1]:8080",
+                LineFor("@authority", url: "/x", headers: H("Host", "[::1]:8080")));
 
         [Fact]
         public void AnAuthorityWithNoHostIsItsPortAlone()

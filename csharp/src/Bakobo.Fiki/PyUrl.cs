@@ -197,6 +197,13 @@ namespace Bakobo.Fiki
             return hostname;
         }
 
+        /// <summary>
+        /// True when the host is a bracketed IP-literal (RFC 3986 section 3.2.2). Python's
+        /// <c>.hostname</c> drops the brackets, and this port puts them back in @authority, a
+        /// deliberate divergence from fiki-py (tick 2h2g).
+        /// </summary>
+        internal bool HostIsIPLiteral => AfterLast(Netloc, '@').IndexOf('[') >= 0;
+
         /// <summary>The host, lowercased except for an IPv6 zone, or null when there is none.</summary>
         internal string? Hostname
         {
