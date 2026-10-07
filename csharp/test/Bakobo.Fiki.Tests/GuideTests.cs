@@ -207,7 +207,7 @@ namespace Bakobo.Fiki.Tests
             // guide: a resolver that refuses
             throw new FikiException(FikiErrorKind.UnsupportedSigner,
                 "This AID's key state has no single key that satisfies its threshold.", keyid);
-            // end guide
+        // end guide
 
         [Fact]
         public void TheGuidesErrorSampleNamesEachNewRefusal()
