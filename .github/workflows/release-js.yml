@@ -34,7 +34,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           version="${TAG#js/v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "::error::e.input.format.release.tag.f: The tag $TAG is not js/vX.Y.Z, so it names no release."
             exit 1
           fi

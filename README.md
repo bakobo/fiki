@@ -55,7 +55,7 @@ The APIs are not frozen; this is 0.x. Each port is published to the registry its
 
 [![PyPI](https://img.shields.io/pypi/v/fiki)](https://pypi.org/project/fiki/) [![npm](https://img.shields.io/npm/v/@bakobo/fiki)](https://www.npmjs.com/package/@bakobo/fiki) [![crates.io](https://img.shields.io/crates/v/fiki)](https://crates.io/crates/fiki) [![Maven Central](https://img.shields.io/maven-central/v/com.bakobo/fiki)](https://central.sonatype.com/artifact/com.bakobo/fiki) [![NuGet](https://img.shields.io/nuget/v/Bakobo.Fiki)](https://www.nuget.org/packages/Bakobo.Fiki) [![Go Reference](https://pkg.go.dev/badge/github.com/bakobo/fiki/go.svg)](https://pkg.go.dev/github.com/bakobo/fiki/go)
 
-```
+```sh
 pip install fiki==0.6.0
 npm install @bakobo/fiki@0.6.0
 go get github.com/bakobo/fiki/go@v0.6.0
