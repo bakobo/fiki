@@ -48,7 +48,32 @@ func VerifyingKey(aid string) (ed25519.PublicKey, error) {
 	// base64url alphabet with no padding, so this cannot fail. A branch that cannot be taken is a
 	// guard claiming to guard something.
 	decoded, _ := b64url.DecodeString("A" + aid[1:])
+	// The second character's top two bits land in the pad byte the code replaced, so a non-zero
+	// pad would give one key two spellings. Only the canonical one, the one ToAID produces, is the
+	// AID (bakobo/fiki#4).
+	if decoded[0] != 0 {
+		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + aid + " is not the canonical spelling of its key.", Keyid: aid}
+	}
 	return ed25519.PublicKey(decoded[1:]), nil
+}
+
+// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
+// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
+const spelledCodes = "BDE"
+
+// misspelledAID is true when keyid is shaped like a B, D or E AID and is not its canonical
+// spelling: 44 characters under one of those codes whose other 43 are not base64url, or that
+// decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
+// this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+func misspelledAID(keyid string) bool {
+	if len(keyid) != qb64Len || !strings.Contains(spelledCodes, keyid[:1]) {
+		return false
+	}
+	if !aidShape.MatchString(keyid) {
+		return true
+	}
+	decoded, _ := b64url.DecodeString("A" + keyid[1:]) // the shape check makes this infallible
+	return decoded[0] != 0
 }
 
 // Key is an Ed25519 key pair whose public half is rendered as a non-transferable AID.
@@ -76,6 +101,10 @@ func FromSeed(seed []byte) (*Key, error) {
 
 // AID is the non-transferable AID: 44 characters, "B" prefixed, and also the verifying key.
 func (k *Key) AID() string { return ToAID(k.private.Public().(ed25519.PublicKey)) }
+
+// rawKeyidShape is the RFC 8037 "x" form of a raw keyid: 32 bytes, base64url, unpadded, which is
+// 43 characters. Checked before decoding because Go's decoder skips CR and LF wherever they are.
+var rawKeyidShape = regexp.MustCompile(`^[A-Za-z0-9\-_]{43}$`)
 
 // Keyid is the raw verifying key, base64url and unpadded — the RFC 8037 JWK "x" form
 // (this.i @7xrx5evg).
