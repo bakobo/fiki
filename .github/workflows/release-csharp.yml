@@ -1,0 +1,151 @@
+name: Release (C#)
+
+# Publishes Bakobo.Fiki to nuget.org when a `csharp/vX.Y.Z` tag is pushed. docs/releasing.md is the
+# procedure; this file is the mechanism. No long-lived credential exists anywhere in it: NuGet/login
+# trades this run's GitHub OIDC token for an API key that is valid for one hour, and only the
+# `publish` job, inside the `release` environment, may mint that OIDC token.
+# https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing
+#
+# NuGet/login also needs the nuget.org profile name that owns the trusted publishing policy. That
+# is an identifier, not a secret, so it is the `release` environment's variable NUGET_USER.
+on:
+  push:
+    tags: ["csharp/v*"]
+
+permissions:
+  contents: read
+
+# One release of this port at a time, and never cancelled halfway through a publish.
+concurrency:
+  group: release-csharp
+  cancel-in-progress: false
+
+jobs:
+  # The tag is the release's name and the project file is what gets packed, so they must agree
+  # before anything else runs. Also refuses a tag whose commit is not on main, since the
+  # environment's tag rule says which refs may deploy but not which commits.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#csharp/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::e.input.format.release.tag.f: The tag $TAG is not csharp/vX.Y.Z, so it names no release."
+            exit 1
+          fi
+          manifest=$(python3 -c 'import xml.etree.ElementTree as ET; print(ET.parse("csharp/src/Bakobo.Fiki/Bakobo.Fiki.csproj").getroot().find("PropertyGroup/Version").text)')
+          if [ "$manifest" != "$version" ]; then
+            echo "::error::e.state.conflict.release.version.f: The tag $TAG says $version and Bakobo.Fiki.csproj says $manifest. Bump the manifest, merge, and tag that commit."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::e.rule.release.unmerged.f: The tag $TAG points at a commit that is not on main. Release only merged commits."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Exactly what CI runs: the coverage gate on Linux, .NET and .NET Framework on Windows, the shared
+  # and KERI vectors, and the single-runtime-dependency check.
+  test:
+    needs: version
+    uses: ./.github/workflows/ci-csharp.yml
+
+  # The package, built once and handed to the publish job, so what was inspected is what ships.
+  # ContinuousIntegrationBuild makes the build deterministic and its source paths repository-relative.
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: csharp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: Pack
+        run: |
+          dotnet pack src/Bakobo.Fiki/Bakobo.Fiki.csproj -c Release -p:ContinuousIntegrationBuild=true -o ../pack
+          ls -l ../pack
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pack
+          path: pack/
+          if-no-files-found: error
+
+  # The only job that can mint an OIDC token, and it runs only after a required reviewer approves
+  # the `release` environment. The key it gets is requested immediately before the push, since it
+  # lives for one hour and each OIDC token buys exactly one.
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://www.nuget.org/packages/Bakobo.Fiki/${{ needs.version.outputs.version }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pack
+          path: pack/
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: NuGet login (OIDC to a short-lived API key)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push to nuget.org
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: dotnet nuget push pack/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json
+
+  # Restore what nuget.org now serves into an empty package cache and sign and verify with it, in
+  # both dialects. A release that uploaded but cannot be restored is a failed release.
+  verify:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            vectors
+            .github/release-smoke/csharp
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      # The flat container is what restore reads, and nuget.org validates and indexes a package
+      # before listing it there, which can take several minutes.
+      - name: Wait for nuget.org to serve the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for attempt in $(seq 1 40); do
+            if curl -sf https://api.nuget.org/v3-flatcontainer/bakobo.fiki/index.json | grep -q "\"$VERSION\""; then
+              echo "nuget.org serves Bakobo.Fiki $VERSION (attempt $attempt)"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "::error::e.env.registry.timeout.r: nuget.org did not serve Bakobo.Fiki $VERSION within twenty minutes."
+          exit 1
+      - name: Restore into an empty package cache and run the smoke test
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          scratch=$(mktemp -d)
+          cp -r .github/release-smoke/csharp/. "$scratch/"
+          cd "$scratch"
+          export NUGET_PACKAGES="$scratch/packages"
+          dotnet restore -p:FikiVersion="$VERSION" --source https://api.nuget.org/v3/index.json
+          dotnet run --no-restore -p:FikiVersion="$VERSION" -- "$GITHUB_WORKSPACE/vectors"
