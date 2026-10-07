@@ -317,6 +317,8 @@ The resolver is authoritative. fiki never falls back to decoding the keyid, beca
 
 Pass the minimum here as well. A verifier that enforces it refuses a signature over too little even when the signature is valid, refuses a body that arrived without a covered `content-digest`, and requires `created`. Without a minimum, fiki checks what was signed and applies no coverage policy of its own. `authorities` lists the `@authority` values this server answers for, so that a request signed for one service cannot be replayed to another.
 
+Supplying `authorities` makes `@authority` required, from 0.7.0 in every port. The profile's request minimum leaves `@authority` out, so a signature over the minimum commits to no host at all, and comparing a host it never covered would protect nothing: a GET signed for `attacker.example` would verify at `victim.example`. A verifier given `authorities` therefore refuses a request whose signature does not cover `@authority` as `InsufficientCoverage`, before it resolves the key, and refuses a covered `@authority` outside the set as `SignatureMismatch`, as before. A verifier given no `authorities` checks no host, unchanged.
+
 ### Python
 
 ```python
@@ -805,4 +807,4 @@ Every snippet above, the KERI-profile ones included, is exercised by a test in i
 
 ## Which version works with which
 
-Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All six are at vectors format 1 today, and all six also satisfy the KERI profile's set, `vectors/keri/`, at its own format 2. Five ports export that second number as a constant too (`KERI_VECTORS_FORMAT`, or `KeriVectorsFormat` in Go and C#); fiki-py pins it in its test suite but does not yet export it. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
+Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All six are at vectors format 1 today, and all six also satisfy the KERI profile's set, `vectors/keri/`, at its own format 3. Five ports export that second number as a constant too (`KERI_VECTORS_FORMAT`, or `KeriVectorsFormat` in Go and C#); fiki-py pins it in its test suite but does not yet export it. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
