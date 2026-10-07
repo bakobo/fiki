@@ -44,4 +44,4 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 
 `Key`'s `Debug` prints the AID and nothing else, so a seed cannot reach a log line by way of a derived impl.
 
-`VerifyingKey::from_bytes` in `ed25519-dalek` 2.x accepts *any* 32 bytes — all-zero and all-`0xFF` included — and defers point validation to verification. So an AID that decodes to nonsense surfaces as a signature failure rather than a malformed key, and `tests/unit.rs` asserts that rather than the guarantee this port does not have.
+A public key is refused as `MalformedKey` before any signature is checked unless it is the canonical encoding of an on-curve point of large order — whether it arrives as an AID, a keyid, or from a resolver (`this.i` @2t8xctts, @34qlc8r3). That is measured rather than inherited from `ed25519-dalek` 2.x, whose `VerifyingKey::from_bytes` reduces a y at or above the field prime and so accepts a second spelling of some keys, and accepts small-order points under which a signature proves nothing about who made it; `tests/profile.rs` pins every class on every path.

@@ -87,6 +87,9 @@ fn malformed_aids_are_refused() {
         &format!("B{}", "!".repeat(43)), // outside the alphabet
         // "=" is inside base64's alphabet, so a lenient decoder would take this and decode short.
         &format!("B{}==", "A".repeat(41)),
+        // SEED_AID with a bit set in the pad byte the code character replaces: the same 32 key
+        // bytes under a second spelling, which would give one key two identifiers.
+        "BQOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
     ] {
         assert_eq!(
             verifying_key(aid).unwrap_err().kind,
@@ -97,15 +100,13 @@ fn malformed_aids_are_refused() {
 }
 
 #[test]
-fn any_32_bytes_are_accepted_as_a_key_and_rejected_at_verification() {
-    // Measured, not assumed: ed25519-dalek 2.x's VerifyingKey::from_bytes accepts any 32 bytes,
-    // including all-zero and all-0xFF, and defers point validation to verification. So an AID
-    // that decodes to nonsense is a signature failure rather than a malformed key, and a test
-    // asserting the opposite would be asserting a guarantee this port does not have.
-    for bytes in [[0x00u8; 32], [0xFFu8; 32]] {
-        let aid = fiki::to_aid(&bytes);
-        assert!(verifying_key(&aid).is_ok(), "from_bytes accepts {aid}");
-    }
+fn bytes_that_are_not_a_usable_key_are_refused_up_front() {
+    // All-0xFF is a y at or above the field prime with the sign bit set: ed25519-dalek 2.x
+    // decompresses it by reducing y, so it used to surface only as a failed signature. A key that
+    // cannot be a key is refused as malformed before any signature is checked (`this.i` @34qlc8r3);
+    // profile.rs pins every class of it on every path.
+    let aid = fiki::to_aid(&[0xFFu8; 32]);
+    assert_eq!(verifying_key(&aid).unwrap_err().kind, Kind::MalformedKey);
 }
 
 #[test]
@@ -139,9 +140,11 @@ fn derived_components() {
         line("@query", "GET", "https://example.com/p?baz=bat%2Dman", &[]),
         r#""@query": ?baz=bat%2Dman"#
     );
+    // The method as sent, with no case transformation (`this.i` @22g0xkr8, RFC 9421 section
+    // 2.2.1): "post" and "POST" are different methods.
     assert_eq!(
         line("@method", "post", "https://example.com/f", &[]),
-        r#""@method": POST"#
+        r#""@method": post"#
     );
     assert_eq!(
         line(
@@ -161,6 +164,25 @@ fn derived_components() {
     assert_eq!(
         line("@authority", "GET", "https://[::1]/f", &[]),
         r#""@authority": [::1]"#
+    );
+    // An IPv6 literal keeps its brackets with a port too (RFC 3986 section 3.2.2), and a default
+    // port is still dropped (`this.i` @4pz4mcgq).
+    assert_eq!(
+        line("@authority", "GET", "https://[::1]:8443/f", &[]),
+        r#""@authority": [::1]:8443"#
+    );
+    assert_eq!(
+        line("@authority", "GET", "https://[::1]:443/f", &[]),
+        r#""@authority": [::1]"#
+    );
+    // The path and query as sent: no dot segments removed, nothing decoded or re-encoded.
+    assert_eq!(
+        line("@path", "GET", "https://x.example/a/../b/./%7Ec:d", &[]),
+        r#""@path": /a/../b/./%7Ec:d"#
+    );
+    assert_eq!(
+        line("@query", "GET", "https://x.example/f?a=%2f&b= c", &[]),
+        r#""@query": ?a=%2f&b= c"#
     );
 }
 
@@ -562,4 +584,22 @@ fn expires_is_enforced_even_when_max_age_is_declined() {
     )
     .unwrap_err();
     assert_eq!(err.kind, Kind::SignatureExpired);
+}
+
+#[test]
+fn a_request_signed_with_a_lowercase_method_does_not_verify_as_uppercase() {
+    let out = sign_request(
+        &key(),
+        "post",
+        URL_QUERY,
+        &BTreeMap::new(),
+        &SignOptions {
+            created: Some(SIGNED_AT),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    verify_request("post", URL_QUERY, &out, &VerifyOptions::default()).unwrap();
+    let err = verify_request("POST", URL_QUERY, &out, &VerifyOptions::default()).unwrap_err();
+    assert_eq!(err.kind, Kind::SignatureMismatch);
 }
