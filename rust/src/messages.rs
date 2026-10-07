@@ -732,6 +732,13 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
              to verify it against.",
         ));
     }
+    if require_created && list.param("keyid").is_none() {
+        // Under a minimum, which is how a caller applies the KERI profile, keyid is REQUIRED even
+        // when expected_aid names the key, as created is below (@5xde8s6l).
+        return malformed(
+            "This signature carries no keyid, which the verifier's policy requires.".into(),
+        );
+    }
     if require_created && list.param("created").is_none() {
         // Only under a minimum, which is how a caller applies the KERI profile, where created is
         // REQUIRED. RFC 9421 makes it optional, and without a minimum it stays so (@7p9s3g9k).

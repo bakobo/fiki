@@ -1912,3 +1912,37 @@ fn a_huge_parameter_list_is_parsed_in_linear_time() {
     );
     assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
 }
+
+#[test]
+fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {
+    // The profile makes keyid REQUIRED; a minimum is how a caller applies the profile (@7p9s3g9k).
+    let params = SignatureParams {
+        created: Some(AT),
+        alg: Some("ed25519".into()),
+        ..Default::default()
+    };
+    let covered = strings(&REQUEST_MINIMUM);
+    let base = signature_base("GET", URL, &BTreeMap::new(), &covered, &params).unwrap();
+    let text = String::from_utf8(base.clone()).unwrap();
+    let input = text.rsplit_once("\"@signature-params\": ").unwrap().1;
+    let sent = Sent {
+        method: "GET".into(),
+        url: URL.into(),
+        body: None,
+        headers: headers(&[
+            ("Signature-Input", &format!("sig={input}")),
+            (
+                "Signature",
+                &format!("sig=:{}:", encode(&key().sign(&base), B64STD, true)),
+            ),
+        ]),
+    };
+    let named = |minimum: Option<Vec<String>>| VerifyOptions {
+        expected_aid: Some(key().aid()),
+        minimum,
+        ..Default::default()
+    };
+    assert!(sent.verify(named(None)).is_ok());
+    let err = sent.verify(named(Some(covered))).unwrap_err();
+    assert_eq!(err.kind, Kind::MalformedSignatureInput);
+}
