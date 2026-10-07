@@ -875,3 +875,56 @@ def test_a_malformed_request_digest_outranks_a_mismatched_response_digest():
     odd = Request(method="POST", url=URL, headers={"Content-Digest": "(((("}, body=BODY)
     with pytest.raises(MalformedDigest):
         check(headers, request=odd, body=b'{"done": false}')
+
+
+# --- one name, one value: header names equal case-insensitively are a caller error ---
+
+DUPLICATES = [
+    pytest.param({"X-Role": "user", "x-role": "admin"}, id="x-role"),
+    pytest.param({"Content-Digest": content_digest(BODY), "content-digest": content_digest(b"")},
+                 id="content-digest"),
+    pytest.param({"SIGNATURE": "sig=:AAAA:", "Signature": "sig=:AAAA:"}, id="signature"),
+]
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_signing_a_request_with_a_header_named_twice_is_a_caller_error(dup):
+    with pytest.raises(ValueError):
+        sign(headers=dup, covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    with pytest.raises(ValueError):
+        signature_base(method="POST", url=URL, headers=dup, covered=["@method"], created=AT,
+                       keyid="k")
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_verifying_a_request_with_a_header_named_twice_is_a_caller_error(dup):
+    request, headers = sign(headers={"X-Role": "user"},
+                            covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    headers.update({k: v for k, v in dup.items() if k not in headers})
+    assert len({k.lower() for k in headers}) < len(headers)
+    with pytest.raises(ValueError):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("dup", DUPLICATES)
+def test_a_response_or_its_request_with_a_header_named_twice_is_a_caller_error(dup):
+    doubled = Request(method="POST", url=URL, headers=dup, body=BODY)
+    with pytest.raises(ValueError):
+        respond(headers=dup)
+    with pytest.raises(ValueError):
+        respond(request=doubled)
+    with pytest.raises(ValueError):
+        response_signature_base(status=200, headers=dup, covered=["@status"], created=AT,
+                                keyid="k")
+    headers = respond()
+    with pytest.raises(ValueError):
+        check(headers, request=doubled)
+    headers.update({k: v for k, v in dup.items() if k not in headers})
+    with pytest.raises(ValueError):
+        check(headers)
+
+
+def test_a_header_named_in_any_one_case_is_read_the_same():
+    request, headers = sign(headers={"X-ROLE": "admin"},
+                            covered=["@method", "@path", "@query", "content-digest", "x-role"])
+    assert verify(request, headers).covered[-1] == "x-role"

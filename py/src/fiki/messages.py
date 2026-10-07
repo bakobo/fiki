@@ -24,7 +24,7 @@ import hashlib
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import http_sfv
 from cryptography.exceptions import InvalidSignature
@@ -33,6 +33,7 @@ from .base import (
     CONTENT_DIGEST,
     DEFAULT_COVERED,
     Request,
+    canonical,
     check_covered,
     component,
     identity,
@@ -168,8 +169,8 @@ def _cover_body(items: list, sending: dict, body: bytes | None, chosen: bool) ->
                 "are signing."
             )
         items.append(component(CONTENT_DIGEST))
-    if CONTENT_DIGEST not in {name.lower() for name in sending}:
-        sending["Content-Digest"] = content_digest(body)
+    if CONTENT_DIGEST not in sending:
+        sending[CONTENT_DIGEST] = content_digest(body)
 
 
 def _signed(key, base: bytes, label: str, sending: dict, given) -> dict[str, str]:
@@ -179,8 +180,8 @@ def _signed(key, base: bytes, label: str, sending: dict, given) -> dict[str, str
         "Signature-Input": f"{label}={params}",
         "Signature": f"{label}=:{base64.b64encode(signature).decode('ascii')}:",
     }
-    if "Content-Digest" in sending and CONTENT_DIGEST not in {k.lower() for k in (given or {})}:
-        out["Content-Digest"] = sending["Content-Digest"]
+    if CONTENT_DIGEST in sending and CONTENT_DIGEST not in canonical(given or {}):
+        out["Content-Digest"] = sending[CONTENT_DIGEST]
     return out
 
 
@@ -213,12 +214,12 @@ def sign_request(
     the signer refuse a covered list its verifier would refuse (@2f227n4r).
     """
     minimum = _floored(minimum, REQUEST_MINIMUM)
-    sending = dict(headers or {})
+    sending = canonical(headers or {})
     chosen = covered is not None
     items = [component(spec) for spec in (DEFAULT_COVERED if covered is None else covered)]
     _cover_body(items, sending, body, chosen)
     if minimum is not None:
-        _check_minimum(items, minimum, has_body=_request_has_body(_lowered(sending), body),
+        _check_minimum(items, minimum, has_body=_request_has_body(canonical(sending), body),
                        request_had_body=False)
 
     base = signature_base(
@@ -264,7 +265,8 @@ def sign_response(
     contradicts is refused the same way the verifier would refuse it.
     """
     minimum = _floored(minimum, RESPONSE_MINIMUM)
-    sending = dict(headers or {})
+    sending = canonical(headers or {})
+    request = _canonical_request(request)
     chosen = covered is not None
     # By content alone: both sides hold the whole request by now (profile section 3,
     # @7p9s3g9k).
@@ -276,7 +278,7 @@ def sign_response(
     items = [component(spec) for spec in covered]
     _cover_body(items, sending, body, chosen)
     if not chosen and had_body:
-        if CONTENT_DIGEST not in _lowered(request.headers):
+        if CONTENT_DIGEST not in canonical(request.headers):
             raise UncoveredBody(
                 "The request this response answers carried a body and no Content-Digest, so the "
                 "response has nothing to bind that body with. Sign the request with a digest "
@@ -288,7 +290,7 @@ def sign_response(
     # The check verify_response will make, made first: a signer does not vouch for a request
     # digest that the request body it was handed contradicts (bakobo/fiki#4).
     if request is not None and request.body is not None and _binds_request_digest(items):
-        _check_digest(_lowered(request.headers).get(CONTENT_DIGEST), request.body)
+        _check_digest(canonical(request.headers).get(CONTENT_DIGEST), request.body)
 
     base = response_signature_base(
         status=status,
@@ -350,6 +352,7 @@ def verify_request(
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     """
     minimum = _floored(minimum, REQUEST_MINIMUM)
+    headers = canonical(headers)
     return _verify(
         request_message(method, url, headers), headers, body, response=False, request=None,
         max_age=max_age, expected_aid=expected_aid, skew=skew, now=now, resolve=resolve,
@@ -387,7 +390,9 @@ def verify_response(
     not given.
     """
     minimum = _floored(minimum, RESPONSE_MINIMUM)
-    if status == 401 and not any(name.lower() == "signature" for name in headers):
+    headers = canonical(headers)
+    request = _canonical_request(request)
+    if status == 401 and "signature" not in headers:
         raise Unauthenticated(
             "The server answered 401 without signing the answer, so the request was not "
             "authenticated and the body of the refusal cannot be trusted."
@@ -405,15 +410,14 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     if expected_aid is not None and resolve is not None:
         raise TypeError("Pass expected_aid or resolve, not both; each decides the key alone.")
 
-    found = {name.lower(): value for name, value in headers.items()}
-    inner, signature = _read(found, require_keyid=expected_aid is None,
+    inner, signature = _read(headers, require_keyid=expected_aid is None,
                              require_created=minimum is not None)
     items = list(inner)
     check_covered(items, response=response)
     if minimum is not None:
         _check_minimum(
             items, minimum,
-            has_body=bool(body) if response else _request_has_body(found, body),
+            has_body=bool(body) if response else _request_has_body(headers, body),
             # By the request's content alone, as sign_response decides it (@7p9s3g9k).
             request_had_body=request is not None and bool(request.body),
         )
@@ -461,7 +465,7 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
 
     digests = []
     if _covers_body(items):
-        digests.append((found.get(CONTENT_DIGEST), body))
+        digests.append((headers.get(CONTENT_DIGEST), body))
     # A response binding the request's digest binds a request body only if somebody hashes it
     # (bakobo/fiki#4). A verifier handed no request body cannot, and a verdict that skipped the
     # check would look like one that made it, so that is the caller's mistake, not a pass.
@@ -471,7 +475,7 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
                 'The response covers "content-digest";req, so the request body it binds must '
                 "be supplied in Request.body to be checked; it was not."
             )
-        digests.append((_lowered(request.headers).get(CONTENT_DIGEST), request.body))
+        digests.append((canonical(request.headers).get(CONTENT_DIGEST), request.body))
     # Every covered digest is parsed before any is compared, so a malformed one outranks a
     # mismatched one wherever each sits (profile section 9, bakobo/fiki#4).
     parsed = [(_read_digest(header), content) for header, content in digests]
@@ -481,8 +485,11 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     return Verdict(aid=aid, covered=tuple(spec_of(item) for item in items), keyid=keyid)
 
 
-def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
-    return {name.lower(): value for name, value in headers.items()}
+def _canonical_request(request: Request | None) -> Request | None:
+    """The request a response answers, its headers canonicalized once (@235933km)."""
+    if request is None:
+        return None
+    return replace(request, headers=canonical(request.headers))
 
 
 def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:

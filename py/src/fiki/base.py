@@ -150,10 +150,28 @@ class _Message:
 _OWS = " \t"
 
 
-def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
-    # Header field names are case-insensitive and appear lowercased in the base (section 2.1).
-    # Values are kept as received: value_of checks them raw and only then trims _OWS.
-    return {name.lower(): value for name, value in headers.items()}
+def canonical(headers: Mapping[str, str]) -> dict[str, str]:
+    """The headers with lowercased names, refusing two names equal case-insensitively.
+
+    Field names are case-insensitive and appear lowercased in the base (section 2.1), so
+    ``X-Role`` beside ``x-role`` is one field given two values. Collapsing them would let one
+    value be signed or digested and the other reach the application, so it is a ValueError, a
+    mistake in the call (@235933km). Values are kept as received: value_of checks them raw and
+    only then trims _OWS. Idempotent, so a mapping canonicalized once reads the same everywhere.
+    """
+    out: dict[str, str] = {}
+    for name, value in headers.items():
+        lowered = name.lower()
+        if lowered in out:
+            raise ValueError(
+                f'The headers name the field "{lowered}" more than once, in different cases, '
+                "and a field has one value; combine them before calling fiki."
+            )
+        out[lowered] = value
+    return out
+
+
+_lowered = canonical
 
 
 def request_message(method: str, url: str, headers: Mapping[str, str]) -> _Message:
