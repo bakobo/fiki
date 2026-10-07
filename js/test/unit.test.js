@@ -121,8 +121,9 @@ describe('the signature base', () => {
     assert.equal(line('@query', { url: 'https://example.com/f' }), '"@query": ?');
   });
 
-  it('uppercases the method and lowercases header names', () => {
-    assert.equal(line('@method', { method: 'post' }), '"@method": POST');
+  it('keeps the method exactly as given and lowercases header names', () => {
+    // RFC 9421 section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+    assert.equal(line('@method', { method: 'post' }), '"@method": post');
     assert.equal(line('Content-Type', { headers: { 'Content-Type': '  application/json  ' } }), '"content-type": application/json');
   });
 
@@ -192,6 +193,15 @@ describe('signing and verifying', () => {
     const { request, headers } = await signed({ body: null });
     assert.equal(headers['Content-Digest'], undefined);
     assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+  });
+
+  it('does not verify a request signed with a lowercase method as its uppercase twin', async () => {
+    const { request, headers } = await signed({ method: 'post' });
+    await verifyRequest({ ...request, headers, maxAge: null });
+    await assert.rejects(
+      () => verifyRequest({ ...request, method: 'POST', headers, maxAge: null }),
+      errors.SignatureMismatch,
+    );
   });
 
   it('uses the wall clock when no created is given', async () => {

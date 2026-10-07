@@ -59,7 +59,8 @@ function authority({ parsed, relative }, headers) {
 }
 
 function componentValue(component, method, url, headers) {
-  if (component === '@method') return method.toUpperCase();
+  // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+  if (component === '@method') return method;
   if (component === '@authority') return authority(url, headers);
   // `new URL` never yields an empty pathname — a bare authority gives "/" — so unlike the Python
   // port there is no empty-path fallback here. One that could not fire would be a guard claiming
