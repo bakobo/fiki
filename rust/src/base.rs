@@ -249,14 +249,14 @@ impl Message {
     pub fn response(
         status: u16,
         headers: &BTreeMap<String, String>,
-        request: Option<&Request>,
+        request: Option<&Asked>,
     ) -> Self {
         Message {
             headers: lower_headers(headers),
             method: None,
             target: None,
             status: Some(status),
-            request: request.map(|r| Box::new(Message::request(&r.method, &r.url, &r.headers))),
+            request: request.map(|r| Box::new(Message::request(r.method, r.url, &r.headers))),
         }
     }
 }
@@ -404,13 +404,24 @@ pub(crate) fn canonical(headers: &BTreeMap<String, String>) -> Result<BTreeMap<S
     Ok(out)
 }
 
-/// A request whose headers are canonical, for a response's `req` components.
-pub(crate) fn canonical_request(request: Option<&Request>) -> Result<Option<Request>> {
+/// The request a response answers, with its headers canonical and everything else borrowed:
+/// the body may be large, and it is only ever hashed (bakobo/fiki#8).
+pub(crate) struct Asked<'a> {
+    pub method: &'a str,
+    pub url: &'a str,
+    pub headers: BTreeMap<String, String>,
+    pub body: Option<&'a [u8]>,
+}
+
+/// A view of `request` whose headers are canonical, for a response's `req` components.
+pub(crate) fn canonical_request(request: Option<&Request>) -> Result<Option<Asked<'_>>> {
     request
         .map(|r| {
-            Ok(Request {
+            Ok(Asked {
+                method: &r.method,
+                url: &r.url,
                 headers: canonical(&r.headers)?,
-                ..r.clone()
+                body: r.body.as_deref(),
             })
         })
         .transpose()

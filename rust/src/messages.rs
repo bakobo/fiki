@@ -21,7 +21,8 @@ use sha2::{Digest, Sha256, Sha512};
 
 use crate::base::{
     base_for, canonical, canonical_request, check_covered, component, components, identity,
-    lines_for, req, spec_of, Message, Request, SignatureParams, CONTENT_DIGEST, DEFAULT_COVERED,
+    lines_for, req, spec_of, Asked, Message, Request, SignatureParams, CONTENT_DIGEST,
+    DEFAULT_COVERED,
 };
 use crate::errors::{Error, Kind, Result};
 use crate::keys::{b64std, misspelled_aid, public_key, raw_keyid, to_aid, verifying_key, Key};
@@ -324,7 +325,7 @@ pub fn sign_response(
     let mut sending = headers.clone();
     let chosen = opts.covered.is_some();
     // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
-    let had_body = request.is_some_and(|r| has_content(r.body.as_deref()));
+    let had_body = request.is_some_and(|r| has_content(r.body));
     let covered = opts.covered.clone().unwrap_or_else(|| {
         let mut covered = vec!["@status".to_string()];
         if request.is_some() {
@@ -350,7 +351,7 @@ pub fn sign_response(
     }
     // The check verify_response will make, made first: a signer does not vouch for a request
     // digest that the request body it was handed contradicts (bakobo/fiki#4).
-    if let Some(Request {
+    if let Some(Asked {
         headers: asked,
         body: Some(content),
         ..
@@ -436,7 +437,7 @@ pub fn verify_response(
 fn verify(
     message: &Message,
     headers: &BTreeMap<String, String>,
-    response: Option<Option<&Request>>,
+    response: Option<Option<&Asked>>,
     opts: &VerifyOptions,
     minimum: Option<Vec<Item>>,
 ) -> Result<Verdict> {
@@ -457,7 +458,7 @@ fn verify(
             None => request_has_body(found, opts.body.as_deref()),
         };
         // By the request's content alone, as sign_response decides it (@7p9s3g9k).
-        let request_had_body = request.is_some_and(|r| has_content(r.body.as_deref()));
+        let request_had_body = request.is_some_and(|r| has_content(r.body));
         check_minimum(items, minimum, has_body, request_had_body)?;
     }
 
@@ -535,7 +536,7 @@ fn verify(
     let asked = request.map(|r| &r.headers);
     if let (Some(request), Some(asked)) = (request, &asked) {
         if binds_request_digest(items) {
-            let Some(content) = request.body.as_deref() else {
+            let Some(content) = request.body else {
                 return Err(Error::new(
                     Kind::InvalidArgument,
                     "The response covers \"content-digest\";req, so the request body it binds \
