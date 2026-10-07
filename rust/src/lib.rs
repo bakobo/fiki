@@ -4,6 +4,11 @@
 //! public key is rendered as a non-transferable AID (CESR `Ed25519N`, a 44-character `B…` string),
 //! so the identifier is the verifying key and a verifier resolves nothing.
 //!
+//! That is the default. A caller who speaks the KERI profile of RFC 9421 (`docs/keri-profile.md`)
+//! signs requests and responses under a KERI AID instead, and verifies them through a resolver it
+//! supplies, against a minimum covered set, with refusals in the profile's section 9 order
+//! (`this.i` @7f28p7xk, @6g9zjsv9, @5e2phpjy).
+//!
 //! See `this.i` @07wstqk7 in <https://github.com/bakobo/fiki> for why this is a library of its own.
 
 /// The conformance contract this port satisfies (`this.i` @4fhrre0m).
@@ -20,10 +25,13 @@ mod keys;
 mod messages;
 mod sfv;
 
-pub use base::{signature_base, SignatureParams, CONTENT_DIGEST, DEFAULT_COVERED, DERIVED};
+pub use base::{
+    req, response_signature_base, signature_base, Request, SignatureParams, CONTENT_DIGEST,
+    DEFAULT_COVERED, DERIVED, RESPONSE_DERIVED,
+};
 pub use errors::{Error, Kind, Result};
 pub use keys::{to_aid, verifying_key, Key};
 pub use messages::{
-    content_digest, sign_request, verify_request, SignOptions, Verdict, VerifyOptions, ALG,
-    DEFAULT_SKEW,
+    content_digest, sign_request, sign_response, verify_request, verify_response, Resolver,
+    SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_SKEW, REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };

@@ -212,3 +212,40 @@ impl Key {
         self.signing.sign(data).to_bytes()
     }
 }
+
+// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
+// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
+const SPELLED_CODES: &[u8] = b"BDE";
+
+/// True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+///
+/// That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
+/// decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
+/// this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+pub(crate) fn misspelled_aid(keyid: &str) -> bool {
+    if keyid.len() != QB64_LEN || !SPELLED_CODES.contains(&keyid.as_bytes()[0]) {
+        return false;
+    }
+    if !keyid.bytes().all(|b| URL_ALPHABET.contains(&b)) {
+        return true;
+    }
+    // Forty-four base64url characters always decode to 33 bytes. Zeroing the pad byte and
+    // re-encoding gives the one canonical spelling of those key bytes, behind any code.
+    let mut decoded = decode(&format!("A{}", &keyid[1..]), URL_ALPHABET).unwrap_or_default();
+    if let Some(pad) = decoded.first_mut() {
+        *pad = 0;
+    }
+    b64url(&decoded).get(1..) != keyid.get(1..)
+}
+
+/// The raw key a keyid names in the RFC 8037 "x" form (@7xrx5evg), decoded strictly: exactly 43
+/// base64url characters, unpadded, that re-encode to themselves. A lenient decoder ignores the
+/// trailing bits, so a keyid that is not the key's own spelling could verify as whatever key it
+/// happened to decode to.
+pub(crate) fn raw_keyid(keyid: &str) -> Option<[u8; RAW_LEN]> {
+    if keyid.len() != 43 || !keyid.bytes().all(|b| URL_ALPHABET.contains(&b)) {
+        return None;
+    }
+    let raw: [u8; RAW_LEN] = decode(keyid, URL_ALPHABET)?.try_into().ok()?;
+    (b64url(&raw) == keyid).then_some(raw)
+}

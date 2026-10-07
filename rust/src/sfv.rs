@@ -1,21 +1,48 @@
-//! The RFC 8941 subset RFC 9421 actually uses (`this.i` @2q9gv70t, @2tt6fmc0).
+//! The RFC 8941 subset RFC 9421 actually uses (`this.i` @2q9gv70t, @2tt6fmc0, @5e2phpjy).
 //!
 //! Hand-rolled rather than depended upon, for the reason every port hand-rolls it: fiki's slice of
-//! structured fields is small and CLOSED — a dictionary whose members are inner lists of strings
+//! structured fields is small and CLOSED — dictionaries whose members are inner lists of strings
 //! with parameters, plus byte sequences — and the shared vectors pin its entire output surface byte
 //! for byte. The usual argument against writing your own parser holds where the grammar is
 //! open-ended; this one's every output is checked against committed bytes shared with four other
 //! implementations.
+//!
+//! It reads the whole of RFC 8941's bare-item grammar, tokens and decimals included, even though
+//! fiki accepts neither anywhere. A header fiki-py's parser reads must be classified the same way
+//! here: `alg=ed25519` is a signature parameter of the wrong type, not an unparsable header, and
+//! the two are different refusals.
 
 use crate::keys::{b64std, b64std_decode};
 
-/// A parameter value. The variants are exactly what RFC 9421 puts in these two headers.
+/// A bare item. The variants are RFC 8941's.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Value {
     Text(String),
+    Token(String),
     Integer(i64),
+    /// Kept as written: fiki refuses every decimal it meets, so it never does arithmetic on one.
+    Decimal(String),
     Boolean(bool),
     Bytes(Vec<u8>),
+}
+
+pub(crate) type Params = Vec<(String, Value)>;
+
+/// A bare item with its parameters — a covered component such as `"@path";req`, or a dictionary
+/// member's value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Item {
+    pub value: Value,
+    pub params: Params,
+}
+
+impl Item {
+    pub fn text(&self) -> Option<&str> {
+        match &self.value {
+            Value::Text(text) => Some(text),
+            _ => None,
+        }
+    }
 }
 
 /// A covered-component list with its signature parameters, in the order they arrived.
@@ -24,8 +51,8 @@ pub(crate) enum Value {
 /// different base and rejects a good signature.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct InnerList {
-    pub items: Vec<String>,
-    pub params: Vec<(String, Value)>,
+    pub items: Vec<Item>,
+    pub params: Params,
 }
 
 impl InnerList {
@@ -34,10 +61,10 @@ impl InnerList {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct Member {
-    pub list: InnerList,
-    pub value: Option<Value>,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Member {
+    Item(Item),
+    List(InnerList),
 }
 
 /// This module's own failure. It never escapes: the parser cannot know WHICH header it is reading,
@@ -48,12 +75,21 @@ pub(crate) struct SyntaxError;
 
 type Parsed<T> = std::result::Result<T, SyntaxError>;
 
+/// RFC 8941's map semantics, which both dictionaries and parameters have: a repeated key keeps its
+/// first position and takes its last value.
+fn put<T>(entries: &mut Vec<(String, T)>, key: String, value: T) {
+    match entries.iter_mut().find(|(k, _)| *k == key) {
+        Some(entry) => entry.1 = value,
+        None => entries.push((key, value)),
+    }
+}
+
 struct Cursor<'a> {
     text: &'a [u8],
     at: usize,
 }
 
-impl<'a> Cursor<'a> {
+impl Cursor<'_> {
     fn done(&self) -> bool {
         self.at >= self.text.len()
     }
@@ -66,84 +102,113 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn skip_space(&mut self) {
-        while !self.done() && (self.peek() == b' ' || self.peek() == b'\t') {
+    fn take(&mut self) -> Parsed<u8> {
+        if self.done() {
+            return Err(SyntaxError);
+        }
+        self.at += 1;
+        Ok(self.text[self.at - 1])
+    }
+
+    fn skip(&mut self, chars: &[u8]) {
+        while !self.done() && chars.contains(&self.peek()) {
             self.at += 1;
         }
     }
 
     fn expect(&mut self, ch: u8) -> Parsed<()> {
-        if self.done() || self.peek() != ch {
+        if self.take()? != ch {
             return Err(SyntaxError);
         }
-        self.at += 1;
         Ok(())
+    }
+
+    fn slice(&self, start: usize) -> String {
+        // Every byte a caller slices over has been checked to be ASCII.
+        String::from_utf8_lossy(&self.text[start..self.at]).into_owned()
     }
 
     fn parse_key(&mut self) -> Parsed<String> {
         let start = self.at;
-        if self.done() || !(self.peek().is_ascii_lowercase() || self.peek() == b'*') {
+        if !(self.peek().is_ascii_lowercase() || self.peek() == b'*') {
             return Err(SyntaxError);
         }
-        while !self.done()
-            && (self.peek().is_ascii_lowercase()
-                || self.peek().is_ascii_digit()
-                || matches!(self.peek(), b'_' | b'-' | b'.' | b'*'))
+        while self.peek().is_ascii_lowercase()
+            || self.peek().is_ascii_digit()
+            || matches!(self.peek(), b'_' | b'-' | b'.' | b'*')
         {
             self.at += 1;
         }
-        String::from_utf8(self.text[start..self.at].to_vec()).map_err(|_| SyntaxError)
+        Ok(self.slice(start))
     }
 
     fn parse_string(&mut self) -> Parsed<String> {
-        self.at += 1; // the opening quote, which the caller already peeked
+        self.expect(b'"')?;
         let mut out = String::new();
-        while !self.done() {
-            let ch = self.text[self.at];
-            self.at += 1;
-            match ch {
-                b'\\' => {
-                    if self.done() {
-                        return Err(SyntaxError);
-                    }
-                    let esc = self.text[self.at];
-                    self.at += 1;
-                    if esc != b'"' && esc != b'\\' {
-                        return Err(SyntaxError);
-                    }
-                    out.push(esc as char);
-                }
+        loop {
+            match self.take()? {
+                b'\\' => match self.take()? {
+                    esc @ (b'"' | b'\\') => out.push(esc as char),
+                    _ => return Err(SyntaxError),
+                },
                 b'"' => return Ok(out),
-                _ => out.push(ch as char),
+                // Visible ASCII and space only (RFC 8941 section 3.3.3).
+                ch @ 0x20..=0x7e => out.push(ch as char),
+                _ => return Err(SyntaxError),
             }
         }
-        Err(SyntaxError)
+    }
+
+    fn parse_token(&mut self) -> Parsed<String> {
+        let start = self.at;
+        self.at += 1; // the first character, which the caller checked is ALPHA or "*"
+        while !self.done()
+            && (self.peek().is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~:/".contains(&self.peek()))
+        {
+            self.at += 1;
+        }
+        Ok(self.slice(start))
     }
 
     fn parse_byte_sequence(&mut self) -> Parsed<Vec<u8>> {
-        self.at += 1; // the opening colon
+        self.expect(b':')?;
         let start = self.at;
-        while !self.done() && self.peek() != b':' {
+        while self.peek().is_ascii_alphanumeric() || matches!(self.peek(), b'+' | b'/' | b'=') {
             self.at += 1;
         }
-        let encoded = std::str::from_utf8(&self.text[start..self.at]).map_err(|_| SyntaxError)?;
-        let encoded = encoded.to_owned();
+        let encoded = self.slice(start);
         self.expect(b':')?;
         b64std_decode(&encoded).ok_or(SyntaxError)
     }
 
-    fn parse_integer(&mut self) -> Parsed<i64> {
+    fn parse_number(&mut self) -> Parsed<Value> {
         let start = self.at;
         if self.peek() == b'-' {
             self.at += 1;
         }
-        while !self.done() && self.peek().is_ascii_digit() {
-            self.at += 1;
+        let digits = self.at;
+        self.skip(b"0123456789");
+        let whole = self.at - digits;
+        if whole == 0 {
+            return Err(SyntaxError);
         }
-        std::str::from_utf8(&self.text[start..self.at])
-            .map_err(|_| SyntaxError)?
-            .parse()
-            .map_err(|_| SyntaxError)
+        if self.peek() != b'.' {
+            if whole > 15 {
+                return Err(SyntaxError);
+            }
+            return self
+                .slice(start)
+                .parse()
+                .map(Value::Integer)
+                .map_err(|_| SyntaxError);
+        }
+        self.at += 1;
+        let fraction = self.at;
+        self.skip(b"0123456789");
+        if whole > 12 || !(1..=3).contains(&(self.at - fraction)) {
+            return Err(SyntaxError);
+        }
+        Ok(Value::Decimal(self.slice(start)))
     }
 
     fn parse_bare_item(&mut self) -> Parsed<Value> {
@@ -152,64 +217,55 @@ impl<'a> Cursor<'a> {
             b':' => Ok(Value::Bytes(self.parse_byte_sequence()?)),
             b'?' => {
                 self.at += 1;
-                if self.done() {
-                    return Err(SyntaxError);
-                }
-                let flag = self.text[self.at];
-                self.at += 1;
-                match flag {
+                match self.take()? {
                     b'0' => Ok(Value::Boolean(false)),
                     b'1' => Ok(Value::Boolean(true)),
                     _ => Err(SyntaxError),
                 }
             }
-            ch if ch == b'-' || ch.is_ascii_digit() => Ok(Value::Integer(self.parse_integer()?)),
+            ch if ch == b'-' || ch.is_ascii_digit() => self.parse_number(),
+            ch if ch.is_ascii_alphabetic() || ch == b'*' => Ok(Value::Token(self.parse_token()?)),
             _ => Err(SyntaxError),
         }
     }
 
-    fn parse_parameters(&mut self) -> Parsed<Vec<(String, Value)>> {
+    fn parse_parameters(&mut self) -> Parsed<Params> {
         let mut params = Vec::new();
-        while !self.done() && self.peek() == b';' {
+        while self.peek() == b';' {
             self.at += 1;
-            self.skip_space();
+            self.skip(b" ");
             let key = self.parse_key()?;
-            if !self.done() && self.peek() == b'=' {
+            let value = if self.peek() == b'=' {
                 self.at += 1;
-                params.push((key, self.parse_bare_item()?));
+                self.parse_bare_item()?
             } else {
-                params.push((key, Value::Boolean(true)));
-            }
+                Value::Boolean(true)
+            };
+            put(&mut params, key, value);
         }
         Ok(params)
     }
 
+    fn parse_item(&mut self) -> Parsed<Item> {
+        Ok(Item {
+            value: self.parse_bare_item()?,
+            params: self.parse_parameters()?,
+        })
+    }
+
     fn parse_inner_list(&mut self) -> Parsed<InnerList> {
-        self.at += 1; // the opening parenthesis
+        self.expect(b'(')?;
         let mut items = Vec::new();
         loop {
-            self.skip_space();
-            if self.done() {
-                return Err(SyntaxError);
-            }
+            self.skip(b" ");
             if self.peek() == b')' {
                 self.at += 1;
                 break;
             }
-            let item = match self.parse_bare_item()? {
-                Value::Text(text) => text,
-                // fiki's covered components are strings; anything else is a shape it cannot
-                // render back.
-                _ => return Err(SyntaxError),
-            };
-            // RFC 9421 never puts parameters on the members of a covered-component list.
-            if !self.done() && self.peek() == b';' {
+            items.push(self.parse_item()?);
+            if !matches!(self.peek(), b' ' | b')') {
                 return Err(SyntaxError);
             }
-            if !self.done() && self.peek() != b' ' && self.peek() != b')' {
-                return Err(SyntaxError);
-            }
-            items.push(item);
         }
         Ok(InnerList {
             items,
@@ -218,91 +274,185 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// Parse an RFC 8941 dictionary, preserving member order because the verify side depends on it.
-pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
+fn whole<T>(text: &str, parse: impl FnOnce(&mut Cursor) -> Parsed<T>) -> Parsed<T> {
+    // RFC 8941 section 4.2: leading and trailing spaces are discarded, and nothing else may remain.
     let mut cursor = Cursor {
-        text: text.as_bytes(),
+        text: text.trim_matches(' ').as_bytes(),
         at: 0,
     };
-    let mut out: Vec<(String, Member)> = Vec::new();
-    cursor.skip_space();
-    while !cursor.done() {
-        let key = cursor.parse_key()?;
-        let member = if !cursor.done() && cursor.peek() == b'=' {
-            cursor.at += 1;
-            if cursor.peek() == b'(' {
-                Member {
-                    list: cursor.parse_inner_list()?,
-                    value: None,
-                }
-            } else {
-                let value = cursor.parse_bare_item()?;
-                let params = cursor.parse_parameters()?;
-                Member {
-                    list: InnerList {
-                        items: Vec::new(),
-                        params,
-                    },
-                    value: Some(value),
-                }
-            }
-        } else {
-            let params = cursor.parse_parameters()?;
-            Member {
-                list: InnerList {
-                    items: Vec::new(),
-                    params,
-                },
-                value: Some(Value::Boolean(true)),
-            }
-        };
-        out.retain(|(existing, _)| existing != &key);
-        out.push((key, member));
-        cursor.skip_space();
-        if cursor.done() {
-            break;
-        }
-        cursor.expect(b',')?;
-        cursor.skip_space();
-        if cursor.done() {
-            return Err(SyntaxError);
-        }
+    let out = parse(&mut cursor)?;
+    if !cursor.done() {
+        return Err(SyntaxError);
     }
     Ok(out)
+}
+
+/// Parse an RFC 8941 dictionary, preserving member order because the verify side depends on it.
+pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
+    whole(text, |cursor| {
+        let mut out = Vec::new();
+        while !cursor.done() {
+            let key = cursor.parse_key()?;
+            let member = if cursor.peek() == b'=' {
+                cursor.at += 1;
+                if cursor.peek() == b'(' {
+                    Member::List(cursor.parse_inner_list()?)
+                } else {
+                    Member::Item(cursor.parse_item()?)
+                }
+            } else {
+                Member::Item(Item {
+                    value: Value::Boolean(true),
+                    params: cursor.parse_parameters()?,
+                })
+            };
+            put(&mut out, key, member);
+            cursor.skip(b" \t");
+            if cursor.done() {
+                break;
+            }
+            cursor.expect(b',')?;
+            cursor.skip(b" \t");
+            if cursor.done() {
+                return Err(SyntaxError);
+            }
+        }
+        Ok(out)
+    })
+}
+
+/// Parse one RFC 8941 item with its parameters, such as `"@path";req`.
+pub(crate) fn parse_item(text: &str) -> Parsed<Item> {
+    whole(text, |cursor| cursor.parse_item())
 }
 
 fn serialize_bare_item(value: &Value) -> String {
     match value {
         Value::Text(text) => format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\"")),
+        Value::Token(text) | Value::Decimal(text) => text.clone(),
         Value::Integer(n) => n.to_string(),
         Value::Bytes(raw) => format!(":{}:", b64std(raw)),
-        // Only `false` reaches here: RFC 8941 renders a true-valued parameter as a bare key, which
-        // serialize_parameters does before calling this, and fiki never puts a boolean in an item
-        // position.
-        Value::Boolean(_) => "?0".to_string(),
+        Value::Boolean(flag) => format!("?{}", u8::from(*flag)),
     }
 }
 
-fn serialize_parameters(params: &[(String, Value)]) -> String {
+pub(crate) fn serialize_parameters(params: &[(String, Value)]) -> String {
     params
         .iter()
         .map(|(key, value)| match value {
+            // RFC 8941 renders a true-valued parameter as a bare key.
             Value::Boolean(true) => format!(";{key}"),
             _ => format!(";{key}={}", serialize_bare_item(value)),
         })
         .collect()
 }
 
+/// Render an item with its parameters: `"@path";req`.
+pub(crate) fn serialize_item(item: &Item) -> String {
+    format!(
+        "{}{}",
+        serialize_bare_item(&item.value),
+        serialize_parameters(&item.params)
+    )
+}
+
 /// Render a covered-component list with its signature parameters.
 pub(crate) fn serialize_inner_list(list: &InnerList) -> String {
-    let items: Vec<String> = list
-        .items
-        .iter()
-        .map(|item| serialize_bare_item(&Value::Text(item.clone())))
-        .collect();
+    let items: Vec<String> = list.items.iter().map(serialize_item).collect();
     format!(
         "({}){}",
         items.join(" "),
         serialize_parameters(&list.params)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(text: &str) -> Item {
+        parse_item(text).unwrap()
+    }
+
+    #[test]
+    fn every_bare_item_type_parses_and_serializes_back() {
+        for text in [
+            r#""a \"quoted\" \\ string""#,
+            "token/with:colon*",
+            "*star",
+            "-42",
+            "1.5",
+            "-0.125",
+            "?0",
+            "?1",
+            ":AQID:",
+            r#""@path";req;x=?0;y=tok;z=1.25"#,
+        ] {
+            assert_eq!(serialize_item(&item(text)), text, "{text}");
+        }
+    }
+
+    #[test]
+    fn malformed_items_are_refused() {
+        for text in [
+            "",
+            "\"unterminated",
+            "\"bad \\escape\"",
+            "\"caf\u{e9}\"",
+            "\"tab\there\"",
+            ":AQI!:",
+            ":AQID",
+            "?2",
+            "?",
+            "-",
+            "1234567890123456",
+            "1234567890123.5",
+            "1.",
+            "1.2345",
+            "a;",
+            "a;B",
+            "a b",
+            "@x",
+        ] {
+            assert!(parse_item(text).is_err(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_repeated_parameter_keeps_its_place_and_takes_its_last_value() {
+        assert_eq!(serialize_item(&item("a;x=1;y;x=2")), "a;x=2;y");
+    }
+
+    #[test]
+    fn dictionaries() {
+        let parsed = parse_dictionary(r#" a=("x" "y";req);k=1, b=:AQID:;p, c, a=?0 "#).unwrap();
+        let keys: Vec<&str> = parsed.iter().map(|(k, _)| k.as_str()).collect();
+        assert_eq!(keys, ["a", "b", "c"]);
+        assert_eq!(parsed[0].1, Member::Item(item("?0")));
+        assert_eq!(parsed[2].1, Member::Item(item("?1")));
+        match &parsed[1].1 {
+            Member::Item(found) => assert_eq!(serialize_item(found), ":AQID:;p"),
+            other => panic!("{other:?}"),
+        }
+        let list = match &parse_dictionary(r#"a=( "x"  "y";req );k=1"#).unwrap()[0].1 {
+            Member::List(list) => list.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(serialize_inner_list(&list), r#"("x" "y";req);k=1"#);
+        assert_eq!(list.param("k"), Some(&Value::Integer(1)));
+        assert_eq!(list.param("absent"), None);
+        assert_eq!(item("\"s\"").text(), Some("s"));
+        assert_eq!(item("tok").text(), None);
+        for text in [
+            "a=1,",
+            "a=1 b=2",
+            "A=1",
+            "a=(\"x\"\"y\")",
+            "a=(\"x\"",
+            "a=1;",
+        ] {
+            assert!(parse_dictionary(text).is_err(), "{text:?}");
+        }
+        assert!(parse_dictionary("").unwrap().is_empty());
+    }
 }

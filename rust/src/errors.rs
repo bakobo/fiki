@@ -23,7 +23,7 @@ pub struct Error {
 }
 
 /// The condition a refusal names. The `Display` spelling is what the shared vectors pin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
     // Something the request needs is absent.
     MissingSignature,
@@ -31,6 +31,17 @@ pub enum Kind {
     MissingSignatureLabel,
     MissingKey,
     MissingComponent,
+    /// A resolver was supplied and does not know the signature's keyid (`this.i` @6g9zjsv9), or
+    /// the keyid is not the one the caller expected. Never answered by decoding the keyid instead:
+    /// a basic transferable prefix embeds its inception key, which may have been rotated away.
+    UnknownKey,
+    /// The keyid's key state has no single key that satisfies its threshold alone (@2f227n4r).
+    /// fiki knows nothing of key state and never decides this itself: a resolver returns it, and
+    /// fiki carries it out unchanged.
+    UnsupportedSigner,
+    /// An unsigned 401 answered the request. A server that refuses before it knows which agent it
+    /// is cannot sign the refusal, so its body is not to be trusted (@2f227n4r).
+    Unauthenticated,
 
     // Something the request carries cannot be read.
     MalformedSignature,
@@ -43,6 +54,11 @@ pub enum Kind {
     // fiki understood the request and will not handle it.
     UnsupportedComponent,
     UnsupportedAlgorithm,
+    /// The covered list names the same component twice, whatever the order of its parameters.
+    DuplicateComponent,
+    /// The signature covers less than the stated minimum, including a body whose
+    /// `content-digest` is not covered. Refused even when it verifies (@7f28p7xk).
+    InsufficientCoverage,
     UncoveredBody,
 
     // The request is signed and a stated policy refuses it anyway (`this.i` @67shl6c5).
@@ -52,6 +68,11 @@ pub enum Kind {
     // The request was read, and it does not hold up.
     DigestMismatch,
     SignatureMismatch,
+
+    // The call, not the message, is wrong (`this.i` @5e2phpjy): a minimum smaller than the KERI
+    // profile's, both `expected_aid` and `resolve`, or a request body the verifier needs and was
+    // not given. No message can cure it, and the KERI profile has no code for it.
+    InvalidArgument,
 }
 
 impl fmt::Display for Kind {
@@ -75,6 +96,12 @@ impl fmt::Display for Kind {
             Kind::SignatureTooOld => "SignatureTooOld",
             Kind::DigestMismatch => "DigestMismatch",
             Kind::SignatureMismatch => "SignatureMismatch",
+            Kind::UnknownKey => "UnknownKey",
+            Kind::UnsupportedSigner => "UnsupportedSigner",
+            Kind::Unauthenticated => "Unauthenticated",
+            Kind::DuplicateComponent => "DuplicateComponent",
+            Kind::InsufficientCoverage => "InsufficientCoverage",
+            Kind::InvalidArgument => "InvalidArgument",
         };
         f.write_str(name)
     }
@@ -89,7 +116,9 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl Error {
-    pub(crate) fn new(kind: Kind, message: impl Into<String>) -> Self {
+    /// An error of `kind`. Public so that a [`Resolver`](crate::Resolver) can refuse a keyid in
+    /// fiki's own vocabulary.
+    pub fn new(kind: Kind, message: impl Into<String>) -> Self {
         Error {
             kind,
             message: message.into(),
@@ -97,11 +126,8 @@ impl Error {
         }
     }
 
-    pub(crate) fn detailed(
-        kind: Kind,
-        message: impl Into<String>,
-        detail: impl Into<String>,
-    ) -> Self {
+    /// An error of `kind` carrying the offending value, such as the keyid a resolver refuses.
+    pub fn detailed(kind: Kind, message: impl Into<String>, detail: impl Into<String>) -> Self {
         Error {
             kind,
             message: message.into(),
