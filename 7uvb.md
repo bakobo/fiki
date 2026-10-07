@@ -3,3 +3,4 @@ kind: todo
 tags: rfc9421
 created: 2026-09-24T12:09Z
 
+- 2026-10-07T17:10Z 2026-10-07: item 4 is already done — every vectors/keri/*.json profile.where names https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md.
