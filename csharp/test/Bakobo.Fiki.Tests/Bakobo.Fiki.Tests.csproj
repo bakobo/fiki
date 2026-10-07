@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- net10.0 always. net481 only where .NET Framework exists, so CI's Windows runner exercises the
+       library's netstandard2.0 asset on real .NET Framework rather than asserting that it would
+       work there (this.i @5l4p36rl). Elsewhere, -p:FikiNet481=true compiles the net481 asset
+       without running it, which catches an API the Framework lacks before CI does. -->
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('Windows')) or '$(FikiNet481)' == 'true'">net10.0;net481</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Bakobo.Fiki.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <!-- The coverage gate: 100% line and branch coverage of the library, or `dotnet test` fails.
+       Applies when CollectCoverage=true is passed, which CI does on the net10.0 run. -->
+  <PropertyGroup>
+    <Include>[Bakobo.Fiki]*</Include>
+    <Threshold>100</Threshold>
+    <ThresholdType>line,branch</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <CoverletOutputFormat>json,cobertura</CoverletOutputFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageReference Include="coverlet.msbuild" Version="10.1.0" />
+  </ItemGroup>
+
+  <!-- System.Text.Json is in the net10.0 shared framework; .NET Framework needs the package. Test
+       scope only: a consumer of the library inherits nothing from this project. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481'">
+    <PackageReference Include="System.Text.Json" Version="10.0.12" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Bakobo.Fiki/Bakobo.Fiki.csproj" />
+  </ItemGroup>
+
+</Project>
