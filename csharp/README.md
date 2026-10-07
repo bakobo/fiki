@@ -57,7 +57,7 @@ A key that is a small-order point, in any of its encodings, is refused as `Malfo
 fiki-py's behaviour is partly its dependencies' behaviour, so this port reproduces two of them rather than reaching for .NET's equivalents, which differ:
 
 - **urllib.parse.urlsplit**, which py derives `@authority`, `@path` and `@query` from. `System.Uri` normalizes paths and percent-encoding, and would build a different signature base from the same URL.
-- **http_sfv**, py's RFC 8941 parser, including where it departs from the RFC, because which header parses decides between one refusal and another.
+- **http_sfv**, py's RFC 8941 parser, because which header parses decides between one refusal and another, except where it accepts what RFC 8941 refuses (below).
 
 Each is checked against an oracle generated from the Python original (`test/Bakobo.Fiki.Tests/oracle/`), and the oracle scripts say how to regenerate it.
 
@@ -70,3 +70,5 @@ A third: headers holding two field names equal case-insensitively, such as `X-Ro
 And under a minimum covered set, a signature with no keyid is `MissingKey` even when `WithExpectedAid` names the key, since the KERI profile makes keyid required; fiki-py on main accepts it, and bakobo/fiki#9 brings it into line.
 
 A field value is checked as received and only SP and HTAB are trimmed from it (`this.i` @56qu7gyw): a covered value with a CR, LF, NUL or other byte outside visible ASCII around it is a `SignatureMismatch`, where fiki-py's `str.strip` removes CR, LF and Unicode whitespace first and verifies what is left.
+
+The structured-field parser is strict where http_sfv, fiki-py's, is lenient (conductor ruling D-SJ55; fiki-py's fix is tick 6ixo). It refuses an integer of 16 digits even at the end of a header, a decimal ending in `.`, an `=` anywhere but as trailing padding in a byte sequence, and RFC 9651's Dates and Display Strings, none of which RFC 8941 allows. A header carrying one is refused as unparsable, with the same kind as any other. `test/Bakobo.Fiki.Tests/SfvTests.cs` names each such input with the section that refuses it.

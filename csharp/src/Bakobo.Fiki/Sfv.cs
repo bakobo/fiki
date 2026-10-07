@@ -6,13 +6,15 @@ using System.Text;
 
 namespace Bakobo.Fiki
 {
-    // The RFC 8941 (and RFC 9651) structured-field subset fiki reads, hand-rolled as every port's is
-    // (this.i @2q9gv70t, @2tt6fmc0, @5l4p36rl). It reproduces http_sfv 0.9.9, fiki-py's parser,
-    // rather than the RFC alone, quirks included: which header parses decides between a Malformed*
-    // refusal and a later one, and fiki-py is this port's reference. Where http_sfv departs from
-    // the RFC, a comment says so. The oracle is csharp/test/Bakobo.Fiki.Tests/oracle/.
+    // The RFC 8941 structured-field subset fiki reads, hand-rolled as every port's is (this.i
+    // @2q9gv70t, @2tt6fmc0, @5l4p36rl). Which header parses decides between a Malformed* refusal and
+    // a later one, so it follows http_sfv 0.9.9, fiki-py's parser, wherever http_sfv follows RFC
+    // 8941, and is strict where http_sfv is lenient (conductor ruling D-SJ55; fiki-py's fix is tick
+    // 6ixo): no integer past 15 digits, no decimal ending in ".", "=" only as trailing padding, and
+    // none of RFC 9651's Dates or Display Strings. The oracle is csharp/test/Bakobo.Fiki.Tests/oracle/,
+    // and SfvTests names every input where the two now differ.
 
-    internal enum SfType { Integer, Decimal, String, Token, ByteSequence, Boolean, Date, DisplayString }
+    internal enum SfType { Integer, Decimal, String, Token, ByteSequence, Boolean }
 
     /// <summary>A bare item.</summary>
     internal sealed class SfValue
@@ -31,7 +33,7 @@ namespace Bakobo.Fiki
 
         internal SfType Type { get; }
 
-        /// <summary>An Integer's or a Date's value.</summary>
+        /// <summary>An Integer's value.</summary>
         internal long Integer { get; }
 
         internal decimal Decimal { get; }
@@ -57,9 +59,6 @@ namespace Bakobo.Fiki
 
         internal static SfValue OfBoolean(bool value) => new SfValue(SfType.Boolean, boolean: value);
 
-        internal static SfValue OfDate(long seconds) => new SfValue(SfType.Date, integer: seconds);
-
-        internal static SfValue OfDisplayString(string text) => new SfValue(SfType.DisplayString, text: text);
 
         /// <summary>True for a Boolean true, which a parameter serializes as its bare key.</summary>
         internal bool IsTrue => Type == SfType.Boolean && Boolean;
@@ -82,10 +81,6 @@ namespace Bakobo.Fiki
                     return ":" + Convert.ToBase64String(Bytes) + ":";
                 case SfType.Boolean:
                     return Boolean ? "?1" : "?0";
-                case SfType.Date:
-                    return "@" + Integer.ToString(CultureInfo.InvariantCulture);
-                case SfType.DisplayString:
-                    return SerializeDisplayString(Text);
                 default:
                     // A token is only ever one this parser read, so it is already well formed.
                     return Text;
@@ -120,29 +115,10 @@ namespace Bakobo.Fiki
             return (value < 0 ? "-" : "") + text.Substring(0, point) + "." + (fraction.Length == 0 ? "0" : fraction);
         }
 
-        // http_sfv's ser_display_string, which escapes "%", '"' and bytes outside 31..127 as
-        // lowercase hex WITHOUT zero padding, and leaves 0x1F and 0x7F literal.
-        private static string SerializeDisplayString(string text)
-        {
-            var output = new StringBuilder("%\"");
-            foreach (var b in new UTF8Encoding(false).GetBytes(text))
-            {
-                if (b == '%' || b == '"' || b < 31 || b > 127)
-                {
-                    output.Append('%').Append(b.ToString("x", CultureInfo.InvariantCulture));
-                }
-                else
-                {
-                    output.Append((char)b);
-                }
-            }
-            return output.Append('"').ToString();
-        }
-
         /// <summary>
         /// Python's <c>==</c> between the values http_sfv produces, which <c>identity()</c> relies on:
-        /// bool, int and Decimal compare as numbers (True == 1); str, Token and DisplayString compare
-        /// as text; bytes as bytes; a datetime only with a datetime.
+        /// bool, int and Decimal compare as numbers (True == 1); str and Token compare as text; bytes
+        /// as bytes.
         /// </summary>
         internal bool PyEquals(SfValue other)
         {
@@ -157,10 +133,8 @@ namespace Bakobo.Fiki
                     return Number() == other.Number();
                 case 1:
                     return string.Equals(Text, other.Text, StringComparison.Ordinal);
-                case 2:
-                    return ByteArrays.Equal(Bytes, other.Bytes);
                 default:
-                    return Integer == other.Integer;
+                    return ByteArrays.Equal(Bytes, other.Bytes);
             }
         }
 
@@ -174,12 +148,9 @@ namespace Bakobo.Fiki
                     return 0;
                 case SfType.String:
                 case SfType.Token:
-                case SfType.DisplayString:
                     return 1;
-                case SfType.ByteSequence:
-                    return 2;
                 default:
-                    return 3;
+                    return 2;
             }
         }
 
@@ -338,12 +309,6 @@ namespace Bakobo.Fiki
         private const string TokenStart = Alpha + "*";
         private const string TokenChars = Alpha + Digits + ":/!#$%&'*+-.^_`|~";
         private const string Base64Content = Alpha + Digits + "+/=";
-
-        // Python's datetime.fromtimestamp bounds a Date to years 1..9999 in local time, and probes a
-        // day earlier to detect a fold, so its lower edge sits a day inside year 1. These are the
-        // bounds in UTC; http_sfv's own move with the host's timezone.
-        private const long FirstDate = -62_135_510_400;
-        private const long LastDate = 253_402_300_799;
 
         /// <summary>True when <paramref name="text"/> is an RFC 8941 key: a lowercase letter or "*", then lowercase letters, digits, "_", "-", "." and "*".</summary>
         internal static bool IsKey(string text)
@@ -538,14 +503,6 @@ namespace Bakobo.Fiki
                 {
                     return Boolean();
                 }
-                if (c == '@')
-                {
-                    return Date();
-                }
-                if (c == '%')
-                {
-                    return DisplayString();
-                }
                 if (In(c, TokenStart))
                 {
                     return Token();
@@ -615,7 +572,7 @@ namespace Bakobo.Fiki
                         throw new FormatException("A byte sequence carries a character outside base64.");
                     }
                 }
-                return PyBase64.Decode(content);
+                return Base64.Decode(content);
             }
 
             private SfValue Boolean()
@@ -629,19 +586,9 @@ namespace Bakobo.Fiki
                 throw new FormatException("A boolean is ?1 or ?0.");
             }
 
-            private SfValue Date()
-            {
-                _at++; // "@"
-                var number = Number();
-                if (number.Type != SfType.Integer || number.Integer < FirstDate || number.Integer > LastDate)
-                {
-                    throw new FormatException("A date is an integer number of seconds within years 1 to 9999.");
-                }
-                return SfValue.OfDate(number.Integer);
-            }
-
-            // http_sfv's parse_number, including its one quirk: it checks for a trailing MINUS where
-            // it means a trailing PERIOD, so "1." parses as the decimal 1.0.
+            // RFC 8941 section 4.2.4: at most 15 digits in an integer, and in a decimal at most 12
+            // before the point and from 1 to 3 after it. http_sfv admits a sixteenth digit at the end
+            // of a header and a decimal ending in "."; this port does not (D-SJ55).
             private SfValue Number()
             {
                 var negative = Peek() == '-';
@@ -678,128 +625,48 @@ namespace Bakobo.Fiki
                 var digits = _text.Substring(start, _at - start);
                 if (point < 0)
                 {
-                    // http_sfv counts one digit fewer when the number ends the header, so there it
-                    // admits a sixteenth digit, and only the range check that follows refuses it:
-                    // "0000000000000001" at the end of a header parses as 1.
-                    if (digits.Length > (AtEnd ? 16 : 15))
+                    if (digits.Length > 15)
                     {
                         throw new FormatException("An integer is at most 15 digits.");
                     }
                     var value = long.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
-                    if (value > 999_999_999_999_999)
-                    {
-                        throw new FormatException("An integer is at most 15 digits.");
-                    }
                     return SfValue.OfInteger(negative ? -value : value);
                 }
-                if (_at - point - 1 > 3)
+                var fraction = _at - point - 1;
+                if (fraction < 1 || fraction > 3)
                 {
-                    throw new FormatException("A decimal's fractional part is at most 3 digits.");
+                    throw new FormatException("A decimal's fractional part is 1 to 3 digits.");
                 }
-                var number = decimal.Parse(digits.TrimEnd('.'), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+                var number = decimal.Parse(digits, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
                 return SfValue.OfDecimal(negative ? -number : number);
-            }
-
-            private SfValue DisplayString()
-            {
-                _at++; // "%"
-                if (Next() != '"')
-                {
-                    throw new FormatException("A display string begins with %\".");
-                }
-                var output = new List<byte>();
-                while (true)
-                {
-                    var c = Next();
-                    if (c == '%')
-                    {
-                        if (_text.Length - _at < 2)
-                        {
-                            throw new FormatException("A display string ends inside a percent escape.");
-                        }
-                        output.Add(PercentOctet(_text.Substring(_at, 2)));
-                        _at += 2;
-                    }
-                    else if (c == '"')
-                    {
-                        try
-                        {
-                            return SfValue.OfDisplayString(new UTF8Encoding(false, true).GetString(output.ToArray()));
-                        }
-                        catch (ArgumentException ex)
-                        {
-                            throw new FormatException("A display string is not valid UTF-8.", ex);
-                        }
-                    }
-                    else if (c > 31 && c < 127)
-                    {
-                        output.Add((byte)c);
-                    }
-                    else
-                    {
-                        throw new FormatException("A display string carries a character outside visible ASCII.");
-                    }
-                }
-            }
-
-            // http_sfv reads a percent escape with Python's int(chunk, 16) after refusing uppercase,
-            // so it also takes one hex digit with whitespace beside it, or behind a sign: "% a",
-            // "a\v", "+a", and "-0", whose value is zero.
-            private static byte PercentOctet(string chunk)
-            {
-                const string PySpace = " \t\n\v\f\r";
-                var body = chunk.Trim(PySpace.ToCharArray());
-                var negative = false;
-                if (body.Length > 0 && (body[0] == '+' || body[0] == '-'))
-                {
-                    negative = body[0] == '-';
-                    body = body.Substring(1);
-                }
-                const string Hex = "0123456789abcdef";
-                var value = 0;
-                foreach (var c in body)
-                {
-                    var digit = Hex.IndexOf(c);
-                    if (digit < 0)
-                    {
-                        throw new FormatException("A percent escape in a display string is not lowercase hex.");
-                    }
-                    value = value * 16 + digit;
-                }
-                if (body.Length == 0 || (negative && value != 0))
-                {
-                    throw new FormatException("A percent escape in a display string is not lowercase hex.");
-                }
-                return (byte)value;
             }
         }
     }
 
     /// <summary>
-    /// CPython 3.14's non-strict <c>binascii.a2b_base64</c>, which http_sfv decodes byte sequences
-    /// with, over input already limited to the base64 alphabet and "=". It ignores "=" wherever it
-    /// cannot be padding, and refuses only a dangling character or a short final quantum.
+    /// Standard base64 as RFC 8941 section 4.2.7 decodes it, over input already limited to the
+    /// alphabet and "=": "=" only as padding at the end, never more than two, and the whole a
+    /// multiple of four characters, as RFC 4648 section 3.2 spells it and http_sfv requires. Pad bits
+    /// that are not zero are ignored, as section 4.2.7 asks. http_sfv, through CPython's non-strict
+    /// decoder, also ignores an "=" in the middle; this port does not (D-SJ55).
     /// </summary>
-    internal static class PyBase64
+    internal static class Base64
     {
         private const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
         internal static byte[] Decode(string content)
         {
-            var output = new List<byte>();
-            var quad = 0;
-            var left = 0;
-            var pads = 0;
-            foreach (var c in content)
+            var data = content.TrimEnd('=');
+            if (data.IndexOf('=') >= 0 || content.Length - data.Length > 2 || content.Length % 4 != 0)
             {
-                if (c == '=')
-                {
-                    pads++;
-                    continue;
-                }
-                var value = Alphabet.IndexOf(c);
-                pads = 0;
-                switch (quad)
+                throw new FormatException("A byte sequence is not padded base64.");
+            }
+            var output = new List<byte>();
+            var left = 0;
+            for (var i = 0; i < data.Length; i++)
+            {
+                var value = Alphabet.IndexOf(data[i]);
+                switch (i % 4)
                 {
                     case 0:
                         left = value;
@@ -816,11 +683,6 @@ namespace Bakobo.Fiki
                         output.Add((byte)((left << 6) | value));
                         break;
                 }
-                quad = (quad + 1) % 4;
-            }
-            if (quad == 1 || (quad != 0 && quad + pads < 4))
-            {
-                throw new FormatException("A byte sequence is not padded base64.");
             }
             return output.ToArray();
         }

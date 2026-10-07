@@ -110,12 +110,9 @@ namespace Bakobo.Fiki
                     return "n" + Prefixed(Number(value));
                 case SfType.String:
                 case SfType.Token:
-                case SfType.DisplayString:
                     return "t" + Prefixed(value.Text);
-                case SfType.ByteSequence:
-                    return "b" + Prefixed(Convert.ToBase64String(value.Bytes));
                 default:
-                    return "d" + Prefixed(value.Integer.ToString(CultureInfo.InvariantCulture));
+                    return "b" + Prefixed(Convert.ToBase64String(value.Bytes));
             }
         }
 

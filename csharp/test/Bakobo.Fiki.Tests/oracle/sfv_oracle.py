@@ -2,8 +2,10 @@
 """Write sfv-oracle.json: what http_sfv, fiki-py's RFC 8941 parser, makes of a corpus of headers.
 
 The C# port hand-rolls its parser (this.i @5l4p36rl, @2q9gv70t), and which header parses decides
-between a Malformed* refusal and a later one, so its parser has to agree with py's on every input,
-quirks included. Byte sequences decode through CPython's non-strict base64, whose treatment of
+between a Malformed* refusal and a later one, so its parser agrees with py's on every input where
+py follows RFC 8941. Where http_sfv is more lenient than the RFC, the port is strict (conductor
+ruling D-SJ55, fiki-py's fix tick 6ixo); this file still records what http_sfv does, and SfvTests
+names each such input with the section that refuses it. Byte sequences decode through CPython's non-strict base64, whose treatment of
 "=" changed in 3.14; this corpus is generated under 3.14, as fiki-py's lockfile environment is. This corpus is the standing oracle; a wider random differential is run by hand.
 
 Run from py/ so http_sfv resolves:  TZ=UTC uv run python ../csharp/test/Bakobo.Fiki.Tests/oracle/sfv_oracle.py

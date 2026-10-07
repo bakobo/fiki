@@ -7,16 +7,65 @@ using Xunit;
 namespace Bakobo.Fiki.Tests
 {
     /// <summary>
-    /// The hand-rolled RFC 8941 parser agrees with http_sfv, fiki-py's parser, input for input.
+    /// The hand-rolled RFC 8941 parser agrees with http_sfv, fiki-py's parser, input for input,
+    /// except where http_sfv accepts what RFC 8941 refuses.
     /// </summary>
     /// <remarks>
     /// Which header parses decides between a Malformed* refusal and a later one, so this port's
-    /// parser has to agree with py's on every input, quirks included. The oracle file is
-    /// http_sfv's own verdict on a corpus, written by oracle/sfv_oracle.py.
+    /// parser follows py's wherever py follows RFC 8941. Where py is more lenient than the RFC, the
+    /// ports are strict (conductor ruling D-SJ55; fiki-py's fix is tick 6ixo), and each such input is
+    /// named in <see cref="Leniencies"/> with the section that refuses it. The oracle file stays
+    /// http_sfv's own verdict, written by oracle/sfv_oracle.py, so it says what py does today.
     /// </remarks>
     public class SfvTests
     {
         private static readonly JsonElement Oracle = Repo.Json("csharp", "test", "Bakobo.Fiki.Tests", "oracle", "sfv-oracle.json");
+
+        private const string Number = "RFC 8941 section 4.2.4";
+        private const string Integer16 = Number + " step 7.5: an integer of more than 15 digits fails, end of field or not";
+        private const string TrailingPoint = Number + " step 9.1: a decimal ending in \".\" fails";
+        private const string Base64 = "RFC 8941 section 4.2.7, by RFC 4648 section 3.3: \"=\" is padding only at the end of the content";
+        private const string NoDate = "RFC 8941 section 4.2.3.1: no bare item begins with \"@\"; Dates are RFC 9651's, not RFC 8941's";
+        private const string NoDisplay = "RFC 8941 section 4.2.3.1: no bare item begins with \"%\"; Display Strings are RFC 9651's, not RFC 8941's";
+
+        /// <summary>The inputs http_sfv accepts and RFC 8941 refuses, which this port refuses, and why.</summary>
+        internal static readonly Dictionary<string, string> Leniencies = new Dictionary<string, string>
+        {
+            { "a=0000000000000001", Integer16 },
+            { "a=-0000000000000001", Integer16 },
+            { "a=1;p=0000000000000001", Integer16 },
+            { "a=@0000000000000001", Integer16 + "; and " + NoDate },
+            { "a=1.", TrailingPoint },
+            { "a=-1.", TrailingPoint },
+            { "a=:QUJD=QQ==:", Base64 },
+            { "a=:QQ=x=:", Base64 },
+            { "a=:=QQ==:", Base64 },
+            { "a=:QQ==QQ==:", Base64 },
+            { "a=:==:", Base64 },
+            { "a=:=:", Base64 },
+            { "a=@0", NoDate },
+            { "a=@1700000000", NoDate },
+            { "a=@-1", NoDate },
+            { "a=@253402300799", NoDate },
+            { "a=@-62135510400", NoDate },
+            { "\"x\";p=@5", NoDate },
+            { "a=%\"x\"", NoDisplay },
+            { "a=%\"\"", NoDisplay },
+            { "a=%\"%c3%a9\"", NoDisplay },
+            { "a=%\"%25\"", NoDisplay },
+            { "a=%\"%22\"", NoDisplay },
+            { "a=%\"%7f\"", NoDisplay },
+            { "a=%\"%1f\"", NoDisplay },
+            { "a=%\"% a\"", NoDisplay },
+            { "a=%\"%a \"", NoDisplay },
+            { "a=%\"%+a\"", NoDisplay },
+            { "a=%\"%-0\"", NoDisplay },
+            { "a=%\"%\ta\"", NoDisplay },
+            { "a=%\"%a\u000b\"", NoDisplay },
+            { "a=%\"\\\"", NoDisplay },
+            { "\"x\";p=%\"d\"", NoDisplay },
+            { "a=(1 2.5 tok ?0 :QQ==: @1 %\"d\")", NoDate + "; and " + NoDisplay },
+        };
 
         public static IEnumerable<object?[]> Dictionaries() =>
             Oracle.GetProperty("dictionaries").EnumerateArray()
@@ -35,9 +84,9 @@ namespace Bakobo.Fiki.Tests
 
         [Theory]
         [MemberData(nameof(Dictionaries))]
-        public void ADictionaryParsesExactlyWhenHttpSfvParsesIt(string input, string? expected)
+        public void ADictionaryParsesExactlyWhenHttpSfvParsesItUnlessRfc8941RefusesIt(string input, string? expected)
         {
-            if (expected == null)
+            if (expected == null || Leniencies.ContainsKey(input))
             {
                 Assert.Throws<FormatException>(() => Sfv.ParseDictionary(input));
             }
@@ -49,9 +98,9 @@ namespace Bakobo.Fiki.Tests
 
         [Theory]
         [MemberData(nameof(Items))]
-        public void AnItemParsesExactlyWhenHttpSfvParsesIt(string input, string? expected)
+        public void AnItemParsesExactlyWhenHttpSfvParsesItUnlessRfc8941RefusesIt(string input, string? expected)
         {
-            if (expected == null)
+            if (expected == null || Leniencies.ContainsKey(input))
             {
                 Assert.Throws<FormatException>(() => Sfv.ParseItem(input));
             }
@@ -59,6 +108,33 @@ namespace Bakobo.Fiki.Tests
             {
                 Assert.Equal(expected, Sfv.ParseItem(input).Serialize());
             }
+        }
+
+        [Fact]
+        public void EveryNamedLeniencyIsOneHttpSfvReallyAccepts()
+        {
+            // The list says what py does, so it must agree with the oracle py wrote: each input is in
+            // the corpus, and http_sfv parsed it.
+            var corpus = Dictionaries().Concat(Items()).ToList();
+            Assert.All(Leniencies.Keys, input => Assert.Contains(corpus, c => (string)c[0]! == input && c[1] != null));
+        }
+
+        [Theory]
+        [InlineData("-1.25", "-1.25")]
+        [InlineData("-1.50", "-1.5")]
+        [InlineData("-0.0", "0.0")]
+        [InlineData("100.0", "100.0")]
+        public void ADecimalSerializesAsHttpSfvSerializesIt(string input, string expected) =>
+            Assert.Equal(expected, Sfv.ParseItem(input).Serialize());
+
+        [Fact]
+        public void ATrailingTabAfterAMemberIsNotALeniency()
+        {
+            // RFC 8941 section 4.2.2 steps 6 and 7 discard OWS, SP or HTAB, after a member and then
+            // return the dictionary if nothing is left, so "a=1\t" parses under the RFC as under
+            // http_sfv; only the whole field's leading and trailing SP are trimmed first (4.2).
+            Assert.Equal("a=1", Dump(Sfv.ParseDictionary("a=1\t")));
+            Assert.Throws<FormatException>(() => Sfv.ParseDictionary("\ta=1"));
         }
 
         [Fact]
@@ -122,15 +198,6 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal("-999999999999999", SfValue.OfInteger(-999999999999999).Serialize());
         }
 
-        [Fact]
-        public void ADisplayStringEscapesAsHttpSfvDoes()
-        {
-            // Lowercase hex without zero padding, and 0x1F and 0x7F left literal: http_sfv's own
-            // serializer, quirks included.
-            var parsed = Sfv.ParseItem("%\"%05%7f%1f%e2%82%ac%25\"");
-            Assert.Equal("%\"%5\u007f\u001f%e2%82%ac%25\"", parsed.Serialize());
-        }
-
         // --- Python's value equality, which identity() relies on ---
 
         [Theory]
@@ -140,15 +207,10 @@ namespace Bakobo.Fiki.Tests
         [InlineData("2", "2.0", true)]
         [InlineData("2", "2.5", false)]
         [InlineData("tok", "\"tok\"", true)]
-        [InlineData("%\"tok\"", "tok", true)]
         [InlineData("\"a\"", "\"b\"", false)]
         [InlineData(":QQ==:", ":QQ==:", true)]
         [InlineData(":QQ==:", ":QUI=:", false)]
         [InlineData(":QQ==:", "\"A\"", false)]
-        [InlineData("@5", "@5", true)]
-        [InlineData("@5", "@6", false)]
-        [InlineData("@5", "5", false)]
-        [InlineData("5", "@5", false)]
         [InlineData("\"5\"", "5", false)]
         [InlineData("1.50", "1.5", true)]
         [InlineData("-1.50", "-1.5", true)]
