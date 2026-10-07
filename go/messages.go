@@ -244,8 +244,10 @@ func coverBody(items []componentID, sending map[string]string, body []byte, chos
 		}
 		items = append(items, componentID{Name: ContentDigestHeader})
 	}
-	if _, ok := sending[ContentDigestHeader]; ok {
-		return items, "", nil
+	if supplied, ok := sending[ContentDigestHeader]; ok {
+		// A digest the caller supplied is checked, not trusted: signing one the body contradicts
+		// would vouch for a body nobody sent (bakobo/fiki#6).
+		return items, "", checkDigest(supplied, true, body)
 	}
 	sending[ContentDigestHeader] = ContentDigest(body)
 	return items, sending[ContentDigestHeader], nil

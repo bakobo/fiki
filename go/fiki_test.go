@@ -287,7 +287,9 @@ func TestSignAndVerify(t *testing.T) {
 	t.Run("a digest value that is not a byte sequence is refused", func(t *testing.T) {
 		key := testKey(t)
 		supplied := map[string]string{"Content-Digest": `sha-256="not bytes"`}
-		out, err := SignRequest(key, "POST", urlQuery, supplied, SignOptions{Body: testBody, Created: signedAt})
+		// Signed with no body handed over, since a signer given the body refuses this digest.
+		out, err := SignRequest(key, "POST", urlQuery, supplied,
+			SignOptions{Created: signedAt, Covered: []string{"@method", "@path", "content-digest"}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -313,7 +315,9 @@ func TestSignAndVerifyRefusals(t *testing.T) {
 	t.Run("an unparsable Content-Digest is refused", func(t *testing.T) {
 		key := testKey(t)
 		supplied := map[string]string{"Content-Digest": "((( not sfv"}
-		out, err := SignRequest(key, "POST", urlQuery, supplied, SignOptions{Body: testBody, Created: signedAt})
+		// Signed with no body handed over, since a signer given the body refuses this digest.
+		out, err := SignRequest(key, "POST", urlQuery, supplied,
+			SignOptions{Created: signedAt, Covered: []string{"@method", "@path", "content-digest"}})
 		if err != nil {
 			t.Fatal(err)
 		}
