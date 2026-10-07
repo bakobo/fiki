@@ -77,14 +77,36 @@ const RAW_KEYID = /^[A-Za-z0-9_-]{43}$/;
 export const REQUEST_MINIMUM = Object.freeze(['@method', '@path', '@query']);
 export const RESPONSE_MINIMUM = Object.freeze(['@status', req('@method'), req('@path'), req('@query')]);
 
+/** A body as bytes, normalized once at the boundary, or null when none was handed over.
+ *
+ * A Uint8Array, any other ArrayBufferView, an ArrayBuffer, or a string, which is encoded as UTF-8.
+ * Anything else is a TypeError rather than "no body": a type fiki silently failed to read would be
+ * a body that escapes coverage, which is the one thing the body rule exists to prevent (@2hwvpm42).
+ */
+export function bodyBytes(body, name = 'body') {
+  if (body === null || body === undefined) return null;
+  if (body instanceof Uint8Array) return body;
+  if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+  if (body instanceof ArrayBuffer) return new Uint8Array(body);
+  if (typeof body === 'string') return utf8(body);
+  throw new TypeError(
+    `${name} must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string; this one is ` +
+      `${Object.prototype.toString.call(body)}, which fiki cannot read as bytes.`,
+  );
+}
+
+const withBody = (request) =>
+  request === null || request === undefined ? null : { ...request, body: bodyBytes(request.body, 'request.body') };
+
 /** The RFC 9530 `Content-Digest` header value for a body. */
 export async function contentDigest(body) {
-  const digest = await crypto.subtle.digest(DIGEST_ALGORITHMS[DIGEST_OUT], body);
+  const digest = await crypto.subtle.digest(DIGEST_ALGORITHMS[DIGEST_OUT], bodyBytes(body));
   return `${DIGEST_OUT}=:${toBase64(new Uint8Array(digest))}:`;
 }
 
 const now = () => Math.floor(Date.now() / 1000);
-const hasContent = (body) => body !== null && body !== undefined && body.length > 0;
+// Only ever handed what bodyBytes returned, so a body is null or a Uint8Array.
+const hasContent = (body) => body !== null && body.length > 0;
 const hasName = (headers, name) => Object.keys(headers ?? {}).some((key) => key.toLowerCase() === name);
 const lowered = (headers) => new Map(Object.entries(headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]));
 
@@ -111,7 +133,7 @@ const coversBody = (items) => items.some((item) => identity(item) === identity(c
 
 /** Cover a body the caller handed over, or refuse to sign (@2hwvpm42). */
 async function coverBody(items, sending, body, chosen) {
-  if (body === null || body === undefined) return;
+  if (body === null) return;
   // Whether the caller CHOSE the covered set is the difference between fiki helping and fiki
   // overriding. On the default path a body simply gets covered; on an explicit path, silently
   // adding a component would mean the signature covers something the caller did not ask for, so
@@ -171,6 +193,7 @@ export async function signRequest({
   minimum = null,
 }) {
   const floor = floored(minimum, REQUEST_MINIMUM);
+  body = bodyBytes(body);
   const sending = { ...(headers ?? {}) };
   const chosen = covered !== null && covered !== undefined;
   const items = (chosen ? covered : DEFAULT_COVERED).map(component);
@@ -217,6 +240,8 @@ export async function signResponse({
   minimum = null,
 }) {
   const floor = floored(minimum, RESPONSE_MINIMUM);
+  body = bodyBytes(body);
+  request = withBody(request);
   const sending = { ...(headers ?? {}) };
   const chosen = covered !== null && covered !== undefined;
   // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
@@ -237,7 +262,7 @@ export async function signResponse({
   if (floor !== null) checkMinimum(items, floor, { hasBody: hasContent(body), requestHadBody: hadBody });
   // The check verifyResponse will make, made first: a signer does not vouch for a request digest
   // that the request body it was handed contradicts (bakobo/fiki#4).
-  if (request !== null && request.body !== null && request.body !== undefined && bindsRequestDigest(items)) {
+  if (request !== null && request.body !== null && bindsRequestDigest(items)) {
     await compareDigest(readDigest(lowered(request.headers).get(CONTENT_DIGEST)), request.body);
   }
   checkCovered(items, { response: true });
@@ -286,7 +311,7 @@ export async function verifyRequest({
 }) {
   requireMaxAge(maxAge, 'verifyRequest');
   const floor = floored(minimum, REQUEST_MINIMUM);
-  return verify(requestMessage(method, url, headers), headers, body, {
+  return verify(requestMessage(method, url, headers), headers, bodyBytes(body), {
     response: false,
     request: null,
     maxAge,
@@ -327,6 +352,8 @@ export async function verifyResponse({
 }) {
   requireMaxAge(maxAge, 'verifyResponse');
   const floor = floored(minimum, RESPONSE_MINIMUM);
+  body = bodyBytes(body);
+  request = withBody(request);
   if (status === 401 && !hasName(headers, 'signature')) {
     throw new Unauthenticated(
       'The server answered 401 without signing the answer, so the request was not authenticated ' +
@@ -420,7 +447,7 @@ async function verify(message, headers, body, options) {
   // (bakobo/fiki#4). A verifier handed no request body cannot, and a verdict that skipped the
   // check would look like one that made it, so that is the caller's mistake, not a pass.
   if (request !== null && bindsRequestDigest(items)) {
-    if (request.body === null || request.body === undefined) {
+    if (request.body === null) {
       throw new TypeError(
         'The response covers "content-digest";req, so the request body it binds must be supplied ' +
           'in request.body to be checked; it was not.',
@@ -704,7 +731,7 @@ function readDigest(header) {
  * digest still only attests to a body nobody hashed until somebody hashes it.
  */
 async function compareDigest(recognized, body) {
-  if (body === null || body === undefined) {
+  if (body === null) {
     throw new DigestMismatch(
       'The signature covers content-digest, but no body was supplied to check it against, so the ' +
         'body is unverified.',
