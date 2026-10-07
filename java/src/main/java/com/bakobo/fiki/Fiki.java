@@ -15,8 +15,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * Signing and verifying whole HTTP requests and responses (this.i @2hwvpm42, @7xrx5evg,
- * @67shl6c5, @7f28p7xk, @24tvlxgd).
+ * Signing and verifying whole HTTP requests and responses (this.i @2hwvpm42, @7xrx5evg, @67shl6c5,
+ * and this.i @7f28p7xk, @24tvlxgd).
  *
  * <p>The keyid is the signer's raw key unless the caller names another (@7xrx5evg, @6g9zjsv9), so
  * "the request carries its own verifying key" holds for every fiki-signed request whose caller did
