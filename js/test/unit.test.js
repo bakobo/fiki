@@ -17,6 +17,7 @@ import {
   signatureBase,
   toAid,
   verifyRequest,
+  verifySignature,
   verifyingKey,
 } from '../src/index.js';
 import { parseDictionary, serializeInnerList } from '../src/sfv.js';
@@ -28,6 +29,9 @@ const BODY = new TextEncoder().encode('{"hello": "world"}');
 const SIGNED_AT = 1700000000;
 
 const key = await Key.fromSeed(SEED);
+
+// Covered components as the structured-fields module carries them: a name, and no parameters.
+const plain = (names) => names.map((value) => ({ value, params: new Map() }));
 
 async function signed(overrides = {}) {
   const args = { key, method: 'POST', url: URL_WITH_QUERY, headers: {}, body: BODY, created: SIGNED_AT, ...overrides };
@@ -79,6 +83,21 @@ describe('keys', () => {
     });
   }
 
+  it('refuses a padding-bit alias of a real AID (bakobo/fiki#4)', () => {
+    // The second character's top two bits land in the pad byte the code replaced; flipping one
+    // spells the same 32 bytes a second way, which would give one key two identifiers.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const alias = AID[0] + alphabet[alphabet.indexOf(AID[1]) ^ 0b010000] + AID.slice(2);
+    assert.throws(() => verifyingKey(alias), errors.MalformedKey);
+  });
+
+  it('verifies a signature against an AID', async () => {
+    const data = new TextEncoder().encode('data');
+    const signature = await key.sign(data);
+    assert.equal(await verifySignature(AID, signature, data), true);
+    assert.equal(await verifySignature(AID, signature, new TextEncoder().encode('other')), false);
+  });
+
   it('round-trips a raw key through the lens', () => {
     assert.equal(toAid(verifyingKey(AID)), AID);
   });
@@ -111,6 +130,40 @@ describe('the signature base', () => {
   it('omits a default port and keeps a non-default one', () => {
     assert.equal(line('@authority', { url: 'https://EXAMPLE.com:443/f' }), '"@authority": example.com');
     assert.equal(line('@authority', { url: 'https://example.com:8443/f' }), '"@authority": example.com:8443');
+    assert.equal(line('@authority', { url: 'HTTP://example.com:0080/f' }), '"@authority": example.com');
+    assert.equal(line('@authority', { url: 'https://example.com:/f' }), '"@authority": example.com');
+    assert.equal(line('@authority', { url: 'https://user@[::1]:8443/f' }), '"@authority": [::1]:8443');
+  });
+
+  it('reads a port as any run of digits, as RFC 3986 and urlsplit do', () => {
+    // RFC 3986 section 3.2.3: port = *DIGIT. Leading zeros are allowed and the value is the number
+    // (Copilot review of PR #5, C2).
+    assert.equal(line('@authority', { url: 'http://example.com:000080/f' }), '"@authority": example.com');
+    assert.equal(line('@authority', { url: 'https://example.com:0000008443/f' }), '"@authority": example.com:8443');
+    assert.equal(line('@authority', { url: 'https://example.com:0/f' }), '"@authority": example.com:0');
+    assert.equal(line('@authority', { url: 'https://example.com:65535/f' }), '"@authority": example.com:65535');
+  });
+
+  it('keeps the port of a scheme named like an Object.prototype property', () => {
+    // The default-port table is keyed by the URL's scheme, which is the caller's (C4).
+    assert.equal(line('@authority', { url: 'constructor://example.com:80/f' }), '"@authority": example.com:80');
+    assert.equal(line('@authority', { url: 'tostring://example.com:80/f' }), '"@authority": example.com:80');
+  });
+
+  it('refuses a URL whose port is not a port as a caller error', () => {
+    assert.throws(() => line('@authority', { url: 'https://example.com:http/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:65536/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:00000000000000000000065536/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:99999999999999999999999/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:-1/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:\u0661/f' }), TypeError);
+  });
+
+  it('takes the path and query exactly as sent, unnormalized', () => {
+    // The KERI profile's section 2 and RFC 9421 section 2.2.6: no decoding, no dot segments
+    // resolved, no re-encoding. A WHATWG URL would rewrite every one of these.
+    assert.equal(line('@path', { url: 'https://example.com/a/../b/%7euser' }), '"@path": /a/../b/%7euser');
+    assert.equal(line('@query', { url: 'https://example.com/f?q=a b#frag' }), '"@query": ?q=a b');
   });
 
   it('treats an empty path as the slash the origin server sees', () => {
@@ -121,8 +174,9 @@ describe('the signature base', () => {
     assert.equal(line('@query', { url: 'https://example.com/f' }), '"@query": ?');
   });
 
-  it('uppercases the method and lowercases header names', () => {
-    assert.equal(line('@method', { method: 'post' }), '"@method": POST');
+  it('keeps the method exactly as given and lowercases header names', () => {
+    // RFC 9421 section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+    assert.equal(line('@method', { method: 'post' }), '"@method": post');
     assert.equal(line('Content-Type', { headers: { 'Content-Type': '  application/json  ' } }), '"content-type": application/json');
   });
 
@@ -192,6 +246,15 @@ describe('signing and verifying', () => {
     const { request, headers } = await signed({ body: null });
     assert.equal(headers['Content-Digest'], undefined);
     assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+  });
+
+  it('does not verify a request signed with a lowercase method as its uppercase twin', async () => {
+    const { request, headers } = await signed({ method: 'post' });
+    await verifyRequest({ ...request, headers, maxAge: null });
+    await assert.rejects(
+      () => verifyRequest({ ...request, method: 'POST', headers, maxAge: null }),
+      errors.SignatureMismatch,
+    );
   });
 
   it('uses the wall clock when no created is given', async () => {
@@ -267,7 +330,7 @@ describe('freshness', () => {
     // and the signature has to be genuinely made this way — freshness is checked after the
     // signature, so a doctored Signature-Input just fails the signature instead.
     const covered = ['@method', '@path'];
-    const inner = { items: covered, params: new Map([['keyid', key.keyid]]) };
+    const inner = { items: plain(covered), params: new Map([['keyid', key.keyid]]) };
     const { componentLines } = await import('../src/base.js');
     const lines = componentLines({ method: 'GET', url: '/a', headers: {}, covered });
     lines.push(`"@signature-params": ${serializeInnerList(inner)}`);
@@ -306,7 +369,7 @@ describe('the structured-fields subset', () => {
 
   it('escapes on the way back out', () => {
     assert.equal(
-      serializeInnerList({ items: ['a"b\\c'], params: new Map([['f', true], ['g', false]]) }),
+      serializeInnerList({ items: plain(['a"b\\c']), params: new Map([['f', true], ['g', false]]) }),
       '("a\\"b\\\\c");f;g=?0',
     );
   });
@@ -320,7 +383,6 @@ describe('the structured-fields subset', () => {
     ['a bad boolean', 'a=?2'],
     ['an item of no supported type', 'a=%bad'],
     ['an unterminated inner list', 'a=("@method"'],
-    ['parameters on a covered component', 'a=("@method";q=1)'],
     ['a missing separator inside an inner list', 'a=("@method""@path")'],
     ['a missing comma between members', 'a=1 b=2'],
     ['a trailing comma', 'a=1, '],
@@ -363,7 +425,8 @@ describe('the defensive arms', () => {
   it('refuses to verify a request with no headers at all', async () => {
     await assert.rejects(
       () => verifyRequest({ method: 'GET', url: '/f', maxAge: null }),
-      errors.MissingSignatureInput,
+      // The KERI profile's section 9 order: the Signature header is looked for first.
+      errors.MissingSignature,
     );
   });
 
