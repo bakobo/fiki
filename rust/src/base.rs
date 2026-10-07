@@ -9,7 +9,7 @@
 //! of section 2.4. Anything else is refused rather than skipped — a component silently dropped from
 //! the base is one the caller believes is covered and is not.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use crate::errors::{Error, Kind, Result};
 use crate::sfv::{
@@ -119,10 +119,11 @@ fn is_req(item: &Item) -> bool {
 ///
 /// That order is the KERI profile's section 9, so a list that is both has one correct refusal.
 pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
-    let mut seen = Vec::new();
+    // A set, because the list is untrusted and a linear search per item is quadratic in it
+    // (bakobo/fiki#8).
+    let mut seen = HashSet::new();
     for item in items {
-        let id = identity(item);
-        if seen.contains(&id) {
+        if !seen.insert(identity(item)) {
             return Err(Error::detailed(
                 Kind::DuplicateComponent,
                 format!(
@@ -133,7 +134,6 @@ pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
                 spec_of(item),
             ));
         }
-        seen.push(id);
     }
 
     for item in items {

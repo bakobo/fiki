@@ -12,6 +12,8 @@
 //! here: `alg=ed25519` is a signature parameter of the wrong type, not an unparsable header, and
 //! the two are different refusals.
 
+use std::collections::HashMap;
+
 use crate::keys::{b64std, b64std_decode};
 
 /// A bare item. The variants are RFC 8941's.
@@ -76,11 +78,29 @@ pub(crate) struct SyntaxError;
 type Parsed<T> = std::result::Result<T, SyntaxError>;
 
 /// RFC 8941's map semantics, which both dictionaries and parameters have: a repeated key keeps its
-/// first position and takes its last value.
-fn put<T>(entries: &mut Vec<(String, T)>, key: String, value: T) {
-    match entries.iter_mut().find(|(k, _)| *k == key) {
-        Some(entry) => entry.1 = value,
-        None => entries.push((key, value)),
+/// first position and takes its last value. Indexed, because the input is untrusted and a linear
+/// search per key would make a long parameter list quadratic (bakobo/fiki#8).
+struct Ordered<T> {
+    entries: Vec<(String, T)>,
+    index: HashMap<String, usize>,
+}
+
+impl<T> Ordered<T> {
+    fn new() -> Self {
+        Ordered {
+            entries: Vec::new(),
+            index: HashMap::new(),
+        }
+    }
+
+    fn put(&mut self, key: String, value: T) {
+        match self.index.get(&key) {
+            Some(&at) => self.entries[at].1 = value,
+            None => {
+                self.index.insert(key.clone(), self.entries.len());
+                self.entries.push((key, value));
+            }
+        }
     }
 }
 
@@ -230,7 +250,7 @@ impl Cursor<'_> {
     }
 
     fn parse_parameters(&mut self) -> Parsed<Params> {
-        let mut params = Vec::new();
+        let mut params = Ordered::new();
         while self.peek() == b';' {
             self.at += 1;
             self.skip(b" ");
@@ -241,9 +261,9 @@ impl Cursor<'_> {
             } else {
                 Value::Boolean(true)
             };
-            put(&mut params, key, value);
+            params.put(key, value);
         }
-        Ok(params)
+        Ok(params.entries)
     }
 
     fn parse_item(&mut self) -> Parsed<Item> {
@@ -290,7 +310,7 @@ fn whole<T>(text: &str, parse: impl FnOnce(&mut Cursor) -> Parsed<T>) -> Parsed<
 /// Parse an RFC 8941 dictionary, preserving member order because the verify side depends on it.
 pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
     whole(text, |cursor| {
-        let mut out = Vec::new();
+        let mut out = Ordered::new();
         while !cursor.done() {
             let key = cursor.parse_key()?;
             let member = if cursor.peek() == b'=' {
@@ -306,7 +326,7 @@ pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
                     params: cursor.parse_parameters()?,
                 })
             };
-            put(&mut out, key, member);
+            out.put(key, member);
             cursor.skip(b" \t");
             if cursor.done() {
                 break;
@@ -317,7 +337,7 @@ pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
                 return Err(SyntaxError);
             }
         }
-        Ok(out)
+        Ok(out.entries)
     })
 }
 

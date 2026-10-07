@@ -1878,3 +1878,37 @@ fn a_non_canonical_or_off_curve_key_is_malformed_on_every_path() {
         );
     }
 }
+
+// --- hostile review of 19bb135 (bakobo/fiki#8) ---
+
+#[test]
+fn a_huge_covered_list_is_checked_in_linear_time() {
+    // Duplicate detection runs on an untrusted list before anything else rejects it.
+    let covered: Vec<String> = (0..50_000).map(|i| format!("x-{i}")).collect();
+    let started = std::time::Instant::now();
+    let err = signature_base(
+        "GET",
+        URL,
+        &BTreeMap::new(),
+        &covered,
+        &SignatureParams::default(),
+    );
+    assert_eq!(kind_of(err), Kind::MissingComponent);
+    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+}
+
+#[test]
+fn a_huge_parameter_list_is_parsed_in_linear_time() {
+    let params: String = (0..50_000).map(|i| format!(";p{i}=1")).collect();
+    let mut sent = signed(SignOptions::default());
+    sent.headers.insert(
+        "Signature-Input".into(),
+        format!("sig=(\"@method\");keyid=\"k\"{params}"),
+    );
+    let started = std::time::Instant::now();
+    assert_eq!(
+        sent.kind(VerifyOptions::default()),
+        Kind::MalformedSignatureInput
+    );
+    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+}
