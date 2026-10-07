@@ -666,10 +666,39 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(FikiErrorKind.SignatureMismatch, message.Refused(o => o.WithAuthorities(new[] { "keria.example.com" })).Kind);
         }
 
+        // --- supplying authorities makes @authority required (@605z9tnw, tick 7zde) ---
+
         [Fact]
-        public void ServedAuthoritiesDoNotApplyWhenAuthorityIsNotCovered() =>
-            Assert.Equal(TheKey.Aid, Sign(covered: new[] { "@method", "@path", "@query", "content-digest" })
-                .Verify(o => o.WithAuthorities(new[] { "elsewhere.example.com" })).Aid);
+        public void ARequestSignedForAnotherHostWithoutAuthorityIsRefusedGivenAuthorities()
+        {
+            // The cross-host replay: a GET signed for attacker.example under the request minimum,
+            // which omits @authority, presented to a verifier that serves only victim.example.
+            var message = Sign(method: "GET", url: "https://attacker.example/identifiers?type=rot", noBody: true,
+                covered: Minimum, minimum: Minimum);
+            message.Url = "https://victim.example/identifiers?type=rot";
+            var caught = message.Refused(o => o.WithMinimum(Minimum).WithAuthorities(new[] { "victim.example" }));
+            Assert.Equal(FikiErrorKind.InsufficientCoverage, caught.Kind);
+            Assert.Equal("@authority", caught.Component);
+        }
+
+        [Fact]
+        public void WithoutAuthoritiesAnUncoveredAuthorityStillVerifies() =>
+            Assert.Equal(TheKey.Aid, Sign(covered: new[] { "@method", "@path", "@query", "content-digest" }).Verify().Aid);
+
+        [Fact]
+        public void AnUncoveredAuthorityUnderAuthoritiesIsRefusedBeforeTheKeyIsResolved() =>
+            Assert.Equal(FikiErrorKind.InsufficientCoverage,
+                Sign(covered: new[] { "@method", "@path", "@query", "content-digest" }, keyId: Aid)
+                    .Refused(o => o.WithResolver(Table()).WithAuthorities(new[] { "keria.example.com" })).Kind);
+
+        [Fact]
+        public void ACoveredAuthorityUnderAuthoritiesVerifiesForTheRightHostOnly()
+        {
+            var message = Sign(method: "GET", url: "https://victim.example/identifiers", noBody: true,
+                covered: Minimum.Concat(new[] { "@authority" }));
+            Assert.Equal(TheKey.Aid, message.Verify(o => o.WithAuthorities(new[] { "victim.example" })).Aid);
+            Assert.Equal(FikiErrorKind.SignatureMismatch, message.Refused(o => o.WithAuthorities(new[] { "attacker.example" })).Kind);
+        }
 
         [Fact]
         public void AnUnsignedUnauthorizedResponseIsUnauthenticatedBeforeAnythingElse() =>

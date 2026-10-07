@@ -118,7 +118,7 @@ namespace Bakobo.Fiki
             return copy;
         }
 
-        /// <summary>The @authority values this verifier serves; a covered authority outside them is a SignatureMismatch. Requests only.</summary>
+        /// <summary>The @authority values this verifier serves; a covered authority outside them is a SignatureMismatch, and supplying them makes @authority required, so a signature that does not cover it is InsufficientCoverage (@605z9tnw). Requests only.</summary>
         public VerifyOptions WithAuthorities(IEnumerable<string> authorities)
         {
             var copy = Copy();
