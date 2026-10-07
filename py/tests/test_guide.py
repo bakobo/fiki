@@ -53,7 +53,9 @@ def test_the_guides_signing_sample_runs(tmp_path, monkeypatch):
     assert {"Signature-Input", "Signature", "Content-Digest"} <= set(headers)
     # The seed is the identity, so nobody but its owner may read it (tick 3ap7).
     assert stat.S_IMODE(os.stat("seed.bin").st_mode) == 0o600
-    assert Key.from_seed(open("seed.bin", "rb").read()).aid == key.aid
+    with open("seed.bin", "rb") as f:
+        stored = f.read()
+    assert Key.from_seed(stored).aid == key.aid
 
 
 def test_the_guides_verifying_sample_runs():
