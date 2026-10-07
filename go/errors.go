@@ -5,7 +5,10 @@
 // verifier resolves nothing. See this.i @07wstqk7 in github.com/bakobo/fiki.
 package fiki
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // VectorsFormat is the conformance contract this port satisfies (this.i @4fhrre0m). Two artifacts
 // interoperate when their declared vectors format matches, whatever their own version numbers say
@@ -15,6 +18,22 @@ import "fmt"
 // Go carries no version constant of its own: the module's version IS its tag, and duplicating it
 // here would give it somewhere to go stale.
 const VectorsFormat = 1
+
+// KeriVectorsFormat is the KERI profile's conformance contract this port satisfies, the
+// keri_vectors_format of vectors/keri/ (this.i @8vwrexxc, @9z57sejw). A separate number from
+// VectorsFormat, because the two sets answer to different authorities and move independently.
+const KeriVectorsFormat = 2
+
+// ErrInvalidOptions marks a mistake in the call rather than a defect in the message: a minimum
+// covered set smaller than the profile's, ExpectedAID together with Resolve, Authorities on a
+// response, or a response binding "content-digest";req verified against a Request with no Body.
+// Such an error wraps this one and is never an *Error, so a caller matching on Kind cannot take
+// its own bug for a bad message (this.i @9z57sejw).
+var ErrInvalidOptions = errors.New("fiki: invalid options")
+
+func invalidOptions(format string, args ...any) error {
+	return fmt.Errorf("%w: "+format, append([]any{ErrInvalidOptions}, args...)...)
+}
 
 // Error is every error fiki returns about a request. The Kind names the condition, and the NAMES
 // are a cross-language contract rather than an implementation detail: vectors/refusals.json
@@ -32,6 +51,7 @@ type Error struct {
 	// The offending value, when there is one. Carried structurally rather than in the message,
 	// so a consumer translating fiki's errors into its own vocabulary is not reading prose.
 	Component string
+	Supported string
 	Label     string
 	Keyid     string
 	Alg       string
@@ -51,6 +71,15 @@ const (
 	KindMissingSignatureLabel = "MissingSignatureLabel"
 	KindMissingKey            = "MissingKey"
 	KindMissingComponent      = "MissingComponent"
+	KindUnauthenticated       = "Unauthenticated"
+
+	// The keyid names no key the verifier knows, or not the one it expected (this.i @6g9zjsv9).
+	// Never answered by decoding the keyid as a key instead: a basic transferable prefix embeds
+	// its inception key, and reading it would accept a key that has been rotated away.
+	KindUnknownKey = "UnknownKey"
+	// The keyid's key state has no single key that satisfies its threshold alone (this.i
+	// @2f227n4r). fiki never decides this itself; a Resolver returns it, and fiki passes it on.
+	KindUnsupportedSigner = "UnsupportedSigner"
 
 	// Something the request carries cannot be read.
 	KindMalformedSignature      = "MalformedSignature"
@@ -62,8 +91,12 @@ const (
 
 	// fiki understood the request and will not handle it.
 	KindUnsupportedComponent = "UnsupportedComponent"
+	KindDuplicateComponent   = "DuplicateComponent"
 	KindUnsupportedAlgorithm = "UnsupportedAlgorithm"
 	KindUncoveredBody        = "UncoveredBody"
+	// The signature may be valid and covers less than the verifier's stated minimum (this.i
+	// @7f28p7xk): a signature over too little is a signature over what an intermediary may change.
+	KindInsufficientCoverage = "InsufficientCoverage"
 
 	// The request is signed and a stated policy refuses it anyway (this.i @67shl6c5).
 	KindSignatureExpired = "SignatureExpired"
