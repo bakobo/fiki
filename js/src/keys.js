@@ -36,6 +36,68 @@ export function toAid(raw) {
   return CODE + toBase64Url(padded).slice(1);
 }
 
+// libsodium's has_small_order blocklist (tick 27eo, `this.i` @4wcwlqd6): the encodings of the
+// points whose order divides 8, plus the non-canonical y = p and y = p + 1, compared with the sign
+// bit of the last byte masked. Under such a key a fixed signature verifies over any message, so it
+// binds nothing; test/small-order.test.js decodes every entry and checks its order.
+const hex = (text) => Uint8Array.from(text.match(/../g), (pair) => parseInt(pair, 16));
+export const SMALL_ORDER = Object.freeze([
+  hex('00'.repeat(32)), // order 4
+  hex('01' + '00'.repeat(31)), // the identity, order 1
+  hex('26e8958fc2b227b045c3f489f2ef98f0d5dfac05d3c63339b13802886d53fc05'), // order 8
+  hex('c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a'), // order 8
+  hex('ec' + 'ff'.repeat(30) + '7f'), // p - 1, order 2
+  hex('ed' + 'ff'.repeat(30) + '7f'), // p, a non-canonical 0, order 4
+  hex('ee' + 'ff'.repeat(30) + '7f'), // p + 1, a non-canonical 1, the identity
+]);
+
+const smallOrder = (raw) =>
+  SMALL_ORDER.some((entry) => entry.every((byte, i) => (i === RAW_LEN - 1 ? raw[i] & 0x7f : raw[i]) === byte));
+
+// RFC 8032 section 5.1.3's decoding, as far as deciding whether 32 bytes ARE a point: y below p,
+// x squared = (y^2 - 1) / (d y^2 + 1) a square mod p, and no sign bit on an x of zero. BigInt rather
+// than a dependency, because this is a yes-or-no question and needs no curve arithmetic beyond it.
+const P = 2n ** 255n - 19n;
+const mod = (a) => ((a % P) + P) % P;
+function power(base, exponent) {
+  let result = 1n;
+  for (let b = mod(base), e = exponent; e > 0n; e >>= 1n, b = mod(b * b)) if (e & 1n) result = mod(result * b);
+  return result;
+}
+const D = mod(-121665n * power(121666n, P - 2n));
+
+function canonicalPoint(raw) {
+  let y = 0n;
+  for (let i = RAW_LEN - 1; i >= 0; i -= 1) y = (y << 8n) | BigInt(raw[i]);
+  const sign = y >> 255n;
+  y &= (1n << 255n) - 1n;
+  if (y >= P) return false;
+  const x2 = mod((y * y - 1n) * power(D * y * y + 1n, P - 2n));
+  // x of zero has one encoding only, with the sign bit clear.
+  if (x2 === 0n) return sign === 0n;
+  // Euler's criterion: x2 has a square root mod p exactly when x2^((p-1)/2) is 1.
+  return power(x2, (P - 1n) / 2n) === 1n;
+}
+
+/** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo). */
+export function checkKey(raw, keyid) {
+  if (!canonicalPoint(raw)) {
+    throw new MalformedKey(
+      `The key for "${keyid}" is not the canonical encoding of a point on the Ed25519 curve, so ` +
+        'it is not a key fiki will verify with.',
+      { keyid },
+    );
+  }
+  if (smallOrder(raw)) {
+    throw new MalformedKey(
+      `The key for "${keyid}" is a small-order Ed25519 point, under which a signature can be ` +
+        'forged for any message, so it is not a key fiki will verify with.',
+      { keyid },
+    );
+  }
+  return raw;
+}
+
 /** Recover the raw 32-byte Ed25519 public key from a non-transferable AID. */
 export function verifyingKey(aid) {
   if (typeof aid !== 'string' || aid.length !== QB64_LEN || !aid.startsWith(CODE)) {
@@ -55,7 +117,30 @@ export function verifyingKey(aid) {
   // base64's alphabet includes "=", so a 44-character AID can be padded and still decode short.
   // Here the character class excludes "=", so 44 valid characters always decode to 33 bytes and a
   // length check would be unreachable code claiming to guard something.
-  return fromBase64Url('A' + aid.slice(1)).slice(1);
+  const decoded = fromBase64Url('A' + aid.slice(1));
+  // The second character's top two bits land in the pad byte the code replaced, so a non-zero pad
+  // would give one key two spellings. Only the canonical one, the one toAid produces, is the AID
+  // (bakobo/fiki#4).
+  if (decoded[0] !== 0) {
+    throw new MalformedKey(`The AID "${aid}" is not the canonical spelling of its key.`, { keyid: aid });
+  }
+  return checkKey(decoded.slice(1), aid);
+}
+
+// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
+// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
+const SPELLED_CODES = 'BDE';
+
+/** True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+ *
+ * That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
+ * decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
+ * this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+ */
+export function misspelledAid(keyid) {
+  if (keyid.length !== QB64_LEN || !SPELLED_CODES.includes(keyid[0])) return false;
+  if (!/^[A-Za-z0-9\-_]{43}$/.test(keyid.slice(1))) return true;
+  return fromBase64Url('A' + keyid.slice(1))[0] !== 0;
 }
 
 /** An Ed25519 key pair whose public half is rendered as a non-transferable AID. */
@@ -130,7 +215,11 @@ export class Key {
 
 /** Verify a raw signature against an AID's recovered key. */
 export async function verifySignature(aid, signature, data) {
-  const raw = verifyingKey(aid);
+  return verifyWithRaw(verifyingKey(aid), signature, data);
+}
+
+/** Verify a raw signature against a raw 32-byte Ed25519 public key. */
+export async function verifyWithRaw(raw, signature, data) {
   const key = await crypto.subtle.importKey('raw', raw, ALGORITHM, false, ['verify']);
   return crypto.subtle.verify(ALGORITHM, key, signature, data);
 }
