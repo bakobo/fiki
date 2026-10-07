@@ -675,10 +675,12 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
             )
 
 
-# A string (skipped whole), or a colon that opens a bare item and so a byte sequence. A colon
-# after a token character or another colon is inside an sf-token, which may contain one.
+# A string (skipped whole), or a colon that opens a bare item and so a byte sequence, captured
+# whole up to its closing colon so a character outside base64 fails the check below rather than
+# ending the match. A colon after a token character or another colon is inside an sf-token,
+# which may contain one.
 _BYTESEQ_OR_STRING = re.compile(
-    r'"(?:[^"\\]|\\.)*"|(?<![-!#$%&\'*+.^_`|~0-9A-Za-z:/]):([A-Za-z0-9+/=]*):'
+    r'"(?:[^"\\]|\\.)*"|(?<![-!#$%&\'*+.^_`|~0-9A-Za-z:/]):([^:]*):'
 )
 # RFC 4648 base64 whose only "=" are the ones completing the final quantum (section 3.3).
 _PADDED_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
@@ -698,8 +700,8 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
         content = match.group(1)
         if content is not None and not _PADDED_BASE64.fullmatch(content):
             raise error(
-                f"The {name} header carries a byte sequence whose padding is not at its end, "
-                "and RFC 8941 decodes a byte sequence as base64 that refuses that."
+                f"The {name} header carries a byte sequence that is not base64 with its padding "
+                "at its end, which is the only spelling RFC 8941 decodes."
             )
     return parsed
 

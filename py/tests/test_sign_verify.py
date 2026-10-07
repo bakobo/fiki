@@ -509,6 +509,17 @@ def test_a_well_padded_byte_sequence_on_a_component_reaches_the_component_check(
         verify_request(headers=headers, max_age=None, **request)
 
 
+@pytest.mark.parametrize("header", ["Signature", "Content-Digest"])
+@pytest.mark.parametrize("inserted", ["!", "-", "_", "."])
+def test_a_byte_sequence_with_a_character_outside_base64_is_malformed(header, inserted):
+    """Refused by the parser today, and by fiki's own scan whatever the parser does."""
+    request, headers = signed()
+    value = headers[header]
+    at = value.index(":") + 5
+    headers[header] = value[:at] + inserted + value[at:]
+    with pytest.raises((MalformedSignature, MalformedDigest, SignatureMismatch)):
+        verify_request(headers=headers, max_age=None, **request)
+
 
 def test_a_signature_missing_its_padding_is_malformed_on_every_interpreter():
     """RFC 8941 says SHOULD NOT fail here, unless the parser cannot be configured; py's cannot."""
