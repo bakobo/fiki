@@ -682,7 +682,7 @@ describe('a base that cannot be built (@2f227n4r)', () => {
     });
   }
 
-  for (const value of ['admin\r\n', '\r\nadmin', '\nadmin', 'admin\r', 'admin\0', '\0admin', ' admin\r\n ']) {
+  for (const value of ['admin\r\n', '\r\nadmin', '\nadmin', 'admin\r', 'admin\0', '\0admin', ' admin\r\n ', 'admin\v', 'admin\f', 'admin\u00a0']) {
     it(`refuses ${JSON.stringify(value)} rather than trimming it to the signed "admin"`, async () => {
       // The forbidden-character check runs on the value as received; only SP and HTAB are field
       // whitespace (RFC 9110 section 5.5), so nothing else may be trimmed away before it.
