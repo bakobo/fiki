@@ -71,7 +71,7 @@ jobs:
         run: dotnet pack src/Bakobo.Fiki/Bakobo.Fiki.csproj -c Release -o pack
       - name: Assert the package depends on BouncyCastle.Cryptography and nothing else
         run: |
-          unzip -p pack/Bakobo.Fiki.0.5.0.nupkg Bakobo.Fiki.nuspec > pack/Bakobo.Fiki.nuspec
+          unzip -p pack/Bakobo.Fiki.*.nupkg Bakobo.Fiki.nuspec > pack/Bakobo.Fiki.nuspec
           echo "--- declared dependencies ---"
           grep -A12 '<dependencies>' pack/Bakobo.Fiki.nuspec
           # The expected set, asserted for each target framework, and the set of target frameworks
