@@ -911,7 +911,10 @@ public final class Fiki {
             throw new IllegalArgumentException("Pass an expected AID or a resolver, not both; each decides the key alone.");
         }
         Map<String, String> found = message.headers();
-        Parsed parsed = read(found, opts.expectedAid() == null, opts.minimum() != null);
+        // Under a minimum the profile applies, and it makes keyid REQUIRED whoever names the key
+        // (@6hsuwdh8); otherwise only a verifier with no key of its own needs one.
+        boolean profile = opts.minimum() != null;
+        Parsed parsed = read(found, opts.expectedAid() == null || profile, profile);
         Sfv.InnerList inner = parsed.inner();
         List<Sfv.Item> items = inner.items();
         checkCovered(items, response);
@@ -1138,8 +1141,8 @@ public final class Fiki {
             // with the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
             throw new FikiException(
                 FikiException.Kind.MissingKey,
-                "This signature carries no keyid and no expected AID was supplied, so there is no "
-                    + "key to verify it against.");
+                "This signature carries no keyid, which the verifier's policy requires, so there is no "
+                    + "key it names.");
         }
         if (requireCreated && !inner.has("created")) {
             // Only under a minimum, which is how a caller applies the KERI profile, where created

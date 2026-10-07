@@ -712,6 +712,38 @@ class ProfileTest {
         assertEquals(KEY.aid(), verify(signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY)), opts -> opts)).aid());
     }
 
+    /* --------------------------------- keyid is required under a minimum (@6hsuwdh8) */
+
+    @Test
+    void underAMinimumAKeyidIsRequiredEvenWhenTheVerifierNamesTheKey() {
+        Signed s = sign();
+        s.mangle(";keyid=\"" + s.keyid() + "\"", "");
+        assertEquals(FikiException.Kind.MissingKey, kindOf(() ->
+            verify(s, opts -> opts.withExpectedAid(KEY.aid()).withMinimum(Fiki.REQUEST_MINIMUM))));
+        Signed whole = sign();
+        assertEquals(KEY.aid(), verify(whole, opts -> opts.withExpectedAid(KEY.aid()).withMinimum(Fiki.REQUEST_MINIMUM)).aid());
+    }
+
+    @Test
+    void aResponseWhoseHeadersNameAFieldTwiceIsRefusedAtSigningToo() {
+        Map<String, String> twice = new LinkedHashMap<>();
+        twice.put("X-Role", "admin");
+        twice.put("x-role", "guest");
+        assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts, 200, REQUEST, twice));
+    }
+
+    @Test
+    void duplicateComponentDetectionIsLinear() {
+        int n = 100_000;
+        StringBuilder covered = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            covered.append(" \"x").append(i).append('"');
+        }
+        Signed s = sign().mangle("\"@method\"", "\"@method\"" + covered + " \"x0\"");
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () ->
+            assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s))));
+    }
+
     /* ------------------------------------------------ the remaining edges of the new surface */
 
     @Test
