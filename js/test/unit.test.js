@@ -135,9 +135,22 @@ describe('the signature base', () => {
     assert.equal(line('@authority', { url: 'https://user@[::1]:8443/f' }), '"@authority": [::1]:8443');
   });
 
+  it('reads a port as any run of digits, as RFC 3986 and urlsplit do', () => {
+    // RFC 3986 section 3.2.3: port = *DIGIT. Leading zeros are allowed and the value is the number
+    // (Copilot review of PR #5, C2).
+    assert.equal(line('@authority', { url: 'http://example.com:000080/f' }), '"@authority": example.com');
+    assert.equal(line('@authority', { url: 'https://example.com:0000008443/f' }), '"@authority": example.com:8443');
+    assert.equal(line('@authority', { url: 'https://example.com:0/f' }), '"@authority": example.com:0');
+    assert.equal(line('@authority', { url: 'https://example.com:65535/f' }), '"@authority": example.com:65535');
+  });
+
   it('refuses a URL whose port is not a port as a caller error', () => {
     assert.throws(() => line('@authority', { url: 'https://example.com:http/f' }), TypeError);
     assert.throws(() => line('@authority', { url: 'https://example.com:65536/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:00000000000000000000065536/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:99999999999999999999999/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:-1/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:\u0661/f' }), TypeError);
   });
 
   it('takes the path and query exactly as sent, unnormalized', () => {

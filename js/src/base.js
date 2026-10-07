@@ -130,12 +130,15 @@ function authority(parts, headers) {
     const hostport = parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1).toLowerCase();
     const [, host, port = ''] = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/.exec(hostport);
     if (port === '') return host;
-    // A port is a number, so "0443" is 443 and is the default; anything else is not a URL.
-    if (!/^[0-9]{1,5}$/.test(port) || Number(port) > 65535) {
+    // RFC 3986 section 3.2.3: port = *DIGIT, so any run of ASCII digits, leading zeros and all, and
+    // the value is the number: "000080" is 80 and is the default, as urlsplit reads it. The range
+    // is checked on the digits that remain, so a long run of zeros cannot hide an overflow.
+    const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
+    if (digits === null || digits.length > 5 || Number(digits) > 65535) {
       throw new TypeError(`The URL's port "${port}" is not a port number between 0 and 65535.`);
     }
-    if (String(Number(port)) === DEFAULT_PORTS[parts.scheme]) return host;
-    return `${host}:${Number(port)}`;
+    if (digits === DEFAULT_PORTS[parts.scheme]) return host;
+    return `${host}:${digits}`;
   }
   const host = headers.get('host');
   if (host === undefined) {
