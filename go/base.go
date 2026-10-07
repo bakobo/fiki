@@ -342,7 +342,12 @@ func componentValue(item componentID, m *message) (string, error) {
 		}
 		return strconv.Itoa(m.status), nil
 	case "@method":
-		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8).
+		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8). No
+		// request is sent without a method, so an empty one is a mistake in the call, never a
+		// value to sign.
+		if m.method == "" {
+			return "", invalidOptions("The signature covers %s, and no method was given; pass the method as it goes on the wire.", item.spec())
+		}
 		return m.method, nil
 	case "@authority":
 		return authority(m.target, m.headers)
