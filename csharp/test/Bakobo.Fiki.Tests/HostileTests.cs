@@ -167,5 +167,20 @@ namespace Bakobo.Fiki.Tests
             var response = HttpSignatures.SignResponse(Signer, 200, body: Signed, label: label);
             Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, response, VerifyOptions.MaxAge(60).WithBody(Signed)).Aid);
         }
+
+        // --- a Request's headers cannot change after it is checked ---
+
+        [Fact]
+        public void ARequestsHeadersCannotBeChangedThroughACast()
+        {
+            // HeaderSnapshot.Check validates a Request's headers once and later steps read them
+            // again, which is sound only if nothing can change them in between.
+            var request = new Request("POST", Url, new[] { new KeyValuePair<string, string>("X-Role", "member") });
+            Assert.False(request.Headers is List<KeyValuePair<string, string>>);
+            var list = Assert.IsAssignableFrom<IList<KeyValuePair<string, string>>>(request.Headers);
+            Assert.Throws<NotSupportedException>(() => list.Add(new KeyValuePair<string, string>("x-role", "admin")));
+            Assert.Throws<NotSupportedException>(() => list[0] = new KeyValuePair<string, string>("X-Role", "admin"));
+            Assert.Equal("member", request.Headers.Single().Value);
+        }
     }
 }

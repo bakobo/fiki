@@ -36,7 +36,12 @@ namespace Bakobo.Fiki
             return snapshot.AsReadOnly();
         }
 
-        /// <summary>The same refusal for the headers of the request a response answers.</summary>
+        /// <summary>
+        /// The same refusal for the headers of the request a response answers. One pass is enough,
+        /// and the later steps may read <see cref="Request.Headers"/> again rather than this copy,
+        /// because a Request reads its headers once when it is constructed and holds them in a
+        /// read-only collection, so what is checked here is what is read there.
+        /// </summary>
         internal static void Check(Request? request)
         {
             if (request != null)

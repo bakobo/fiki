@@ -12,7 +12,9 @@ namespace Bakobo.Fiki
         {
             Method = method;
             Url = url;
-            Headers = new List<KeyValuePair<string, string>>(headers ?? new KeyValuePair<string, string>[0]);
+            // Read once, here, and held read-only: HeaderSnapshot.Check validates these headers and
+            // later steps read them again, which is sound only because nothing can change them.
+            Headers = new List<KeyValuePair<string, string>>(headers ?? new KeyValuePair<string, string>[0]).AsReadOnly();
             _body = (byte[]?)body?.Clone();
         }
 
