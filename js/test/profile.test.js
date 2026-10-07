@@ -777,9 +777,40 @@ describe('served authorities (profile section 3)', () => {
     await assert.rejects(() => verify(signed, { authorities: new Set(['keria.example.com']) }), errors.SignatureMismatch);
   });
 
-  it('does not apply when @authority is not covered', async () => {
+});
+
+describe('supplying authorities makes @authority required (@605z9tnw, tick 7zde)', () => {
+  it('refuses a request signed for another host without @authority, the cross-host replay', async () => {
+    const signed = await sign({
+      method: 'GET', url: 'https://attacker.example/identifiers?type=rot', body: null,
+      covered: [...REQUEST_MINIMUM], minimum: REQUEST_MINIMUM,
+    });
+    signed.request.url = 'https://victim.example/identifiers?type=rot';
+    await assert.rejects(
+      () => verify(signed, { minimum: REQUEST_MINIMUM, authorities: ['victim.example'] }),
+      (error) => error instanceof errors.InsufficientCoverage && error.component === '@authority',
+    );
+  });
+
+  it('leaves an uncovered @authority alone when no authorities are supplied', async () => {
     const signed = await sign({ covered: ['@method', '@path', '@query', 'content-digest'] });
-    assert.equal((await verify(signed, { authorities: ['elsewhere.example.com'] })).aid, KEY.aid);
+    assert.equal((await verify(signed)).aid, KEY.aid);
+  });
+
+  it('refuses before the key is resolved, as section 9 orders', async () => {
+    const signed = await sign({ covered: ['@method', '@path', '@query', 'content-digest'], keyid: AID });
+    await assert.rejects(
+      () => verify(signed, { resolve: table({}), authorities: ['keria.example.com'] }),
+      errors.InsufficientCoverage,
+    );
+  });
+
+  it('verifies a covered @authority for the right host and refuses the wrong one', async () => {
+    const signed = await sign({
+      method: 'GET', url: 'https://victim.example/identifiers', body: null, covered: [...REQUEST_MINIMUM, '@authority'],
+    });
+    assert.equal((await verify(signed, { authorities: ['victim.example'] })).aid, KEY.aid);
+    await assert.rejects(() => verify(signed, { authorities: ['attacker.example'] }), errors.SignatureMismatch);
   });
 });
 
