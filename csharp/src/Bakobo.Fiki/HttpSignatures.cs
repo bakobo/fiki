@@ -20,7 +20,7 @@ namespace Bakobo.Fiki
         /// @8vwrexxc). A separate number from <see cref="VectorsFormat"/>, because the two sets answer
         /// to different authorities and move independently.
         /// </summary>
-        public const int KeriVectorsFormat = 2;
+        public const int KeriVectorsFormat = 3;
 
         /// <summary>The derived components fiki builds in a request.</summary>
         public static IReadOnlyList<string> Derived { get; } = Array.AsReadOnly(Components.Derived);

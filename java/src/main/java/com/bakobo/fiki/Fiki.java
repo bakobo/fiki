@@ -52,7 +52,7 @@ public final class Fiki {
      * separate number from {@link #VECTORS_FORMAT}, because the two sets answer to different
      * authorities and move independently.
      */
-    public static final int KERI_VECTORS_FORMAT = 2;
+    public static final int KERI_VECTORS_FORMAT = 3;
 
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";

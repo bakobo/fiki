@@ -22,7 +22,7 @@ const VectorsFormat = 1
 // KeriVectorsFormat is the KERI profile's conformance contract this port satisfies, the
 // keri_vectors_format of vectors/keri/ (this.i @8vwrexxc, @9z57sejw). A separate number from
 // VectorsFormat, because the two sets answer to different authorities and move independently.
-const KeriVectorsFormat = 2
+const KeriVectorsFormat = 3
 
 // ErrInvalidOptions marks a mistake in the call rather than a defect in the message: a minimum
 // covered set smaller than the profile's, ExpectedAID together with Resolve, Authorities on a

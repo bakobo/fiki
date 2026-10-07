@@ -55,7 +55,7 @@ from fiki.errors import FikiError, MalformedKey, UnsupportedSigner  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m).
-KERI_VECTORS_FORMAT = 2
+KERI_VECTORS_FORMAT = 3
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -135,7 +135,9 @@ POLICY = {
                  "case gives the now it assumes, in seconds since the epoch.",
     "case_policy": "A case may carry a policy object whose fields extend this one: "
                    "expected_keyid, the AID a client expects a response from (profile R1); "
-                   "authorities, the @authority values a verifier serves (profile section 3).",
+                   "authorities, the @authority values a verifier serves (profile section 3), "
+                   "whose presence also makes @authority required: a request that does not "
+                   "cover it is insufficient-coverage (fiki @605z9tnw).",
 }
 
 ENCODING = {
@@ -701,6 +703,17 @@ def refusals():
     add("body-arrived-without-digest", "insufficient-coverage", {**signed_request(
         "body-arrived-without-digest", body=None), "body": BODY},
         note="No header announced a body, and one arrived: the read-time rule of section 3.")
+    add("authorities-supplied-but-authority-not-covered", "insufficient-coverage", {
+        **signed_request("authorities-supplied-but-authority-not-covered", method="GET",
+                         url="https://attacker.example/identifiers?type=rot", body=None,
+                         covered=list(REQUEST_MINIMUM)),
+        "url": f"{HOST}/identifiers?type=rot"},
+        policy={"authorities": ["keria.example.com"]},
+        note="Signed for attacker.example over the request minimum, which omits @authority, "
+             "and replayed to a verifier that serves only keria.example.com. The signature is "
+             "valid over what it covers; a verifier that names the authorities it serves "
+             "requires @authority, so this is refused rather than accepted as a cross-host "
+             "replay (fiki @605z9tnw).")
 
     # The key.
     add("keyid-not-an-aid", "malformed-key", signed_request(
