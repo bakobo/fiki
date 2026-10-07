@@ -54,6 +54,21 @@ def test_authority_lowercases_the_host_and_omits_a_default_port():
     assert line_for("@authority", url="https://EXAMPLE.com:443/f") == '"@authority": example.com'
 
 
+@pytest.mark.parametrize(
+    "url, authority",
+    [
+        ("https://[::1]:8443/x", "[::1]:8443"),
+        ("https://[::1]/x", "[::1]"),
+        ("https://[2001:DB8::1]:443/x", "[2001:db8::1]"),
+        ("http://[2001:db8::1]:8080/x", "[2001:db8::1]:8080"),
+    ],
+)
+def test_authority_keeps_the_brackets_of_an_ipv6_literal(url, authority):
+    """RFC 3986 section 3.2.2 spells an IPv6 host as an IP-literal, brackets included, and RFC
+    9421 section 2.2.3 builds @authority from that host (tick 2h2g)."""
+    assert line_for("@authority", url=url) == f'"@authority": {authority}'
+
+
 def test_authority_keeps_a_non_default_port():
     assert line_for("@authority", url="https://example.com:8443/f") == (
         '"@authority": example.com:8443'
