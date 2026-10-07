@@ -1,6 +1,6 @@
 # fiki user guide
 
-How to use fiki in Python, JavaScript, Go, Rust, and Java. If you want to work *on* fiki rather than with it, the [README](../README.md) covers the repository and each port's own README covers its build.
+How to use fiki in Python, JavaScript, Go, Rust, Java, and C#. If you want to work *on* fiki rather than with it, the [README](../README.md) covers the repository and each port's own README covers its build.
 
 ## The idea, in one page
 
@@ -99,6 +99,22 @@ Map<String, String> headers = Fiki.signRequest(key, "POST",
     Fiki.SignOptions.none().withBody(body));
 ```
 
+### C#
+
+```csharp
+using System.Text;
+using Bakobo.Fiki;
+
+var key = Key.Generate();                  // or Key.FromSeed(seed)
+Console.WriteLine(key.Aid);                // register this
+File.WriteAllBytes("seed.bin", key.Seed);
+
+var url = "https://api.example.com/things?limit=1";
+var body = Encoding.UTF8.GetBytes("{\"hello\": \"world\"}");
+var headers = HttpSignatures.SignRequest(key, "POST", url, body: body);
+// headers -> Signature-Input, Signature, Content-Digest
+```
+
 ## Verifying a request
 
 The server side. `url` can be a full URL or just the request target — if it is relative, fiki takes the authority from the `Host` header, which is what RFC 9421 says the authority *is* in HTTP/1.1. That is the shape a server-side handler actually has, so no reconstruction is needed.
@@ -156,11 +172,31 @@ Fiki.Verdict verdict = Fiki.verifyRequest(method, url, headers,
     Fiki.VerifyOptions.maxAge(300).withBody(body));
 ```
 
+### C#
+
+```csharp
+Verdict verdict;
+try
+{
+    verdict = HttpSignatures.VerifyRequest(method, url, headers,
+        VerifyOptions.MaxAge(300).WithBody(body));
+}
+catch (FikiException e)
+{
+    throw new UnauthorizedAccessException(e.Message, e);   // a 401
+}
+
+if (verdict.Aid != registeredAidForThisClient)
+{
+    throw new UnauthorizedAccessException("not the client we expected");   // a 403
+}
+```
+
 A verdict carries the **AID that signed** and the **components the signature actually covered**. Comparing the AID against the one you registered is the authorization step, and it is yours: fiki tells you who signed, never whether they are allowed.
 
 ### Preregistration
 
-If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`.
+If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`. C#: `.WithExpectedAid(...)`.
 
 That closes the gap where a request carries a perfectly valid signature from the wrong party. Without it, you get a verdict naming a stranger and you have to compare it yourself, which works but puts the check in your code rather than fiki's.
 
@@ -175,6 +211,7 @@ Sometimes you have replay protection elsewhere — a nonce store, a gateway, an 
 | Go | `MaxAge: &seconds` | `MaxAge: nil` |
 | Rust | `max_age: Some(300)` | `max_age: None` |
 | Java | `VerifyOptions.maxAge(300)` | `VerifyOptions.decliningFreshness()` |
+| C# | `VerifyOptions.MaxAge(300)` | `VerifyOptions.DecliningFreshness()` |
 
 Omitting it entirely is an error, not a default. That is the point: the decision is visible at the call site either way.
 
@@ -182,7 +219,7 @@ Clock skew is tolerated at 5 seconds by default and is adjustable, because two h
 
 ## Handling errors
 
-Every refusal has a named type, and the names are identical across all five languages because the conformance vectors pin them. Catch the base type to mean "this request was not usable", or discriminate when you care which obstacle you hit.
+Every refusal has a named type, and the names are identical across all six languages because the conformance vectors pin them. Catch the base type to mean "this request was not usable", or discriminate when you care which obstacle you hit.
 
 The ones worth handling separately:
 
@@ -192,7 +229,7 @@ The ones worth handling separately:
 - `UncoveredBody` — raised at *signing* time, when you named a covered set that omits `content-digest` while handing over a body. Add it, or do not pass the body.
 - `MissingSignature` / `MissingSignatureInput` — the request is not signed at all, which usually means an unauthenticated caller rather than a broken one.
 
-Access differs by language: Python and JavaScript use exception classes, Go exposes `Error.Kind`, Rust exposes `Error.kind`, and Java exposes `FikiException.kind()`.
+Access differs by language: Python and JavaScript use exception classes, Go exposes `Error.Kind`, Rust exposes `Error.kind`, Java exposes `FikiException.kind()`, and C# exposes `FikiException.Kind`, whose `FikiErrorKind` names are these.
 
 ## Choosing your own covered set
 
@@ -223,8 +260,8 @@ heti also speaks a second, older dialect — the KERI flavour that keria and sig
 
 ## These samples are tested
 
-Every snippet above is exercised by a test in its own port — `py/tests/test_guide.py`, `js/test/guide.test.js`, `go/guide_test.go`, `rust/examples/guide.rs`, `java/.../GuideTest.java`. A guide whose code does not run is worse than no guide, so a rename that would break your copy-paste breaks the suite first.
+Every snippet above is exercised by a test in its own port — `py/tests/test_guide.py`, `js/test/guide.test.js`, `go/guide_test.go`, `rust/examples/guide.rs`, `java/.../GuideTest.java`, `csharp/test/Bakobo.Fiki.Tests/GuideTests.cs`. A guide whose code does not run is worse than no guide, so a rename that would break your copy-paste breaks the suite first.
 
 ## Which version works with which
 
-Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All five are at vectors format 1 today. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
+Each port versions independently. What tells you two artifacts interoperate is the **vectors format** they declare, not their version numbers — every port exports it as a constant. All six are at vectors format 1 today; the C# port also satisfies the KERI profile's set, `vectors/keri/`, at its own format 2, as fiki-py does. See the [README](../README.md#versions-and-which-ones-interoperate) for why the two numbers are separate.
