@@ -102,7 +102,9 @@ class UnitTest {
         assertEquals("\"@query\": ?", line("@query", "GET", "https://example.com/f", Map.of()));
         assertEquals("\"@query\": ?baz=bat%2Dman",
             line("@query", "GET", "https://example.com/p?baz=bat%2Dman", Map.of()));
-        assertEquals("\"@method\": POST", line("@method", "post", "https://example.com/f", Map.of()));
+        // RFC 9421 section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+        assertEquals("\"@method\": post", line("@method", "post", "https://example.com/f", Map.of()));
+        assertEquals("\"@method\": POST", line("@method", "POST", "https://example.com/f", Map.of()));
         assertEquals("\"content-type\": application/json",
             line("Content-Type", "GET", "https://x.example/f", headers("Content-Type", "  application/json  ")));
     }
@@ -208,25 +210,28 @@ class UnitTest {
 
     @Test
     void digestHandling() {
-        record Case(String digest, FikiException.Kind expected) {}
-        List<Case> cases = List.of(
-            new Case("sha-1=:AAAA:, " + Fiki.contentDigest(BODY), null),
-            new Case("sha-1=:AAAA:", FikiException.Kind.MalformedDigest),
-            new Case("sha-256=\"not bytes\"", FikiException.Kind.MalformedDigest),
-            new Case("((( not sfv", FikiException.Kind.MalformedDigest));
-        for (Case c : cases) {
-            Map<String, String> supplied = headers("Content-Digest", c.digest());
-            Map<String, String> out = Fiki.signRequest(key(), "POST", URL_QUERY, supplied,
-                Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT));
-            Map<String, String> all = new LinkedHashMap<>(supplied);
-            all.putAll(out);
-            if (c.expected() == null) {
-                Fiki.verifyRequest("POST", URL_QUERY, all,
-                    Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
-            } else {
-                assertEquals(c.expected(), kindOf(() -> Fiki.verifyRequest("POST", URL_QUERY, all,
-                    Fiki.VerifyOptions.decliningFreshness().withBody(BODY))), c.digest());
-            }
+        // A digest that does not hold for the body is refused at signing, as the verifier would
+        // refuse it (@0ms4j0ef); one that holds, beside an algorithm fiki ignores, verifies.
+        Map<String, String> supplied = headers("Content-Digest", "sha-1=:AAAA:, " + Fiki.contentDigest(BODY));
+        Map<String, String> all = new LinkedHashMap<>(supplied);
+        all.putAll(Fiki.signRequest(key(), "POST", URL_QUERY, supplied,
+            Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)));
+        Fiki.verifyRequest("POST", URL_QUERY, all, Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+        for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
+            assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.signRequest(key(), "POST", URL_QUERY,
+                headers("Content-Digest", digest), Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT))), digest);
+        }
+        // And the verifier still refuses each, signed by a signer that is not fiki and checks
+        // nothing: the base built directly and signed over the bad digest.
+        for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
+            Map<String, String> received = headers("Content-Digest", digest);
+            byte[] base = Fiki.signatureBase("POST", URL_QUERY, received, List.of("@method", "content-digest"),
+                new Fiki.Params(SIGNED_AT, key().keyid(), "ed25519", null, null, null));
+            String text = new String(base, StandardCharsets.UTF_8);
+            received.put("Signature-Input", "sig=" + text.substring(text.lastIndexOf(": (") + 2));
+            received.put("Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(key().sign(base)) + ":");
+            assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.verifyRequest("POST", URL_QUERY,
+                received, Fiki.VerifyOptions.decliningFreshness().withBody(BODY))), digest);
         }
     }
 
@@ -238,7 +243,7 @@ class UnitTest {
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
             "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT + 400))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withSkew(0).withNow(SIGNED_AT + 301))));
+            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withSkew(1).withNow(SIGNED_AT + 302))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
             "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT - 60))));
         Fiki.verifyRequest("POST", URL_QUERY, out,
@@ -257,7 +262,7 @@ class UnitTest {
     @ParameterizedTest
     @ValueSource(strings = {
         "1=2", "a=\"oops", "a=\"o\\ps\"", "a=:not base64!:", "a=:AAAA", "a=?2", "a=?",
-        "a=%bad", "a=(\"@method\"", "a=(\"@method\";q=1)", "a=(1)", "a=(\"@method\"\"@path\")",
+        "a=%bad", "a=(\"@method\"", "a=(\"@method\"\"@path\")",
         "a=1 b=2", "a=1, ", "a=-", "a=", "a;x=%", "a=(%)",
     })
     void theParserRefusesWhatItShould(String text) {
@@ -269,14 +274,16 @@ class UnitTest {
         List<Sfv.Member> parsed =
             Sfv.parseDictionary("sig=(\"@method\" \"@path\");created=1;keyid=\"k\";alg=\"ed25519\"");
         assertEquals("(\"@method\" \"@path\");created=1;keyid=\"k\";alg=\"ed25519\"",
-            Sfv.serializeInnerList(parsed.get(0).list()));
+            Sfv.serializeInnerList((Sfv.InnerList) parsed.get(0).value()));
         assertEquals("(\"a\\\"b\\\\c\");f;g=?0", Sfv.serializeInnerList(new Sfv.InnerList(
-            List.of("a\"b\\c"), List.of(Map.entry("f", Boolean.TRUE), Map.entry("g", Boolean.FALSE)))));
+            List.of(new Sfv.Item("a\"b\\c", List.of())),
+            List.of(Map.entry("f", Boolean.TRUE), Map.entry("g", Boolean.FALSE)))));
     }
 
     @Test
     void theParserReadsTheShapesRfc8941AllowsHere() {
-        for (String text : List.of("a=?1", "a=?0", "a=-12", "a", "a;x", "a=()", "  a=1  ", "a=:AAAA:")) {
+        for (String text : List.of("a=?1", "a=?0", "a=-12", "a", "a;x", "a=()", "  a=1  ", "a=:AAAA:",
+                "a=(\"@method\";q=1)", "a=(1)", "a=tok", "a=1.5")) {
             Sfv.parseDictionary(text);
         }
     }

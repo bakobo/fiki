@@ -35,6 +35,7 @@ from fiki.errors import (
     SignatureMismatch,
     SignatureTooOld,
     UncoveredBody,
+    UnsupportedComponent,
     UnsupportedAlgorithm,
 )
 
@@ -415,3 +416,122 @@ def test_a_keyid_that_only_decodes_leniently_to_the_key_is_refused(keyid):
     request, headers = signed(keyid=mangled)
     with pytest.raises(MalformedKey):
         verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("tampered", ["admin\r\n", "\r\nadmin", "\nadmin", "admin\r", "admin\x0b"])
+def test_a_line_break_added_at_the_edge_of_a_covered_field_does_not_verify(tampered):
+    """A signature over X-Scope: admin is not a signature over 'admin' plus CR LF (tick 4r5h)."""
+    request, headers = signed(headers={"X-Scope": "admin"},
+                              covered=[*DEFAULT_COVERED, "x-scope", "content-digest"])
+    headers["X-Scope"] = tampered
+    with pytest.raises(SignatureMismatch):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_spaces_and_tabs_at_the_edge_of_a_covered_field_still_verify():
+    request, headers = signed(headers={"X-Scope": "admin"},
+                              covered=[*DEFAULT_COVERED, "x-scope", "content-digest"])
+    headers["X-Scope"] = " \tadmin\t "
+    assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
+
+
+def test_an_empty_method_is_never_signed():
+    with pytest.raises(ValueError):
+        sign_request(key=KEY, method="", url=URL)
+    with pytest.raises(TypeError):
+        sign_request(key=KEY, method=None, url=URL)
+
+
+def test_an_empty_method_is_a_caller_error_when_verifying():
+    request, headers = signed()
+    request["method"] = ""
+    with pytest.raises(ValueError):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+# RFC 8941 section 4.2.7 base64-decodes a byte sequence by RFC 4648, whose section 3.3 makes an
+# "=" before the end non-alphabet data, to be refused; section 4.2.7 does not relax that. Python's
+# lenient decoder ignored data after the padding through 3.12 and reads it from 3.13, so these
+# verified on one interpreter and were refused, or decoded differently, on another (tick 4joc).
+def _respelled(value: str, how: str) -> str:
+    content = value[value.index(":") + 1 : -1]
+    prefix = value[: value.index(":") + 1]
+    if how == "data-after-padding":
+        return f"{prefix}{content}AAAA:"
+    if how == "padding-in-the-middle":
+        return f"{prefix}{content[:8]}={content[8:]}:"
+    if how == "excess-padding":
+        return f"{prefix}{content}=:"
+    return f"{prefix}{content[:8]}=={content[8:]}:"
+
+
+_RESPELLINGS = ["data-after-padding", "padding-in-the-middle", "excess-padding",
+                "double-padding-in-the-middle"]
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_signature_with_misplaced_padding_is_malformed_on_every_interpreter(how):
+    request, headers = signed()
+    headers["Signature"] = _respelled(headers["Signature"], how)
+    with pytest.raises(MalformedSignature):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_content_digest_with_misplaced_padding_is_malformed_on_every_interpreter(how):
+    digest = content_digest(BODY)
+    request, headers = signed(headers={"Content-Digest": _respelled(digest, how)})
+    with pytest.raises(MalformedDigest):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_signature_input_with_misplaced_padding_is_malformed(how):
+    """On a covered component's parameter, where a well-spelled byte sequence parses and is then
+    refused as UnsupportedComponent, so only fiki's own scan makes this MalformedSignatureInput."""
+    request, headers = signed()
+    padded = f":{base64.b64encode(b'0123456789').decode()}:"
+    headers["Signature-Input"] = headers["Signature-Input"].replace(
+        '("@method"', f'("@method";x={_respelled(padded, how)}', 1
+    )
+    with pytest.raises(MalformedSignatureInput):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_a_well_padded_byte_sequence_on_a_component_reaches_the_component_check():
+    """The control for the test above: the same position, correctly spelled."""
+    request, headers = signed()
+    padded = f":{base64.b64encode(b'0123456789').decode()}:"
+    headers["Signature-Input"] = headers["Signature-Input"].replace(
+        '("@method"', f'("@method";x={padded}', 1
+    )
+    with pytest.raises(UnsupportedComponent):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("header", ["Signature", "Content-Digest"])
+@pytest.mark.parametrize("inserted", ["!", "-", "_", "."])
+def test_a_byte_sequence_with_a_character_outside_base64_is_malformed(header, inserted):
+    """Refused by the parser today, and by fiki's own scan whatever the parser does."""
+    request, headers = signed()
+    value = headers[header]
+    at = value.index(":") + 5
+    headers[header] = value[:at] + inserted + value[at:]
+    with pytest.raises((MalformedSignature, MalformedDigest, SignatureMismatch)):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_a_signature_missing_its_padding_is_malformed_on_every_interpreter():
+    """RFC 8941 says SHOULD NOT fail here, unless the parser cannot be configured; py's cannot."""
+    request, headers = signed()
+    headers["Signature"] = headers["Signature"].replace("=", "")
+    headers["Signature"] = headers["Signature"].replace("sig", "sig=", 1)
+    with pytest.raises(MalformedSignature):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_colons_inside_strings_and_tokens_are_not_byte_sequences():
+    """Only a colon that opens a bare item starts a byte sequence."""
+    request, headers = signed()
+    headers["Signature"] += ';note="a:b==c:d";t=a:b'
+    assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid

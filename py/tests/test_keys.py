@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from fiki import Key, verifying_key
+from fiki.keys import misspelled_aid
 from fiki.errors import MalformedKey
 
 # heti derives this same AID from this same seed through keripy's Signer, which is what keeps the
@@ -116,3 +117,21 @@ def test_verifying_key_refuses_a_padding_bit_alias_of_a_real_aid():
     assert alias != aid
     with pytest.raises(MalformedKey):
         verifying_key(alias)
+
+
+NON_ASCII_AIDS = ["B" + "é" * 43, "B" + "A" * 42 + "é", "BА" + "A" * 42]
+
+
+@pytest.mark.parametrize("aid", NON_ASCII_AIDS)
+def test_verifying_key_refuses_a_well_shaped_aid_with_non_ascii_characters(aid):
+    """base64 raises a bare ValueError, not binascii.Error, for non-ASCII input (tick 7wap)."""
+    assert len(aid) == 44
+    with pytest.raises(MalformedKey) as caught:
+        verifying_key(aid)
+    assert caught.value.keyid == aid
+
+
+@pytest.mark.parametrize("aid", NON_ASCII_AIDS)
+def test_a_well_shaped_aid_with_non_ascii_characters_is_a_misspelling(aid):
+    """So a resolver never sees it: it is refused as MalformedKey before resolution."""
+    assert misspelled_aid(aid)

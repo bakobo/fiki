@@ -144,10 +144,34 @@ class _Message:
     request: _Message | None = None
 
 
-def _lowered(headers: Mapping[str, str]) -> dict[str, str]:
-    # Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-    # values are stripped of leading and trailing whitespace.
-    return {name.lower(): value.strip() for name, value in headers.items()}
+# RFC 9110 section 5.5: the optional whitespace around a field value is SP and HTAB, and nothing
+# else. str.strip() would also remove CR, LF, VT, FF and Unicode spaces, so a value with a line
+# break at its edge would build the same line as one without (tick 4r5h).
+_OWS = " \t"
+
+
+def canonical(headers: Mapping[str, str]) -> dict[str, str]:
+    """The headers with lowercased names, refusing two names equal case-insensitively.
+
+    Field names are case-insensitive and appear lowercased in the base (section 2.1), so
+    ``X-Role`` beside ``x-role`` is one field given two values. Collapsing them would let one
+    value be signed or digested and the other reach the application, so it is a ValueError, a
+    mistake in the call (@235933km). Values are kept as received: value_of checks them raw and
+    only then trims _OWS. Idempotent, so a mapping canonicalized once reads the same everywhere.
+    """
+    out: dict[str, str] = {}
+    for name, value in headers.items():
+        lowered = name.lower()
+        if lowered in out:
+            raise ValueError(
+                f'The headers name the field "{lowered}" more than once, in different cases, '
+                "and a field has one value; combine them before calling fiki."
+            )
+        out[lowered] = value
+    return out
+
+
+_lowered = canonical
 
 
 def request_message(method: str, url: str, headers: Mapping[str, str]) -> _Message:
@@ -175,6 +199,12 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
     """
     if parts.netloc:
         host = (parts.hostname or "").lower()
+        # urlsplit's hostname drops an IP-literal's brackets, and RFC 3986 section 3.2.2 makes
+        # them part of the host, so they are restored: [::1]:8443, never ::1:8443 (tick 2h2g).
+        # Decided from the authority as written, since an IPvFuture literal, [v1.example], has
+        # no colon to tell it by.
+        if parts.netloc.rpartition("@")[2].startswith("["):
+            host = f"[{host}]"
         port = parts.port
         if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
             return host
@@ -186,7 +216,8 @@ def _authority(parts, headers: Mapping[str, str]) -> str:
             "request has no Host header, so there is nothing to derive it from.",
             component="@authority",
         )
-    return host.lower()
+    _check_raw(host, "@authority")
+    return host.strip(_OWS).lower()
 
 
 def _component_value(item: http_sfv.Item, message: _Message) -> str:
@@ -211,8 +242,17 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             )
         return str(status)
     if name == "@method":
-        # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
-        return message.method
+        # Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8). A request
+        # has a method, so an absent or empty one is a caller who lost it, never an empty line.
+        method = message.method
+        if not isinstance(method, str):
+            raise TypeError(f"A request's method is a string; this one is {method!r}.")
+        if not method:
+            raise ValueError(
+                "The method is empty, and a request always has one, so there is no @method to "
+                "sign or to check."
+            )
+        return method
     if name == "@authority":
         return _authority(message.parts, message.headers)
     if name == "@path":
@@ -229,22 +269,30 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             f"so the signature base cannot be built.",
             component=spec_of(item),
         )
-    return value
+    # Checked as received, before the optional whitespace is trimmed, so a line break at the
+    # edge of a value is refused exactly as one inside it is (tick 4r5h).
+    _check_raw(value, spec_of(item))
+    return value.strip(_OWS)
 
 
-def value_of(item: http_sfv.Item, message: _Message) -> str:
-    """A component's value, refused when it has no single serialization both sides agree on.
+def _check_raw(value: str, spec: str) -> None:
+    """Refuse a value with no single serialization both sides agree on.
 
     A line break inside a value would forge a line of the base, and a byte outside visible ASCII
     is encoded differently by different stacks. The KERI profile's draft 6 names such a base
     unbuildable, and so a signature-mismatch (@2f227n4r).
     """
-    value = _component_value(item, message)
     if any(not (char == "\t" or " " <= char <= "~") for char in value):
         raise SignatureMismatch(
-            f"The value of {spec_of(item)} contains a line break, a control character or a "
+            f"The value of {spec} contains a line break, a control character or a "
             "non-ASCII character, so there is no signature base both sides would build from it."
         )
+
+
+def value_of(item: http_sfv.Item, message: _Message) -> str:
+    """A component's value, refused when it has no single serialization both sides agree on."""
+    value = _component_value(item, message)
+    _check_raw(value, spec_of(item))
     return value
 
 
