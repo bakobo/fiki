@@ -332,10 +332,16 @@ fn component_value(item: &Item, message: &Message) -> Result<String> {
             )),
         },
         // Section 2.2.1: the method as sent, with no case transformation (`this.i` @22g0xkr8).
-        ("@method", _) => message
-            .method
-            .clone()
-            .ok_or_else(|| missing(item, "and a response has no method.")),
+        ("@method", _) => match message.method.as_deref() {
+            None => Err(missing(item, "and a response has no method.")),
+            // A request has a method; an empty one is a caller who lost it (@56qu7gyw).
+            Some("") => Err(Error::new(
+                Kind::InvalidArgument,
+                "The method is empty, so there is no @method to sign or verify; pass the method \
+                 exactly as it goes on the wire.",
+            )),
+            Some(method) => Ok(method.to_string()),
+        },
         ("@authority", Some(target)) => authority(target, &message.headers),
         ("@path", Some(target)) => Ok(target.path.clone()),
         // Section 2.2.7: the whole query string including the leading "?", percent-encoding
@@ -375,11 +381,18 @@ pub(crate) fn value_of(item: &Item, message: &Message) -> Result<String> {
 }
 
 pub(crate) fn lower_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    // Header field names are case-insensitive and appear lowercased in the base (section 2.1);
-    // values are stripped of leading and trailing whitespace.
+    // Header field names are case-insensitive and appear lowercased in the base (section 2.1).
+    // Values lose leading and trailing SP and HTAB, the only optional whitespace RFC 9110 section
+    // 5.5 allows around a field value, and nothing else: str::trim would also strip a CR or LF,
+    // and value_of must see those to refuse them (`this.i` @56qu7gyw).
     headers
         .iter()
-        .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_string()))
+        .map(|(name, value)| {
+            (
+                name.to_ascii_lowercase(),
+                value.trim_matches([' ', '\t']).to_string(),
+            )
+        })
         .collect()
 }
 

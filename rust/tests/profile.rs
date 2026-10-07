@@ -1741,3 +1741,71 @@ fn the_small_order_refusal_comes_before_the_algorithm() {
         .mangle("alg=\"ed25519\"", "alg=\"rsa-pss-sha512\"");
     assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedKey);
 }
+
+// --- a field value is checked raw, and a method is never empty (@56qu7gyw) ---
+
+fn noting(value: &str) -> Sent {
+    let mut sent = sign_as(
+        &key(),
+        "POST",
+        URL,
+        &[("X-Note", "admin")],
+        with_body(covering(&[
+            "@method",
+            "@path",
+            "@query",
+            "x-note",
+            "content-digest",
+        ])),
+    )
+    .unwrap();
+    sent.headers.insert("X-Note".into(), value.into());
+    sent
+}
+
+#[test]
+fn a_line_break_or_nul_in_a_covered_value_is_refused_before_any_trimming() {
+    for value in ["admin\r\n", "admin\n", "\r\nadmin", "admin\0", "admin\r"] {
+        assert_eq!(
+            noting(value).kind(VerifyOptions::default()),
+            Kind::SignatureMismatch,
+            "{value:?}"
+        );
+        let err = sign_as(
+            &key(),
+            "POST",
+            URL,
+            &[("X-Note", value)],
+            with_body(covering(&["@method", "x-note", "content-digest"])),
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, Kind::SignatureMismatch, "{value:?}");
+    }
+}
+
+#[test]
+fn only_spaces_and_tabs_around_a_value_are_trimmed() {
+    assert!(noting(" \tadmin\t ")
+        .verify(VerifyOptions::default())
+        .is_ok());
+}
+
+#[test]
+fn an_empty_method_is_a_caller_error_wherever_at_method_is_built() {
+    let err = sign_as(&key(), "", URL, &[], with_body(SignOptions::default())).unwrap_err();
+    assert_eq!(err.kind, Kind::InvalidArgument);
+    let sent = signed(SignOptions::default());
+    let err = verify_request("", URL, &sent.headers, &VerifyOptions::default()).unwrap_err();
+    assert_eq!(err.kind, Kind::InvalidArgument);
+    let params = SignatureParams::default();
+    let err = signature_base("", URL, &BTreeMap::new(), &strings(&["@method"]), &params);
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    assert!(signature_base("", URL, &BTreeMap::new(), &strings(&["@path"]), &params).is_ok());
+    let methodless = Request {
+        method: String::new(),
+        url: URL.into(),
+        ..Default::default()
+    };
+    let err = response_base(200, Some(&methodless), &["@status", "\"@method\";req"]);
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+}
