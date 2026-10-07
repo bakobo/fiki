@@ -56,7 +56,7 @@ namespace Bakobo.Fiki
             long? expires = null,
             string? nonce = null,
             string? tag = null)
-            => Components.RequestBase(method, url, headers, Components.Parse(covered), created, keyId, alg, expires, nonce, tag);
+            => Components.RequestBase(method, url, HeaderSnapshot.Take(headers), Components.Parse(covered), created, keyId, alg, expires, nonce, tag);
 
         /// <summary>
         /// Build the RFC 9421 signature base for a response (sections 2.2.9 and 2.4).
@@ -74,7 +74,7 @@ namespace Bakobo.Fiki
             long? expires = null,
             string? nonce = null,
             string? tag = null)
-            => Components.ResponseBase(status, headers, request, Components.Parse(covered), created, keyId, alg, expires, nonce, tag);
+            => Components.ResponseBase(status, HeaderSnapshot.Take(headers), Checked(request), Components.Parse(covered), created, keyId, alg, expires, nonce, tag);
 
         /// <summary>
         /// The KERI profile's minimum covered set for a request (section 3): @method, @path and
@@ -184,6 +184,12 @@ namespace Bakobo.Fiki
         /// </remarks>
         public static Verdict VerifyResponse(int status, IEnumerable<KeyValuePair<string, string>> headers, VerifyOptions options)
             => Messages.VerifyResponse(status, headers, options);
+
+        private static Request? Checked(Request? request)
+        {
+            HeaderSnapshot.Check(request);
+            return request;
+        }
 
         /// <summary>The spelling of a request component named from a response: <c>Req("@path")</c> is <c>"@path";req</c>.</summary>
         public static string Req(string name) => Components.Req(name);

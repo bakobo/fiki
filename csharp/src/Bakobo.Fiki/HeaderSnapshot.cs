@@ -1,0 +1,48 @@
+using System;
+using System.Collections.Generic;
+
+namespace Bakobo.Fiki
+{
+    /// <summary>
+    /// A caller's headers, read exactly once at a public entry point, and every later step reads only
+    /// this copy (bakobo/fiki#7).
+    /// </summary>
+    internal static class HeaderSnapshot
+    {
+        /// <summary>
+        /// Copy the headers, refusing two field names equal case-insensitively (conductor ruling
+        /// D-Q9ZT). Field names are case-insensitive, so such input holds two values for one field,
+        /// and a list or map carries no received order to combine them by as RFC 9421 section 2.1
+        /// would: lowering it would silently keep one, and a message signed over
+        /// <c>x-role: member</c> would verify while also carrying <c>X-Role: admin</c>. Combining a
+        /// repeated field into one value (RFC 9110 section 5.3) is the caller's to do before handing
+        /// it over, so this is a caller's mistake, an ArgumentException, as the Rust port's
+        /// InvalidArgument. fiki-py lets the last name win and is not changed by this.
+        /// </summary>
+        internal static IReadOnlyList<KeyValuePair<string, string>> Take(IEnumerable<KeyValuePair<string, string>> headers)
+        {
+            var snapshot = new List<KeyValuePair<string, string>>(headers);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var header in snapshot)
+            {
+                var name = PyText.Lower(header.Key);
+                if (!seen.Add(name))
+                {
+                    throw new ArgumentException(
+                        $"The headers name the field \"{name}\" more than once, so it has two values and fiki cannot know " +
+                        "which one was meant; combine them into one entry before signing or verifying.");
+                }
+            }
+            return snapshot.AsReadOnly();
+        }
+
+        /// <summary>The same refusal for the headers of the request a response answers.</summary>
+        internal static void Check(Request? request)
+        {
+            if (request != null)
+            {
+                Take(request.Headers);
+            }
+        }
+    }
+}

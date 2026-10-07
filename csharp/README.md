@@ -64,3 +64,5 @@ Each is checked against an oracle generated from the Python original (`test/Bako
 One divergence is deliberate: an IPv6 literal keeps its brackets in `@authority`, so `https://[::1]:8443/x` gives `[::1]:8443` as RFC 9421 section 2.2.3 and RFC 3986 section 3.2.2 spell it, where fiki-py gives `::1:8443` (tick 2h2g). The JavaScript port keeps them too; no vector pins either form yet.
 
 Another is a refusal fiki-py does not make: `SignRequest` and `SignResponse` throw `ArgumentException` for a label that is not an RFC 8941 dictionary key, such as `"bad label"` or `"Sig"`, where fiki-py writes headers no verifier can parse. Nothing valid on the wire changes.
+
+A third: headers holding two field names equal case-insensitively, such as `X-Role` and `x-role`, are refused with `ArgumentException` on every signing and verifying entry point, the paired `Request` included, as the Rust port refuses them (conductor ruling D-Q9ZT). fiki-py keeps the later value; refusing means no message verifies over one value while carrying another an application might read.

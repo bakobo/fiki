@@ -116,8 +116,11 @@ namespace Bakobo.Fiki.Tests
                 LineFor("Content-Type", headers: H("Content-Type", "  application/json  ")));
 
         [Fact]
-        public void ALaterHeaderOfTheSameNameInAnotherCaseWins() =>
-            Assert.Equal("\"x-a\": second", LineFor("x-a", headers: H("X-A", "first", "x-a", "second")));
+        public void TwoNamesForOneFieldAreRefusedRatherThanCollapsed()
+        {
+            // fiki-py lets the later one win; the ports refuse instead (ruling D-Q9ZT, RulingTests).
+            Assert.Throws<ArgumentException>(() => LineFor("x-a", headers: H("X-A", "first", "x-a", "second")));
+        }
 
         [Fact]
         public void ADerivedComponentFikiCannotBuildIsRefusedRatherThanSkipped()
