@@ -446,3 +446,63 @@ def test_an_empty_method_is_a_caller_error_when_verifying():
     request["method"] = ""
     with pytest.raises(ValueError):
         verify_request(headers=headers, max_age=None, **request)
+
+
+# RFC 8941 section 4.2.7 base64-decodes a byte sequence by RFC 4648, whose section 3.3 makes an
+# "=" before the end non-alphabet data, to be refused; section 4.2.7 does not relax that. Python's
+# lenient decoder ignored data after the padding through 3.12 and reads it from 3.13, so these
+# verified on one interpreter and were refused, or decoded differently, on another (tick 4joc).
+def _respelled(value: str, how: str) -> str:
+    content = value[value.index(":") + 1 : -1]
+    prefix = value[: value.index(":") + 1]
+    if how == "data-after-padding":
+        return f"{prefix}{content}AAAA:"
+    if how == "padding-in-the-middle":
+        return f"{prefix}{content[:8]}={content[8:]}:"
+    if how == "excess-padding":
+        return f"{prefix}{content}=:"
+    return f"{prefix}{content[:8]}=={content[8:]}:"
+
+
+_RESPELLINGS = ["data-after-padding", "padding-in-the-middle", "excess-padding",
+                "double-padding-in-the-middle"]
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_signature_with_misplaced_padding_is_malformed_on_every_interpreter(how):
+    request, headers = signed()
+    headers["Signature"] = _respelled(headers["Signature"], how)
+    with pytest.raises(MalformedSignature):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_content_digest_with_misplaced_padding_is_malformed_on_every_interpreter(how):
+    digest = content_digest(BODY)
+    request, headers = signed(headers={"Content-Digest": _respelled(digest, how)})
+    with pytest.raises(MalformedDigest):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+@pytest.mark.parametrize("how", _RESPELLINGS)
+def test_a_signature_input_with_misplaced_padding_is_malformed(how):
+    request, headers = signed()
+    headers["Signature-Input"] += f";x=:{_respelled(':AAAAAAAAAAAA==:', how)[1:]}"
+    with pytest.raises(MalformedSignatureInput):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_a_signature_missing_its_padding_is_malformed_on_every_interpreter():
+    """RFC 8941 says SHOULD NOT fail here, unless the parser cannot be configured; py's cannot."""
+    request, headers = signed()
+    headers["Signature"] = headers["Signature"].replace("=", "")
+    headers["Signature"] = headers["Signature"].replace("sig", "sig=", 1)
+    with pytest.raises(MalformedSignature):
+        verify_request(headers=headers, max_age=None, **request)
+
+
+def test_colons_inside_strings_and_tokens_are_not_byte_sequences():
+    """Only a colon that opens a bare item starts a byte sequence."""
+    request, headers = signed()
+    headers["Signature"] += ';note="a:b==c:d";t=a:b'
+    assert verify_request(headers=headers, max_age=None, **request).aid == KEY.aid
