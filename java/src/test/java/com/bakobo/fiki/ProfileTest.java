@@ -124,6 +124,20 @@ class ProfileTest {
         return sign(KEY, "POST", URL, given, opts.apply(Fiki.SignOptions.none().withBody(BODY)));
     }
 
+    /**
+     * A request signed by a signer that is not fiki and checks nothing: the base built directly
+     * and signed, so a verifier test can hold a digest fiki's own signer would refuse.
+     */
+    private static Signed foreign(Map<String, String> given, List<String> covered, byte[] body) {
+        Map<String, String> headers = new LinkedHashMap<>(given);
+        byte[] base = Fiki.signatureBase("POST", URL, headers, covered,
+            new Fiki.Params(AT, KEY.keyid(), "ed25519", null, null, null));
+        String text = new String(base, StandardCharsets.UTF_8);
+        headers.put("Signature-Input", "sig=" + text.substring(text.lastIndexOf(": (") + 2));
+        headers.put("Signature", "sig=:" + Base64.getEncoder().encodeToString(KEY.sign(base)) + ":");
+        return new Signed("POST", URL, body, headers);
+    }
+
     private static Fiki.Verdict verify(Signed s, UnaryOperator<Fiki.VerifyOptions> opts) {
         return Fiki.verifyRequest(s.method(), s.url(), s.headers(),
             opts.apply(Fiki.VerifyOptions.decliningFreshness().withBody(s.body())));
@@ -202,8 +216,8 @@ class ProfileTest {
     @Test
     void twoRecognizedDigestsMustBothMatch() {
         String bad512 = Base64.getEncoder().encodeToString(sha512("other".getBytes(StandardCharsets.UTF_8)));
-        Signed s = signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY) + ", sha-512=:" + bad512 + ":"),
-            opts -> opts);
+        Signed s = foreign(Map.of("Content-Digest", Fiki.contentDigest(BODY) + ", sha-512=:" + bad512 + ":"),
+            List.of("@method", "@path", "@query", "content-digest"), BODY);
         assertEquals(FikiException.Kind.DigestMismatch, kindOf(() -> verify(s)));
     }
 
@@ -225,7 +239,7 @@ class ProfileTest {
 
     @Test
     void anUnparsableDigestIsMalformedEvenWhenNoBodyWasSupplied() {
-        Signed s = signWith(Map.of("Content-Digest", "(((("), opts -> opts).withBody(null);
+        Signed s = foreign(Map.of("Content-Digest", "(((("), List.of("@method", "content-digest"), null);
         assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> verify(s)));
     }
 
@@ -620,6 +634,82 @@ class ProfileTest {
         Fiki.Request bare = new Fiki.Request("POST", URL, null, null);
         assertEquals(FikiException.Kind.MissingComponent, kindOf(() -> respond(
             opts -> opts.withCovered(List.of("@status", Fiki.req("content-digest"), "content-digest")), 200, bare, Map.of())));
+    }
+
+    /* ------------------------- one canonical header map, linear parsing, honest digests (@0ms4j0ef) */
+
+    private static Map<String, String> twoSpellings() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Digest", Fiki.contentDigest(BODY));
+        headers.put("content-digest", "sha-256=:AAAA:");
+        return headers;
+    }
+
+    @Test
+    void aHeaderMapThatNamesAFieldTwiceIsTheCallersMistake() {
+        assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "POST", URL, twoSpellings(),
+            Fiki.SignOptions.none().withBody(BODY).withCreated(AT)));
+        Map<String, String> received = new LinkedHashMap<>(sign().headers());
+        received.put("content-digest", "sha-256=:AAAA:");
+        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("POST", URL, received,
+            Fiki.VerifyOptions.decliningFreshness().withBody(BODY)));
+        assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("POST", URL, twoSpellings(), BODY));
+        Map<String, String> answered = new LinkedHashMap<>(respond());
+        answered.put("content-digest", "sha-256=:AAAA:");
+        assertThrows(IllegalArgumentException.class, () -> check(answered));
+        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", URL, twoSpellings(),
+            List.of("@method"), Fiki.Params.of(AT, "k")));
+    }
+
+    @Test
+    void aRequestKeepsItsOwnCopyOfItsHeaders() {
+        Map<String, String> headers = new LinkedHashMap<>(REQUEST.headers());
+        Fiki.Request request = new Fiki.Request("POST", URL, headers, BODY);
+        headers.put("Content-Digest", "sha-256=:AAAA:");
+        assertEquals(Fiki.contentDigest(BODY), request.headers().get("Content-Digest"));
+        assertThrows(UnsupportedOperationException.class, () -> request.headers().put("X", "y"));
+    }
+
+    @Test
+    void parsingIsLinearInRepeatedAndDistinctParametersAndMembers() {
+        int n = 200_000;
+        StringBuilder repeated = new StringBuilder("a=1");
+        StringBuilder distinct = new StringBuilder("a=1");
+        StringBuilder members = new StringBuilder("m0=1");
+        for (int i = 0; i < n; i++) {
+            repeated.append(";p=").append(i % 10);
+            distinct.append(";p").append(i).append("=1");
+            members.append(", m").append(i % 1000).append("=").append(i % 10);
+        }
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
+            assertEquals(1, Sfv.parseDictionary(repeated.toString()).get(0).params().size());
+            assertEquals(n, Sfv.parseDictionary(distinct.toString()).get(0).params().size());
+            assertEquals(1000, Sfv.parseDictionary(members.toString()).size());
+        });
+    }
+
+    @Test
+    void aRepeatedMemberKeepsItsFirstPlaceWithItsLastValue() {
+        List<Sfv.Member> parsed = Sfv.parseDictionary("a=1, b=2, a=3");
+        assertEquals(List.of("a", "b"), parsed.stream().map(Sfv.Member::key).toList());
+        assertEquals(3L, parsed.get(0).value());
+    }
+
+    @Test
+    void textBetweenAnIpv6LiteralAndItsPortIsRefused() {
+        assertThrows(IllegalArgumentException.class, () -> authority("https://[::1]evil:443/"));
+    }
+
+    @Test
+    void aSignerRefusesACallersDigestItsBodyContradicts() {
+        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() ->
+            signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts)));
+        assertEquals(FikiException.Kind.MalformedDigest, kindOf(() ->
+            signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts)));
+        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() -> respond(opts -> opts, 200, REQUEST,
+            Map.of("content-digest", Fiki.contentDigest(BODY)))));
+        // A digest of the caller's own that holds is used as given, and covered.
+        assertEquals(KEY.aid(), verify(signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY)), opts -> opts)).aid());
     }
 
     /* ------------------------------------------------ the remaining edges of the new surface */

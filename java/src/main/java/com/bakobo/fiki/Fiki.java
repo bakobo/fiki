@@ -152,7 +152,11 @@ public final class Fiki {
             if (url == null) {
                 throw new IllegalArgumentException("A request needs a URL.");
             }
-            headers = headers == null ? Map.of() : headers;
+            // An unmodifiable copy, checked once: a caller mutating its map afterwards changes
+            // nothing fiki reads (@0ms4j0ef).
+            Map<String, String> copy = new LinkedHashMap<>(headers == null ? Map.of() : headers);
+            lowered(copy);
+            headers = java.util.Collections.unmodifiableMap(copy);
         }
     }
 
@@ -657,10 +661,18 @@ public final class Fiki {
 
     private static Map<String, String> lowered(Map<String, String> headers) {
         // Header field names are case-insensitive and appear lowercased in the base (section 2.1).
-        // Values are kept as received; fieldValue checks and strips the ones that are covered.
+        // Values are kept as received; fieldValue checks and strips the ones that are covered. A
+        // map naming one field under two spellings gives no way to know which value the other side
+        // saw, so it is refused rather than resolved by iteration order (@0ms4j0ef).
         Map<String, String> out = new LinkedHashMap<>();
         if (headers != null) {
-            headers.forEach((name, value) -> out.put(lower(name), value));
+            headers.forEach((name, value) -> {
+                if (out.put(lower(name), value) != null) {
+                    throw new IllegalArgumentException(
+                        "The headers name " + lower(name) + " more than once, under different spellings; "
+                            + "HTTP field names are case-insensitive, so pass each field once.");
+                }
+            });
         }
         return out;
     }
@@ -736,8 +748,13 @@ public final class Fiki {
             }
             items.add(component(CONTENT_DIGEST));
         }
-        if (!lowered(sending).containsKey(CONTENT_DIGEST)) {
+        String given = lowered(sending).get(CONTENT_DIGEST);
+        if (given == null) {
             sending.put("Content-Digest", contentDigest(body));
+        } else {
+            // A digest of the caller's own is signed as given, so it must hold for the body: fiki
+            // does not sign what its own verifier would refuse (@0ms4j0ef).
+            compareDigest(readDigest(given), body);
         }
     }
 
@@ -780,11 +797,12 @@ public final class Fiki {
         boolean chosen = opts.covered() != null;
         List<Sfv.Item> items = components(chosen ? opts.covered() : DEFAULT_COVERED);
         coverBody(items, sending, opts.body(), chosen);
+        Message message = requestMessage(method, url, sending);
         if (opts.minimum() != null) {
-            checkMinimum(items, opts.minimum(), requestHasBody(lowered(sending), opts.body()), false);
+            checkMinimum(items, opts.minimum(), requestHasBody(message.headers(), opts.body()), false);
         }
         checkCovered(items, false);
-        byte[] base = finish(linesFor(items, requestMessage(method, url, sending)), items, params(key, opts));
+        byte[] base = finish(linesFor(items, message), items, params(key, opts));
         return signed(key, base, opts.label(), sending, headers);
     }
 
@@ -815,8 +833,9 @@ public final class Fiki {
         }
         List<Sfv.Item> items = components(covered);
         coverBody(items, sending, opts.body(), chosen);
+        Message message = responseMessage(status, sending, request);
         if (!chosen && hadBody) {
-            if (!lowered(request.headers()).containsKey(CONTENT_DIGEST)) {
+            if (!message.request().headers().containsKey(CONTENT_DIGEST)) {
                 throw new FikiException(
                     FikiException.Kind.UncoveredBody,
                     "The request this response answers carried a body and no Content-Digest, so the "
@@ -831,10 +850,10 @@ public final class Fiki {
         // The check verifyResponse will make, made first: a signer does not vouch for a request
         // digest that the request body it was handed contradicts (bakobo/fiki#4).
         if (request != null && request.body() != null && bindsRequestDigest(items)) {
-            compareDigest(readDigest(lowered(request.headers()).get(CONTENT_DIGEST)), request.body());
+            compareDigest(readDigest(message.request().headers().get(CONTENT_DIGEST)), request.body());
         }
         checkCovered(items, true);
-        byte[] base = finish(linesFor(items, responseMessage(status, sending, request)), items, params(key, opts));
+        byte[] base = finish(linesFor(items, message), items, params(key, opts));
         return signed(key, base, opts.label(), sending, headers);
     }
 
@@ -849,7 +868,7 @@ public final class Fiki {
     public static Verdict verifyRequest(
             String method, String url, Map<String, String> headers, VerifyOptions opts) {
         floored(opts.minimum(), REQUEST_MINIMUM);
-        return verify(requestMessage(method, url, headers), headers, false, null, opts);
+        return verify(requestMessage(method, url, headers), false, null, opts);
     }
 
     /**
@@ -868,27 +887,30 @@ public final class Fiki {
             throw new IllegalArgumentException(
                 "Served authorities are a request policy; a response has no @authority of its own to check.");
         }
-        Map<String, String> found = lowered(headers);
-        if (status == 401 && !found.containsKey("signature")) {
+        Message message = responseMessage(status, headers, request);
+        if (status == 401 && !message.headers().containsKey("signature")) {
             throw new FikiException(
                 FikiException.Kind.Unauthenticated,
                 "The server answered 401 without signing the answer, so the request was not "
                     + "authenticated and the body of the refusal cannot be trusted.");
         }
-        return verify(responseMessage(status, headers, request), headers, true, request, opts);
+        return verify(message, true, request, opts);
     }
 
     private record Parsed(Sfv.InnerList inner, byte[] signature) {}
 
     private record Resolved(byte[] raw, String aid) {}
 
-    /** The KERI profile's section 9 order, so a message has exactly one correct refusal. */
+    /**
+     * The KERI profile's section 9 order, so a message has exactly one correct refusal. Every
+     * header is read from the message's one canonical map (@0ms4j0ef).
+     */
     private static Verdict verify(
-            Message message, Map<String, String> headers, boolean response, Request request, VerifyOptions opts) {
+            Message message, boolean response, Request request, VerifyOptions opts) {
         if (opts.expectedAid() != null && opts.resolver() != null) {
             throw new IllegalArgumentException("Pass an expected AID or a resolver, not both; each decides the key alone.");
         }
-        Map<String, String> found = lowered(headers);
+        Map<String, String> found = message.headers();
         Parsed parsed = read(found, opts.expectedAid() == null, opts.minimum() != null);
         Sfv.InnerList inner = parsed.inner();
         List<Sfv.Item> items = inner.items();
@@ -956,7 +978,7 @@ public final class Fiki {
                     "The response covers \"content-digest\";req, so the request body it binds must be "
                         + "supplied in the Request to be checked; it was not.");
             }
-            headersToRead.add(lowered(request.headers()).get(CONTENT_DIGEST));
+            headersToRead.add(message.request().headers().get(CONTENT_DIGEST));
             contents.add(request.body());
         }
         // Every covered digest is parsed before any is compared, so a malformed one outranks a

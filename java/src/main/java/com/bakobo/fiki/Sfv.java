@@ -3,6 +3,7 @@ package com.bakobo.fiki;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -231,7 +232,9 @@ final class Sfv {
         }
 
         List<Map.Entry<String, Object>> parseParameters() {
-            List<Map.Entry<String, Object>> params = new ArrayList<>();
+            // A repeated key overwrites the earlier value in its original place (section 4.2.3.2),
+            // through a hash index so that a header of many parameters parses in linear time.
+            Map<String, Object> params = new LinkedHashMap<>();
             while (!done() && peek() == ';') {
                 at++;
                 skipSpace();
@@ -241,20 +244,11 @@ final class Sfv {
                     at++;
                     value = parseBareItem();
                 }
-                // A repeated key overwrites the earlier value in its original place (section
-                // 4.2.3.2), so a reader looking a parameter up gets the one a dictionary would.
-                boolean replaced = false;
-                for (int i = 0; i < params.size(); i++) {
-                    if (params.get(i).getKey().equals(key)) {
-                        params.set(i, Map.entry(key, value));
-                        replaced = true;
-                    }
-                }
-                if (!replaced) {
-                    params.add(Map.entry(key, value));
-                }
+                params.put(key, value);
             }
-            return params;
+            List<Map.Entry<String, Object>> out = new ArrayList<>(params.size());
+            params.forEach((key, value) -> out.add(Map.entry(key, value)));
+            return out;
         }
 
         Item parseItem() {
@@ -302,7 +296,9 @@ final class Sfv {
     /** Parse an RFC 8941 dictionary, preserving member order because the verify side needs it. */
     static List<Member> parseDictionary(String text) {
         Cursor cursor = new Cursor(text);
-        List<Member> out = new ArrayList<>();
+        // A repeated key keeps its first place and takes its last value (section 4.2.2), through a
+        // hash index for the same reason as parameters.
+        Map<String, Member> out = new LinkedHashMap<>();
         cursor.skipSpace();
         while (!cursor.done()) {
             String key = cursor.parseKey();
@@ -319,8 +315,7 @@ final class Sfv {
             } else {
                 member = new Member(key, Boolean.TRUE, cursor.parseParameters());
             }
-            out.removeIf(existing -> existing.key().equals(key));
-            out.add(member);
+            out.put(key, member);
             cursor.skipOws();
             if (cursor.done()) {
                 break;
@@ -331,7 +326,7 @@ final class Sfv {
                 throw new SyntaxException("a dictionary ended with a trailing comma");
             }
         }
-        return out;
+        return new ArrayList<>(out.values());
     }
 
     /** Parse one RFC 8941 item with its parameters, the whole of {@code text} and nothing else. */

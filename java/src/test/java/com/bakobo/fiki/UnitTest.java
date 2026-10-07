@@ -210,25 +210,28 @@ class UnitTest {
 
     @Test
     void digestHandling() {
-        record Case(String digest, FikiException.Kind expected) {}
-        List<Case> cases = List.of(
-            new Case("sha-1=:AAAA:, " + Fiki.contentDigest(BODY), null),
-            new Case("sha-1=:AAAA:", FikiException.Kind.MalformedDigest),
-            new Case("sha-256=\"not bytes\"", FikiException.Kind.MalformedDigest),
-            new Case("((( not sfv", FikiException.Kind.MalformedDigest));
-        for (Case c : cases) {
-            Map<String, String> supplied = headers("Content-Digest", c.digest());
-            Map<String, String> out = Fiki.signRequest(key(), "POST", URL_QUERY, supplied,
-                Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT));
-            Map<String, String> all = new LinkedHashMap<>(supplied);
-            all.putAll(out);
-            if (c.expected() == null) {
-                Fiki.verifyRequest("POST", URL_QUERY, all,
-                    Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
-            } else {
-                assertEquals(c.expected(), kindOf(() -> Fiki.verifyRequest("POST", URL_QUERY, all,
-                    Fiki.VerifyOptions.decliningFreshness().withBody(BODY))), c.digest());
-            }
+        // A digest that does not hold for the body is refused at signing, as the verifier would
+        // refuse it (@0ms4j0ef); one that holds, beside an algorithm fiki ignores, verifies.
+        Map<String, String> supplied = headers("Content-Digest", "sha-1=:AAAA:, " + Fiki.contentDigest(BODY));
+        Map<String, String> all = new LinkedHashMap<>(supplied);
+        all.putAll(Fiki.signRequest(key(), "POST", URL_QUERY, supplied,
+            Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)));
+        Fiki.verifyRequest("POST", URL_QUERY, all, Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+        for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
+            assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.signRequest(key(), "POST", URL_QUERY,
+                headers("Content-Digest", digest), Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT))), digest);
+        }
+        // And the verifier still refuses each, signed by a signer that is not fiki and checks
+        // nothing: the base built directly and signed over the bad digest.
+        for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
+            Map<String, String> received = headers("Content-Digest", digest);
+            byte[] base = Fiki.signatureBase("POST", URL_QUERY, received, List.of("@method", "content-digest"),
+                new Fiki.Params(SIGNED_AT, key().keyid(), "ed25519", null, null, null));
+            String text = new String(base, StandardCharsets.UTF_8);
+            received.put("Signature-Input", "sig=" + text.substring(text.lastIndexOf(": (") + 2));
+            received.put("Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(key().sign(base)) + ":");
+            assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.verifyRequest("POST", URL_QUERY,
+                received, Fiki.VerifyOptions.decliningFreshness().withBody(BODY))), digest);
         }
     }
 
