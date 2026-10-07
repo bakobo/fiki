@@ -418,12 +418,7 @@ async function verify(message, headers, body, options) {
   }
 
   const received = inner.params.get('keyid') ?? null;
-  if (expectedKeyid !== null && received !== expectedKeyid) {
-    throw new UnknownKey(`This message is signed by "${received}", and the one expected is "${expectedKeyid}".`, {
-      keyid: received,
-    });
-  }
-  const { raw, aid, keyid } = await resolveKey(expectedAid, received, resolve);
+  const { raw, aid, keyid } = await resolveKey(expectedAid, received, resolve, expectedKeyid);
   const alg = inner.params.get('alg');
   if (alg !== undefined && alg !== ALG) {
     throw new UnsupportedAlgorithm(`This signature is made with "${alg}", and fiki verifies only ${ALG} signatures.`, {
@@ -668,10 +663,23 @@ function parse(raw, name, ErrorClass) {
   }
 }
 
-/** The key to verify with, the identity to report, and the keyid as received. */
-async function resolveKey(expectedAid, keyid, resolve) {
+/** The key to verify with, the identity to report, and the keyid as received.
+ *
+ * In section 9's order: whether the keyid names a key at all (malformed-key, from fiki or from the
+ * resolver) before whether it is the one the client expected (unknown-key), before whether its key
+ * state has a key that can sign alone (unknown-key, unsupported-signer).
+ */
+async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
+  const expect = () => {
+    if (expectedKeyid !== null && keyid !== expectedKeyid) {
+      throw new UnknownKey(`This message is signed by "${keyid}", and the one expected is "${expectedKeyid}".`, {
+        keyid,
+      });
+    }
+  };
   if (expectedAid !== null) {
     const raw = verifyingKey(expectedAid);
+    expect();
     return { raw, aid: toAid(raw), keyid };
   }
   if (!keyid) {
@@ -689,17 +697,30 @@ async function resolveKey(expectedAid, keyid, resolve) {
       );
     }
     // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-    // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-    const raw = await resolve(keyid);
-    if (raw === null || raw === undefined) {
+    // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9). Its MalformedKey
+    // is reported at once; anything else it throws waits until the keyid is known to be expected.
+    let raw = null;
+    let deferred = null;
+    try {
+      raw = (await resolve(keyid)) ?? null;
+    } catch (error) {
+      if (error instanceof MalformedKey) throw error;
+      deferred = error;
+    }
+    if (raw !== null) {
+      if (!(raw instanceof Uint8Array) || raw.length !== KEY_LENGTH) {
+        throw new MalformedKey(`The key resolved for "${keyid}" is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
+          keyid,
+        });
+      }
+      checkKey(raw, keyid);
+    }
+    expect();
+    if (deferred !== null) throw deferred;
+    if (raw === null) {
       throw new UnknownKey(`No key is known for the keyid "${keyid}", so the signature cannot be checked.`, { keyid });
     }
-    if (!(raw instanceof Uint8Array) || raw.length !== KEY_LENGTH) {
-      throw new MalformedKey(`The key resolved for "${keyid}" is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
-        keyid,
-      });
-    }
-    return { raw: checkKey(raw, keyid), aid: keyid, keyid };
+    return { raw, aid: keyid, keyid };
   }
   // Strictly: a lenient decoder discards characters outside the alphabet and ignores trailing
   // bits, so a keyid that is not the key's encoding could verify as whatever key it happened to
@@ -712,7 +733,9 @@ async function resolveKey(expectedAid, keyid, resolve) {
       { keyid },
     );
   }
-  return { raw: checkKey(raw, keyid), aid: toAid(raw), keyid };
+  checkKey(raw, keyid);
+  expect();
+  return { raw, aid: toAid(raw), keyid };
 }
 
 /** Parse a Content-Digest into the members fiki computes, or refuse it as MalformedDigest.

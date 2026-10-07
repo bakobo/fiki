@@ -231,6 +231,58 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
   });
 });
 
+describe('a malformed keyid outranks an unexpected one (Copilot review of PR #5, C3)', () => {
+  // Section 9 puts malformed-key ahead of unknown-key, so the keyid is checked for being a key at
+  // all, by fiki and by the resolver, before it is compared with the one the client expected.
+  const EXPECTED = cesr('E', new Uint8Array(32).fill(7));
+  const refusesAs = async (keyid, resolve, ErrorClass) => {
+    const signed = await sign({ keyid });
+    await assert.rejects(() => verify(signed, { expectedKeyid: EXPECTED, ...(resolve ? { resolve } : {}) }), ErrorClass);
+  };
+  const malformed = (keyid) => {
+    throw new errors.MalformedKey(`${keyid} is not an AID.`, { keyid });
+  };
+  const group = (keyid) => {
+    throw new errors.UnsupportedSigner(`${keyid} is a group.`, { keyid });
+  };
+
+  it('reports a raw keyid that is not a key as malformed', async () => {
+    await refusesAs('not-a-key', null, errors.MalformedKey);
+  });
+
+  it('reports a misspelled AID as malformed, through a resolver', async () => {
+    await refusesAs('E' + '!'.repeat(43), () => raw(KEY), errors.MalformedKey);
+  });
+
+  it("reports the resolver's own MalformedKey refusal as malformed", async () => {
+    await refusesAs('not-an-aid', malformed, errors.MalformedKey);
+  });
+
+  it('reports a resolved key that is not a key as malformed', async () => {
+    await refusesAs(AID, () => new Uint8Array(5), errors.MalformedKey);
+    const identity = new Uint8Array(32);
+    identity[0] = 1;
+    await refusesAs(AID, () => identity, errors.MalformedKey);
+  });
+
+  it('reports an unexpected keyid as unknown ahead of an unsupported signer or a key nobody holds', async () => {
+    await refusesAs(AID, group, errors.UnknownKey);
+    await refusesAs(AID, () => null, errors.UnknownKey);
+    await refusesAs(AID, () => raw(KEY), errors.UnknownKey);
+  });
+
+  it('still reports an unsupported signer when the keyid is the expected one', async () => {
+    const signed = await sign({ keyid: AID });
+    await assert.rejects(() => verify(signed, { expectedKeyid: AID, resolve: group }), errors.UnsupportedSigner);
+  });
+
+  it('keeps a caller-defined keyid that is not an AID working', async () => {
+    const keyid = 'tenant-7/signing-key';
+    const verdict = await verify(await sign({ keyid }), { expectedKeyid: keyid, resolve: () => raw(KEY) });
+    assert.equal(verdict.keyid, keyid);
+  });
+});
+
 describe('component identifiers with parameters', () => {
   it('names a request component from a response with req', () => {
     assert.equal(req('@Method'), '"@method";req');
