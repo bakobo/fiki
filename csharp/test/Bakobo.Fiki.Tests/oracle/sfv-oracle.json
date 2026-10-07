@@ -563,6 +563,22 @@
    "parsed": "a=%\"\\\""
   },
   {
+   "input": "a=%\"\u0001\"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%  \"",
+   "parsed": null
+  },
+  {
+   "input": "a=%\"%+ \"",
+   "parsed": null
+  },
+  {
+   "input": "a=(?1)",
+   "parsed": "a=(?1)"
+  },
+  {
    "input": "a=()",
    "parsed": "a=()"
   },

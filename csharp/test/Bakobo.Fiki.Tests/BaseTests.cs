@@ -74,6 +74,14 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
+        public void AnAuthorityWithNoHostIsItsPortAlone()
+        {
+            // urlsplit gives no hostname for "https://:8080/x", and py builds f"{''}:{8080}".
+            Assert.Equal("\"@authority\": :8080", LineFor("@authority", url: "https://:8080/x"));
+            Assert.Equal("\"@authority\": ", LineFor("@authority", url: "https://u@/x"));
+        }
+
+        [Fact]
         public void AnUnreadablePortIsACallerError()
         {
             Assert.Throws<ArgumentException>(() => LineFor("@authority", url: "https://h:x/"));
@@ -274,6 +282,21 @@ namespace Bakobo.Fiki.Tests
                 "GET", "/", H(), new[] { "@target-uri", "@target-uri" }, 1, "k"));
             Assert.Equal(FikiErrorKind.DuplicateComponent, caught.Kind);
             Assert.Equal("@target-uri", caught.Component);
+        }
+
+        [Theory]
+        [InlineData("\"@path\";req", "\"@path\";req", true)]
+        [InlineData("\"@path\";req;sf", "\"@path\";sf;req", true)]
+        [InlineData("\"@path\";req", "\"@path\";req=1", true)]
+        [InlineData("\"@path\";req", "\"@path\";sf", false)]
+        [InlineData("\"@path\";req", "\"@path\";req=?0", false)]
+        [InlineData("\"@path\";req", "\"@path\"", false)]
+        [InlineData("\"@path\";req", "\"@query\";req", false)]
+        public void TwoIdentifiersNameOneComponentWhenValueAndParametersAgreeInAnyOrder(string a, string b, bool same)
+        {
+            // py's identity(): the value and the sorted parameters, compared as Python compares
+            // them, so req=1 is req (True == 1).
+            Assert.Equal(same, Components.SameComponent(Components.Component(a), Components.Component(b)));
         }
 
         [Fact]

@@ -121,6 +121,11 @@ namespace Bakobo.Fiki.Tests
                 Sign(headers: new Dictionary<string, string> { { "Content-Digest", "sha-256=\"not bytes\"" } }).Refused().Kind);
 
         [Fact]
+        public void ARecognizedDigestThatIsAnInnerListIsMalformed() =>
+            Assert.Equal(FikiErrorKind.MalformedDigest,
+                Sign(headers: new Dictionary<string, string> { { "Content-Digest", "sha-256=(:AAAA:)" } }).Refused().Kind);
+
+        [Fact]
         public void AnUnparsableDigestIsMalformedEvenWhenNoBodyWasSupplied()
         {
             // Section 9 puts malformed-digest before digest-mismatch.
@@ -244,6 +249,15 @@ namespace Bakobo.Fiki.Tests
             var verdict = Check(Respond());
             Assert.Equal(TheKey.Aid, verdict.Aid);
             Assert.Equal(new[] { "@status", "\"@method\";req", "\"@path\";req", "\"@query\";req", "content-digest", "\"content-digest\";req" }, verdict.Covered);
+        }
+
+        [Fact]
+        public void AResponseSignedWithNoHeadersOrTimestampGivenIsStampedNow()
+        {
+            var headers = HttpSignatures.SignResponse(TheKey, 204);
+            Assert.Equal(new[] { "Signature-Input", "Signature" }, headers.Keys.ToArray());
+            var verdict = HttpSignatures.VerifyResponse(204, headers, VerifyOptions.MaxAge(60));
+            Assert.Equal(new[] { "@status" }, verdict.Covered);
         }
 
         [Fact]
@@ -862,6 +876,16 @@ namespace Bakobo.Fiki.Tests
             var headers = Respond(request: unread, covered: BindsBoth);
             var odd = new Request("POST", Url, new Dictionary<string, string> { { "Content-Digest", "((((" } }, Body);
             Assert.Equal(FikiErrorKind.MalformedDigest, CheckRefused(headers, request: odd, body: Bytes.Utf8("{\"done\": false}")).Kind);
+        }
+
+        [Fact]
+        public void OptionsForTheOtherKindOfMessageAreACallerError()
+        {
+            // Python's keyword arguments make these unexpressible there; here they are refused
+            // rather than silently ignored, since an ignored authority check is one nobody made.
+            var message = Sign();
+            Assert.Throws<ArgumentException>(() => message.Verify(o => o.WithRequest(TheRequest)));
+            Assert.Throws<ArgumentException>(() => Check(Respond(), with: o => o.WithAuthorities(new[] { "keria.example.com" })));
         }
 
         [Fact]

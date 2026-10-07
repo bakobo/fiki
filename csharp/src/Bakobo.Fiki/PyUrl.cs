@@ -246,12 +246,9 @@ namespace Bakobo.Fiki
         private const int Hextets = 8;
         private const string HexDigits = "0123456789abcdefABCDEF";
 
+        // ipaddress also refuses a "/", which never reaches here: urlsplit ends the netloc at one.
         internal static bool IsIPv6(string text)
         {
-            if (text.IndexOf('/') >= 0)
-            {
-                return false;
-            }
             var address = text;
             var percent = text.IndexOf('%');
             if (percent >= 0)
@@ -376,7 +373,9 @@ namespace Bakobo.Fiki
                     return false;
                 }
             }
-            return text.Length > 0 && text.Length <= 4;
+            // Never empty: an empty part is the one "::" or an end it absorbs, and IsIPv6 parses
+            // neither as a hextet.
+            return text.Length <= 4;
         }
 
         private static bool IsIPv4(string text)

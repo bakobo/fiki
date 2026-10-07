@@ -94,6 +94,16 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(new[] { "a", "b" }, item.Params.Select(p => p.Key).ToArray());
         }
 
+        [Fact]
+        public void DictionariesAndParametersEnumerateAsPlainSequencesToo()
+        {
+            var parsed = Sfv.ParseDictionary("a=1;p");
+            var members = ((System.Collections.IEnumerable)parsed).GetEnumerator();
+            Assert.True(members.MoveNext());
+            var parameters = ((System.Collections.IEnumerable)((SfItem)parsed.First().Value).Params).GetEnumerator();
+            Assert.True(parameters.MoveNext());
+        }
+
         // --- serialization of values fiki builds itself ---
 
         [Fact]

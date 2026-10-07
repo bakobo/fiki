@@ -723,6 +723,137 @@
    "error": true
   },
   {
+   "input": "https://[:1::2]/",
+   "error": true
+  },
+  {
+   "input": "https://[1::2:]/",
+   "error": true
+  },
+  {
+   "input": "https://[1:2:3:4::5:6:7:8]/",
+   "error": true
+  },
+  {
+   "input": "https://[1::g]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1.2.3.x]/",
+   "error": true
+  },
+  {
+   "input": "https://[1::2]/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "[1::2]",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "1::2",
+   "port": null
+  },
+  {
+   "input": "\u00e9://h/",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "\u00e9://h/",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "{://h/",
+   "error": false,
+   "scheme": "",
+   "netloc": "",
+   "path": "{://h/",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
+   "input": "https://]@[::1/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "]@[::1",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": null
+  },
+  {
+   "input": "https://]@[::1]:8/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "]@[::1]:8",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "::1",
+   "port": 8
+  },
+  {
+   "input": "https://h:123456/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h:123456",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": "error"
+  },
+  {
+   "input": "https://h:000080/",
+   "error": false,
+   "scheme": "https",
+   "netloc": "h:000080",
+   "path": "/",
+   "query": "",
+   "fragment": "",
+   "hostname": "h",
+   "port": 80
+  },
+  {
+   "input": "https://[::1.2..3]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1.2.3.1234]/",
+   "error": true
+  },
+  {
+   "input": "https://[::1.2.3.+4]/",
+   "error": true
+  },
+  {
+   "input": "https://:8080/x",
+   "error": false,
+   "scheme": "https",
+   "netloc": ":8080",
+   "path": "/x",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": 8080
+  },
+  {
+   "input": "https://u@/x",
+   "error": false,
+   "scheme": "https",
+   "netloc": "u@",
+   "path": "/x",
+   "query": "",
+   "fragment": "",
+   "hostname": null,
+   "port": null
+  },
+  {
    "input": "  https://h/p",
    "error": false,
    "scheme": "https",
