@@ -663,8 +663,29 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 	return nil
 }
 
-// resolveKey is the key to verify with and the identity to report.
+// resolveKey is the key to verify with and the identity to report, refusing a small-order key
+// whichever way it arrived (@8krqtpsu).
 func resolveKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
+	public, aid, err := findKey(expectedAID, keyid, resolve)
+	if err != nil {
+		return nil, "", err
+	}
+	if smallOrder(public) {
+		named := keyid
+		if expectedAID != "" {
+			named = expectedAID
+		}
+		return nil, "", &Error{
+			Kind: KindMalformedKey,
+			Message: fmt.Sprintf("The key for %q is a point of small order, under which a signature "+
+				"can be forged without any private key, so it is not a key fiki will verify with.", named),
+			Keyid: named,
+		}
+	}
+	return public, aid, nil
+}
+
+func findKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
 	if expectedAID != "" {
 		public, err := VerifyingKey(expectedAID)
 		if err != nil {
