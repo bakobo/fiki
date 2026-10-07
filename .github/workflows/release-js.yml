@@ -150,4 +150,11 @@ jobs:
           npm init -y > /dev/null
           npm install --no-audit --no-fund --registry https://registry.npmjs.org "@bakobo/fiki@$VERSION"
           npm audit signatures
+          # audit signatures verifies an attestation when one is present but does not require one,
+          # so require the SLSA provenance attestation explicitly.
+          predicate=$(npm view "@bakobo/fiki@$VERSION" dist.attestations.provenance.predicateType --registry https://registry.npmjs.org)
+          if [ "$predicate" != "https://slsa.dev/provenance/v1" ]; then
+            echo "::error::e.state.missing.release.provenance.f: npm serves @bakobo/fiki $VERSION without a SLSA provenance attestation (predicateType '$predicate'), so this release cannot be traced to its build."
+            exit 1
+          fi
           node smoke.mjs "$GITHUB_WORKSPACE/vectors"
