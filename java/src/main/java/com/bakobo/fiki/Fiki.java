@@ -447,6 +447,14 @@ public final class Fiki {
     }
 
     private static byte[] finish(List<String> lines, List<Sfv.Item> items, Params params) {
+        // The signing side only: refuse a parameter the verifier would refuse, or that would
+        // inject a line into Signature-Input, before anything is serialized (@2r05k9g0).
+        sfInteger("created", params.created());
+        sfInteger("expires", params.expires());
+        sfString("nonce", params.nonce());
+        sfString("alg", params.alg());
+        sfString("keyid", params.keyid());
+        sfString("tag", params.tag());
         // Order is the signer's choice — a verifier reserializes whatever it received — so fiki
         // fixes one order and keeps it, which makes its own output reproducible.
         List<Map.Entry<String, Object>> ordered = new ArrayList<>();
@@ -458,6 +466,32 @@ public final class Fiki {
         if (params.tag() != null) ordered.add(Map.entry("tag", params.tag()));
         return finish(lines, new Sfv.InnerList(items, ordered));
     }
+
+    private static final long SF_INTEGER_MAX = 999_999_999_999_999L;
+
+    private static void sfInteger(String name, Long value) {
+        if (value != null && (value > SF_INTEGER_MAX || value < -SF_INTEGER_MAX)) {
+            throw new IllegalArgumentException(
+                "The signature parameter " + name + " is " + value + ", and RFC 8941 integers have at most "
+                    + "fifteen digits, so no verifier would read it.");
+        }
+    }
+
+    private static void sfString(String name, String value) {
+        if (value == null) {
+            return;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch < 0x20 || ch > 0x7e) {
+                throw new IllegalArgumentException(
+                    "The signature parameter " + name + " contains a character outside visible ASCII and "
+                        + "space, which an RFC 8941 string cannot carry.");
+            }
+        }
+    }
+
+    private static final Pattern SF_KEY = Pattern.compile("[a-z*][a-z0-9_\\-.*]*");
 
     private static byte[] finish(List<String> lines, Sfv.InnerList inner) {
         List<String> all = new ArrayList<>(lines);
@@ -760,11 +794,16 @@ public final class Fiki {
 
     private static Map<String, String> signed(
             Key key, byte[] base, String label, Map<String, String> sending, Map<String, String> given) {
+        String chosen = label == null ? "sig" : label;
+        if (!SF_KEY.matcher(chosen).matches()) {
+            throw new IllegalArgumentException(
+                "The label " + chosen + " is not an RFC 8941 key: a lowercase letter or *, then lowercase "
+                    + "letters, digits, _, -, . or *.");
+        }
         byte[] signature = key.sign(base);
         String text = new String(base, StandardCharsets.UTF_8);
         String marker = "\"@signature-params\": ";
         String rendered = text.substring(text.lastIndexOf(marker) + marker.length());
-        String chosen = label == null ? "sig" : label;
 
         Map<String, String> out = new LinkedHashMap<>();
         out.put("Signature-Input", chosen + "=" + rendered);
