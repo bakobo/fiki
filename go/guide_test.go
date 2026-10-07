@@ -7,6 +7,7 @@ package fiki_test
 // what a consumer sees.
 
 import (
+	"errors"
 	"testing"
 
 	fiki "github.com/bakobo/fiki/go"
@@ -33,5 +34,159 @@ func TestTheGuidesSamplesRun(t *testing.T) {
 	}
 	if verdict.AID != key.AID() {
 		t.Errorf("AID = %q, want %q", verdict.AID, key.AID())
+	}
+}
+
+// The KERI-profile samples in the Go guide (`this.i` @9z57sejw), each run as written. The keys and
+// the AID come from vectors/keri/'s keys table: a controller and the agent that serves it.
+
+func guideKey(t *testing.T, first byte) *fiki.Key {
+	t.Helper()
+	seed := make([]byte, 32)
+	for i := range seed {
+		seed[i] = first + byte(i)
+	}
+	key, err := fiki.FromSeed(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return key
+}
+
+func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
+	key := guideKey(t, 2)      // the controller's current signing key
+	agentKey := guideKey(t, 3) // the agent's
+	aid := "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx"
+	agentAID := "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+	url := "https://keria.example.com/identifiers?type=rot"
+	body := []byte(`{"name": "alice"}`)
+	public := func(k *fiki.Key) []byte { raw, _ := fiki.VerifyingKey(k.AID()); return raw }
+	keyState := map[string][]byte{aid: public(key), agentAID: public(agentKey)}
+
+	// (a) Signing a request with a KERI AID as the keyid.
+	headers, err := fiki.SignRequest(key, "POST", url, nil, fiki.SignOptions{
+		Keyid:   aid,                 // name the AID; the verifier resolves it
+		Body:    body,                // covered by a Content-Digest, returned among the headers
+		Minimum: fiki.RequestMinimum, // refuse to sign what a profile verifier would refuse
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (b) Verifying a request with a resolver.
+	resolve := func(keyid string) ([]byte, error) {
+		key, ok := keyState[keyid] // the current key of the KEL you hold for keyid
+		if !ok {
+			return nil, nil // no KEL: fiki refuses the message as UnknownKey
+		}
+		return key, nil
+	}
+	maxAge, skew := int64(300), int64(60)
+	verdict, err := fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
+		Body:        body,
+		Resolve:     resolve,
+		Minimum:     fiki.RequestMinimum,
+		MaxAge:      &maxAge,
+		Skew:        &skew,
+		Authorities: []string{"keria.example.com"}, // the authorities this server answers for
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.Keyid != aid || verdict.AID != aid {
+		t.Errorf("verdict = %+v", verdict)
+	}
+
+	// (c) Signing a response.
+	request := &fiki.Request{Method: "POST", URL: url, Headers: headers, Body: body}
+	responseBody := []byte(`{"done": true}`)
+	responseHeaders, err := fiki.SignResponse(agentKey, 200, request, nil, fiki.SignOptions{
+		Keyid:   agentAID,
+		Body:    responseBody,
+		Minimum: fiki.ResponseMinimum,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (d) Verifying a response.
+	verdict, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
+		Body:          responseBody,
+		Resolve:       resolve,
+		Minimum:       fiki.ResponseMinimum,
+		ExpectedKeyid: agentAID, // the AID you meant to talk to (profile R1)
+		MaxAge:        &maxAge,
+		Skew:          &skew,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verdict.Covered[len(verdict.Covered)-1] != `"content-digest";req` {
+		t.Errorf("covered = %v", verdict.Covered)
+	}
+
+	// (e) The new error kinds.
+	describe := func(err error) string {
+		var refusal *fiki.Error
+		switch {
+		case errors.Is(err, fiki.ErrInvalidOptions):
+			return "a mistake in the call, not in the message"
+		case errors.As(err, &refusal):
+			switch refusal.Kind {
+			case fiki.KindUnknownKey:
+				return "no key state for " + refusal.Keyid
+			case fiki.KindUnsupportedSigner:
+				return "no single key of " + refusal.Keyid + " signs alone"
+			case fiki.KindInsufficientCoverage:
+				return "the signature does not cover " + refusal.Component
+			case fiki.KindDuplicateComponent:
+				return "the covered list names " + refusal.Component + " twice"
+			case fiki.KindUnauthenticated:
+				return "an unsigned 401; its body is not to be trusted"
+			}
+			return refusal.Kind
+		}
+		return err.Error()
+	}
+
+	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
+		Body: body, Minimum: fiki.RequestMinimum,
+		Resolve: func(string) ([]byte, error) { return nil, nil },
+	})
+	if got := describe(err); got != "no key state for "+aid {
+		t.Errorf("UnknownKey: %s", got)
+	}
+	twoOfThree := func(keyid string) ([]byte, error) {
+		return nil, &fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid,
+			Message: "The key state of " + keyid + " has no single key that satisfies its threshold."}
+	}
+	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Body: body, Resolve: twoOfThree})
+	if got := describe(err); got != "no single key of "+aid+" signs alone" {
+		t.Errorf("UnsupportedSigner: %s", got)
+	}
+	_, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
+		Body: responseBody, Resolve: resolve, Minimum: append(fiki.ResponseMinimum[:4:4], "content-type"),
+	})
+	if got := describe(err); got != "the signature does not cover content-type" {
+		t.Errorf("InsufficientCoverage: %s", got)
+	}
+	_, err = fiki.SignRequest(key, "GET", url, nil, fiki.SignOptions{Covered: []string{"@method", "@path", "@query", "@path"}})
+	if got := describe(err); got != "the covered list names @path twice" {
+		t.Errorf("DuplicateComponent: %s", got)
+	}
+	_, err = fiki.VerifyResponse(401, request, map[string]string{}, fiki.VerifyOptions{})
+	if got := describe(err); got != "an unsigned 401; its body is not to be trusted" {
+		t.Errorf("Unauthenticated: %s", got)
+	}
+	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Minimum: []string{"@method"}})
+	if got := describe(err); got != "a mistake in the call, not in the message" {
+		t.Errorf("ErrInvalidOptions: %s", got)
+	}
+	_, err = fiki.VerifyRequest("POST", url, map[string]string{}, fiki.VerifyOptions{})
+	if got := describe(err); got != fiki.KindMissingSignature {
+		t.Errorf("other kinds: %s", got)
+	}
+	if got := describe(errors.New("not fiki's")); got != "not fiki's" {
+		t.Errorf("other errors: %s", got)
 	}
 }
