@@ -6,3 +6,4 @@ created: 2026-10-07T17:51Z
 - 2026-10-07T17:56Z 2026-10-07: fiki-py also returns MissingSignature (not Unauthenticated) for a 401 whose Signature header is empty; go fixed it on #6 (4a193e1).
 - 2026-10-07T18:00Z 2026-10-07: go (#6) also reports a malformed keyid as UnknownKey when an expected keyid is set (out of section 9 order), like py; it does not call the resolver for an unexpected keyid. js order since e3c094a: local spelling check, then expected mismatch without resolving, then resolve.
 - 2026-10-07T18:02Z 2026-10-07: a method must be an RFC 9110 token, not merely non-empty (go #6 still signs ' ' when @method is not covered; hostile fix-pass finding, Low). Apply in every port.
+- 2026-10-07T18:05Z 2026-10-07: from java #10: fiki-py signs a CR/LF label (refuses CR/LF in keyid/nonce/tag); py raises a bare ValueError for a bad port in a RECEIVED URL on verify (java returns SignatureMismatch) — pick one coded refusal for all ports.
