@@ -18,7 +18,7 @@ import pytest
 
 from fiki import Key, sign_request, verify_request, verifying_key
 from fiki.errors import MalformedKey, SignatureMismatch
-from fiki.keys import to_aid
+from fiki.keys import public_key, to_aid
 
 P = 2**255 - 19
 D = (-121665 * pow(121666, -1, P)) % P
@@ -209,3 +209,11 @@ def test_a_forgery_under_an_honest_key_is_still_a_mismatch():
     headers["Signature"] = f"sig=:{base64.b64encode(FORGED).decode()}:"
     with pytest.raises(SignatureMismatch):
         verify_request(method="GET", url=URL, headers=headers, max_age=None)
+
+
+@pytest.mark.parametrize("length", [0, 31, 33, 64])
+def test_the_public_key_helper_refuses_any_length_but_32_as_malformed(length):
+    """Every caller checks the length first today; the helper does not rely on that."""
+    with pytest.raises(MalformedKey) as caught:
+        public_key(b"\x09" * length, "k")
+    assert caught.value.keyid == "k"

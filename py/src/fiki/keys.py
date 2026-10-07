@@ -76,6 +76,14 @@ def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
     identity point, the key 0x01 followed by 31 zero bytes, a signature of 0x01 followed by 63
     zero bytes verifies over any message, and OpenSSL accepts it.
     """
+    # First, on every path: the decoding below reads any length as an integer, and cryptography
+    # would refuse a wrong one with a ValueError from outside fiki's taxonomy.
+    if len(raw) != _RAW_LEN:
+        raise MalformedKey(
+            f'The key for "{keyid}" is {len(raw)} bytes, and an Ed25519 public key is '
+            f"{_RAW_LEN}.",
+            keyid=keyid,
+        )
     point = _decode_point(raw)
     if point is None:
         raise MalformedKey(
