@@ -102,7 +102,9 @@ class UnitTest {
         assertEquals("\"@query\": ?", line("@query", "GET", "https://example.com/f", Map.of()));
         assertEquals("\"@query\": ?baz=bat%2Dman",
             line("@query", "GET", "https://example.com/p?baz=bat%2Dman", Map.of()));
-        assertEquals("\"@method\": POST", line("@method", "post", "https://example.com/f", Map.of()));
+        // RFC 9421 section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+        assertEquals("\"@method\": post", line("@method", "post", "https://example.com/f", Map.of()));
+        assertEquals("\"@method\": POST", line("@method", "POST", "https://example.com/f", Map.of()));
         assertEquals("\"content-type\": application/json",
             line("Content-Type", "GET", "https://x.example/f", headers("Content-Type", "  application/json  ")));
     }

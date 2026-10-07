@@ -149,8 +149,9 @@ public final class Fiki {
     private static String componentValue(
             String component, String method, Target target, Map<String, String> headers) {
         switch (component) {
+            // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
             case "@method":
-                return method.toUpperCase(Locale.ROOT);
+                return method;
             case "@authority":
                 return authority(target, headers);
             case "@path":
