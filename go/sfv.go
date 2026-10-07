@@ -240,6 +240,12 @@ func (c *cursor) parseBareItem() (any, error) {
 
 func (c *cursor) parseParameters() ([]param, error) {
 	var params []param
+	// Where each key sits, so a duplicated key overwrites its first value in place, as RFC 8941
+	// section 4.2.3.2 says a parser must, without rescanning every earlier parameter: a scan per
+	// parameter made a long Signature-Input cost quadratic time before it was refused
+	// (bakobo/fiki#6). A duplicated parameter therefore cannot smuggle a second value past a
+	// check that reads the first.
+	at := map[string]int{}
 	for !c.done() && c.peek() == ';' {
 		c.at++
 		c.skipSpace()
@@ -254,22 +260,14 @@ func (c *cursor) parseParameters() ([]param, error) {
 				return nil, err
 			}
 		}
-		params = setParam(params, key, value)
+		if i, seen := at[key]; seen {
+			params[i].Value = value
+			continue
+		}
+		at[key] = len(params)
+		params = append(params, param{Key: key, Value: value})
 	}
 	return params, nil
-}
-
-// setParam overwrites a key already present, in its original position, as RFC 8941 section
-// 4.2.3.2 says a parser must, so a duplicated parameter cannot smuggle a second value past a
-// check that reads the first.
-func setParam(params []param, key string, value any) []param {
-	for i := range params {
-		if params[i].Key == key {
-			params[i].Value = value
-			return params
-		}
-	}
-	return append(params, param{Key: key, Value: value})
 }
 
 func (c *cursor) parseInnerList() (innerList, error) {
