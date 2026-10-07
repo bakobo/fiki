@@ -4,3 +4,4 @@ TestResults/
 *.nupkg
 coverage*.json
 coverage*.xml
+pack/
