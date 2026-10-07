@@ -1651,3 +1651,93 @@ fn a_max_age_with_no_created_to_check_is_too_old_without_a_minimum() {
     };
     assert_eq!(sent.kind(aged), Kind::SignatureTooOld);
 }
+
+// --- small-order public keys are refused before any signature check (@2t8xctts, tick 27eo) ---
+
+/// Encodings of small-order points: the identity, the identity spelled non-canonically (y = p + 1),
+/// the point of order 2 (y = p - 1), and a point of order 4 (y = 0) under both signs.
+fn small_order_keys() -> Vec<[u8; 32]> {
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let mut non_canonical_identity = [0xffu8; 32];
+    non_canonical_identity[0] = 0xee;
+    non_canonical_identity[31] = 0x7f;
+    let mut order_two = [0xffu8; 32];
+    order_two[0] = 0xec;
+    order_two[31] = 0x7f;
+    let mut order_four_negative = [0u8; 32];
+    order_four_negative[31] = 0x80;
+    vec![
+        identity,
+        non_canonical_identity,
+        order_two,
+        [0u8; 32],
+        order_four_negative,
+    ]
+}
+
+/// The forgery tick 27eo reproduced in fiki-py: under the identity key, the signature 0x01
+/// followed by 63 zero bytes verifies over any message with a lenient verifier.
+fn forged_under(keyid: &str) -> Sent {
+    let mut sent = signed(SignOptions {
+        keyid: Some(keyid.to_string()),
+        ..Default::default()
+    });
+    let mut forged = [0u8; 64];
+    forged[0] = 1;
+    sent.headers.insert(
+        "Signature".into(),
+        format!("sig=:{}:", encode(&forged, B64STD, true)),
+    );
+    sent
+}
+
+#[test]
+fn a_small_order_key_is_malformed_through_an_inline_keyid() {
+    for small in small_order_keys() {
+        let sent = forged_under(&encode(&small, B64URL, false));
+        let err = sent.verify(VerifyOptions::default()).unwrap_err();
+        assert_eq!(err.kind, Kind::MalformedKey, "{small:02x?}");
+    }
+}
+
+#[test]
+fn a_small_order_key_is_malformed_through_a_resolver() {
+    for small in small_order_keys() {
+        let sent = forged_under(&aid());
+        let resolver: Resolver = Arc::new(move |_: &str| Ok(Some(small)));
+        let err = sent.verify(resolving(resolver)).unwrap_err();
+        assert_eq!(err.kind, Kind::MalformedKey, "{small:02x?}");
+        assert_eq!(err.detail, Some(aid()));
+    }
+}
+
+#[test]
+fn a_small_order_key_is_malformed_as_an_aid() {
+    for small in small_order_keys() {
+        let aid = fiki::to_aid(&small);
+        assert_eq!(
+            verifying_key(&aid).unwrap_err().kind,
+            Kind::MalformedKey,
+            "{aid}"
+        );
+        let opts = VerifyOptions {
+            expected_aid: Some(aid.clone()),
+            ..Default::default()
+        };
+        assert_eq!(
+            forged_under("anything").kind(opts),
+            Kind::MalformedKey,
+            "{aid}"
+        );
+    }
+}
+
+#[test]
+fn the_small_order_refusal_comes_before_the_algorithm() {
+    let mut identity = [0u8; 32];
+    identity[0] = 1;
+    let sent = forged_under(&encode(&identity, B64URL, false))
+        .mangle("alg=\"ed25519\"", "alg=\"rsa-pss-sha512\"");
+    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedKey);
+}

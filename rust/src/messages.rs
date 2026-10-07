@@ -24,7 +24,7 @@ use crate::base::{
     Request, SignatureParams, CONTENT_DIGEST, DEFAULT_COVERED,
 };
 use crate::errors::{Error, Kind, Result};
-use crate::keys::{b64std, misspelled_aid, raw_keyid, to_aid, verifying_key, Key};
+use crate::keys::{b64std, misspelled_aid, public_key, raw_keyid, to_aid, verifying_key, Key};
 use crate::sfv::{parse_dictionary, serialize_inner_list, InnerList, Item, Member, Value};
 
 /// The only signature algorithm fiki produces or accepts.
@@ -802,9 +802,11 @@ fn resolve(opts: &VerifyOptions, keyid: Option<&str>) -> Result<(VerifyingKey, S
                 keyid,
             )
         })?;
-        let public = VerifyingKey::from_bytes(&raw).map_err(|_| {
+        let public = public_key(&raw).ok_or_else(|| {
             malformed(format!(
-                "The key resolved for \"{keyid}\" is not an Ed25519 public key."
+                "The key resolved for \"{keyid}\" is not a usable Ed25519 public key: it is not a \
+                 point on the curve, or it is a small-order point, under which a signature proves \
+                 nothing."
             ))
         })?;
         return Ok((public, keyid.to_string()));
@@ -816,9 +818,10 @@ fn resolve(opts: &VerifyOptions, keyid: Option<&str>) -> Result<(VerifyingKey, S
              spelling."
         ))
     })?;
-    let public = VerifyingKey::from_bytes(&raw).map_err(|_| {
+    let public = public_key(&raw).ok_or_else(|| {
         malformed(format!(
-            "The keyid \"{keyid}\" is not an Ed25519 public key."
+            "The keyid \"{keyid}\" is not a usable Ed25519 public key: it is not a point on the \
+             curve, or it is a small-order point, under which a signature proves nothing."
         ))
     })?;
     Ok((public, to_aid(&raw)))

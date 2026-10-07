@@ -101,14 +101,14 @@ fn malformed_aids_are_refused() {
 
 #[test]
 fn any_32_bytes_are_accepted_as_a_key_and_rejected_at_verification() {
-    // Measured, not assumed: ed25519-dalek 2.x's VerifyingKey::from_bytes accepts any 32 bytes,
-    // including all-zero and all-0xFF, and defers point validation to verification. So an AID
+    // Measured, not assumed: ed25519-dalek 2.x's VerifyingKey::from_bytes accepts 32 bytes it
+    // cannot vouch for, all-0xFF included, and defers point validation to verification. So an AID
     // that decodes to nonsense is a signature failure rather than a malformed key, and a test
-    // asserting the opposite would be asserting a guarantee this port does not have.
-    for bytes in [[0x00u8; 32], [0xFFu8; 32]] {
-        let aid = fiki::to_aid(&bytes);
-        assert!(verifying_key(&aid).is_ok(), "from_bytes accepts {aid}");
-    }
+    // asserting the opposite would be asserting a guarantee this port does not have. The one class
+    // refused up front is a small-order point (`this.i` @2t8xctts), all-zero among them; profile.rs
+    // pins that.
+    let aid = fiki::to_aid(&[0xFFu8; 32]);
+    assert!(verifying_key(&aid).is_ok(), "from_bytes accepts {aid}");
 }
 
 #[test]

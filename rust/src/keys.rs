@@ -141,17 +141,28 @@ pub fn verifying_key(aid: &str) -> Result<VerifyingKey> {
             aid,
         ));
     }
-    // ed25519-dalek 2.x accepts any 32 bytes here and defers point validation to verification, so
-    // this arm does not fire today. It is written rather than unwrapped because from_bytes is
-    // declared fallible: a future version that validates eagerly should surface as a malformed
-    // key, not as a panic.
-    VerifyingKey::from_bytes(&bytes).map_err(|_| {
+    public_key(&bytes).ok_or_else(|| {
         Error::detailed(
             Kind::MalformedKey,
-            format!("The AID {aid} is not a valid key."),
+            format!("The AID {aid} is not a usable Ed25519 public key."),
             aid,
         )
     })
+}
+
+/// The Ed25519 public key for 32 raw bytes, or `None` for bytes no signature should be checked
+/// under: a small-order point (`this.i` @2t8xctts, tick 27eo), which has no secret behind it that
+/// only one party holds — under the identity point the signature 0x01 followed by 63 zero bytes
+/// verifies over any message.
+///
+/// ed25519-dalek 2.x's `from_bytes` accepts most other 32 bytes and defers point validation to
+/// verification; its error arm is handled rather than unwrapped because a future version that
+/// validates eagerly should surface as a malformed key, not as a panic. `is_weak` tests the
+/// decompressed point, so it catches a small-order point under any encoding that decompresses.
+pub(crate) fn public_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
+    VerifyingKey::from_bytes(raw)
+        .ok()
+        .filter(|key| !key.is_weak())
 }
 
 /// An Ed25519 key pair whose public half is rendered as a non-transferable AID.
