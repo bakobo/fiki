@@ -107,6 +107,24 @@ describe('Content-Digest: every recognized member must match (RFC 9530)', () => 
     assert.equal((await verify(signed)).aid, KEY.aid);
   });
 
+  // RFC 8941 keys are lowercase and cannot start with "_", so "constructor" is the one
+  // Object.prototype name a member can carry; the others are here as the same kind of guard.
+  for (const name of ['constructor', 'tostring', 'hasownproperty', 'valueof']) {
+    it(`ignores a ${name} member as an unknown algorithm, never a lookup on Object.prototype`, async () => {
+      // Copilot review of PR #5, C4: the algorithm table is keyed by untrusted member names.
+      const digest = `${await contentDigest(BODY)}, ${name}=:AA==:`;
+      const signed = await sign({ headers: { 'Content-Digest': digest } });
+      assert.equal((await verify(signed)).aid, KEY.aid);
+      const only = await sign({ headers: { 'Content-Digest': `${name}=:AA==:` } });
+      await assert.rejects(() => verify(only), errors.MalformedDigest);
+    });
+  }
+
+  it('refuses a __proto__ member as an unparsable header, since no RFC 8941 key starts with "_"', async () => {
+    const signed = await sign({ headers: { 'Content-Digest': `${await contentDigest(BODY)}, __proto__=:AA==:` } });
+    await assert.rejects(() => verify(signed), errors.MalformedDigest);
+  });
+
   it('refuses a recognized digest that is not a byte sequence as malformed', async () => {
     const signed = await sign({ headers: { 'Content-Digest': 'sha-256="not bytes"' } });
     await assert.rejects(() => verify(signed), errors.MalformedDigest);
@@ -480,6 +498,10 @@ describe('Signature-Input, as received', () => {
     ['component-a-token', '"@path"', 'path'],
     ['component-an-integer', '"@path"', '7'],
     ['created-of-sixteen-digits', `;created=${AT}`, ';created=1700000000000000'],
+    // Parameter names are untrusted keys into the parameter table (Copilot review of PR #5, C4).
+    ['a-constructor-parameter', `;created=${AT}`, `;created=${AT};constructor="x"`],
+    ['a-tostring-parameter-with-a-function-like-type', `;created=${AT}`, `;created=${AT};tostring=1`],
+    ['a-proto-parameter', `;created=${AT}`, `;created=${AT};__proto__="x"`],
   ]) {
     it(`refuses a member with ${id}`, async () => {
       const signed = await sign();

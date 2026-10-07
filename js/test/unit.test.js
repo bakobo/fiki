@@ -144,6 +144,12 @@ describe('the signature base', () => {
     assert.equal(line('@authority', { url: 'https://example.com:65535/f' }), '"@authority": example.com:65535');
   });
 
+  it('keeps the port of a scheme named like an Object.prototype property', () => {
+    // The default-port table is keyed by the URL's scheme, which is the caller's (C4).
+    assert.equal(line('@authority', { url: 'constructor://example.com:80/f' }), '"@authority": example.com:80');
+    assert.equal(line('@authority', { url: 'tostring://example.com:80/f' }), '"@authority": example.com:80');
+  });
+
   it('refuses a URL whose port is not a port as a caller error', () => {
     assert.throws(() => line('@authority', { url: 'https://example.com:http/f' }), TypeError);
     assert.throws(() => line('@authority', { url: 'https://example.com:65536/f' }), TypeError);

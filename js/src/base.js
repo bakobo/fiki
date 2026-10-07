@@ -33,7 +33,14 @@ const REQ = 'req';
 // order and keeps it, which makes its own output reproducible.
 const PARAM_ORDER = ['created', 'expires', 'nonce', 'alg', 'keyid', 'tag'];
 
-const DEFAULT_PORTS = { http: '80', https: '443', ws: '80', wss: '443' };
+// A Map, because it is keyed by the caller's scheme, and an object literal would answer
+// "constructor" from Object.prototype (Copilot review of PR #5, C4).
+const DEFAULT_PORTS = new Map([
+  ['http', '80'],
+  ['https', '443'],
+  ['ws', '80'],
+  ['wss', '443'],
+]);
 
 /** A component identifier from a caller's spelling of it.
  *
@@ -137,7 +144,7 @@ function authority(parts, headers) {
     if (digits === null || digits.length > 5 || Number(digits) > 65535) {
       throw new TypeError(`The URL's port "${port}" is not a port number between 0 and 65535.`);
     }
-    if (digits === DEFAULT_PORTS[parts.scheme]) return host;
+    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host;
     return `${host}:${digits}`;
   }
   const host = headers.get('host');

@@ -61,13 +61,26 @@ export const DEFAULT_SKEW = 5;
 // RFC 9530. sha-256 on the way out; both are accepted on the way in, because fiki is not the only
 // thing that will ever have signed a request it is asked to verify. Every one of these a header
 // carries must match; any other algorithm is ignored (RFC 9530 section 2).
-const DIGEST_ALGORITHMS = { 'sha-256': 'SHA-256', 'sha-512': 'SHA-512' };
+// Maps rather than object literals, here and below, because both are keyed by names a message
+// supplies, and an object literal answers "constructor" or "__proto__" from Object.prototype
+// (Copilot review of PR #5, C4).
+const DIGEST_ALGORITHMS = new Map([
+  ['sha-256', 'SHA-256'],
+  ['sha-512', 'SHA-512'],
+]);
 const DIGEST_OUT = 'sha-256';
 
 // RFC 9421 section 2.3's six signature parameters and the RFC 8941 type each must have. Anything
 // else is refused rather than carried: a parameter fiki does not understand could be one whose
 // meaning the signer relied on (@7f28p7xk).
-const SIGNATURE_PARAMS = { created: 'number', expires: 'number', nonce: 'string', alg: 'string', keyid: 'string', tag: 'string' };
+const SIGNATURE_PARAMS = new Map([
+  ['created', 'number'],
+  ['expires', 'number'],
+  ['nonce', 'string'],
+  ['alg', 'string'],
+  ['keyid', 'string'],
+  ['tag', 'string'],
+]);
 const SIGNATURE_LENGTH = 64;
 const KEY_LENGTH = 32;
 // The RFC 8037 "x" form of a raw keyid (@7xrx5evg): 32 bytes, base64url, unpadded.
@@ -104,7 +117,7 @@ const normalRequest = (request) =>
 
 /** The RFC 9530 `Content-Digest` header value for a body. */
 export async function contentDigest(body) {
-  const digest = await crypto.subtle.digest(DIGEST_ALGORITHMS[DIGEST_OUT], bodyBytes(body));
+  const digest = await crypto.subtle.digest(DIGEST_ALGORITHMS.get(DIGEST_OUT), bodyBytes(body));
   return `${DIGEST_OUT}=:${toBase64(new Uint8Array(digest))}:`;
 }
 
@@ -640,11 +653,11 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     );
   }
   for (const [name, value] of member.params) {
-    const expected = SIGNATURE_PARAMS[name];
+    const expected = SIGNATURE_PARAMS.get(name);
     if (expected === undefined) {
       throw new MalformedSignatureInput(
         `The signature parameter "${name}" is not one fiki understands; it accepts ` +
-          `${Object.keys(SIGNATURE_PARAMS).join(', ')}.`,
+          `${[...SIGNATURE_PARAMS.keys()].join(', ')}.`,
       );
     }
     if (typeof value !== expected) {
@@ -747,7 +760,7 @@ function readDigest(header) {
   const parsed = parse(header ?? '', 'Content-Digest', MalformedDigest);
   const recognized = [];
   for (const [name, member] of parsed) {
-    const algorithm = DIGEST_ALGORITHMS[name];
+    const algorithm = DIGEST_ALGORITHMS.get(name);
     if (algorithm === undefined) continue;
     if (!(member.value instanceof Uint8Array)) {
       throw new MalformedDigest(
@@ -759,7 +772,7 @@ function readDigest(header) {
   if (recognized.length === 0) {
     throw new MalformedDigest(
       'The Content-Digest header names no algorithm fiki computes; it computes ' +
-        `${Object.keys(DIGEST_ALGORITHMS).sort().join(' and ')}.`,
+        `${[...DIGEST_ALGORITHMS.keys()].sort().join(' and ')}.`,
     );
   }
   return recognized;
