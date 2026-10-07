@@ -1277,16 +1277,87 @@ fn a_covered_authority_outside_the_served_set_is_a_signature_mismatch() {
         with_body(SignOptions::default()),
     )
     .unwrap();
-    let serving = |name: &str| VerifyOptions {
-        authorities: Some(BTreeSet::from([name.to_string()])),
-        ..Default::default()
-    };
     assert!(sent.verify(serving("other.example.com")).is_ok());
     let err = sent.verify(serving("keria.example.com")).unwrap_err();
     assert_eq!(err.kind, Kind::SignatureMismatch);
     assert_eq!(err.detail.as_deref(), Some("other.example.com"));
+}
+
+// --- supplying authorities makes @authority required (@605z9tnw, tick 7zde) ---
+
+fn serving(name: &str) -> VerifyOptions {
+    VerifyOptions {
+        authorities: Some(BTreeSet::from([name.to_string()])),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_request_signed_for_another_host_without_authority_is_refused_given_authorities() {
+    // The cross-host replay: a GET signed for attacker.example under the request minimum, which
+    // omits @authority, presented to a verifier that serves only victim.example.
+    let mut sent = sign_as(
+        &key(),
+        "GET",
+        "https://attacker.example/identifiers?type=rot",
+        &[],
+        SignOptions {
+            covered: Some(strings(&REQUEST_MINIMUM)),
+            minimum: Some(strings(&REQUEST_MINIMUM)),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    sent.url = "https://victim.example/identifiers?type=rot".into();
+    let err = sent
+        .verify(VerifyOptions {
+            minimum: Some(strings(&REQUEST_MINIMUM)),
+            ..serving("victim.example")
+        })
+        .unwrap_err();
+    assert_eq!(err.kind, Kind::InsufficientCoverage);
+    assert_eq!(err.detail.as_deref(), Some("@authority"));
+}
+
+#[test]
+fn without_authorities_an_uncovered_authority_still_verifies() {
     let uncovered = signed(covering(&["@method", "@path", "@query", "content-digest"]));
-    assert!(uncovered.verify(serving("elsewhere.example.com")).is_ok());
+    assert!(uncovered.verify(VerifyOptions::default()).is_ok());
+}
+
+#[test]
+fn an_uncovered_authority_under_authorities_is_refused_before_the_key_is_resolved() {
+    let uncovered = signed(SignOptions {
+        keyid: Some(aid()),
+        ..covering(&["@method", "@path", "@query", "content-digest"])
+    });
+    let opts = VerifyOptions {
+        resolve: Some(table(&[])),
+        ..serving("keria.example.com")
+    };
+    assert_eq!(uncovered.kind(opts), Kind::InsufficientCoverage);
+}
+
+#[test]
+fn a_covered_authority_under_authorities_verifies_for_the_right_host_only() {
+    let mut covered = strings(&REQUEST_MINIMUM);
+    covered.push("@authority".into());
+    let sent = sign_as(
+        &key(),
+        "GET",
+        "https://victim.example/identifiers",
+        &[],
+        SignOptions {
+            covered: Some(covered),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(sent.verify(serving("victim.example")).is_ok());
+    assert_eq!(
+        sent.kind(serving("attacker.example")),
+        Kind::SignatureMismatch
+    );
 }
 
 #[test]

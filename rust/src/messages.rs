@@ -123,7 +123,8 @@ pub struct Verdict {
 /// a superset of it, which also requires `created` and applies the profile's body rule (`None`
 /// applies no minimum at all). `expected_keyid` refuses a signature by any other keyid as
 /// `UnknownKey`. `authorities` is the set of `@authority` values this verifier serves; a request
-/// covering another is a `SignatureMismatch`.
+/// covering another is a `SignatureMismatch`, and supplying it makes `@authority` required, so a
+/// request that does not cover it is `InsufficientCoverage` (@605z9tnw).
 #[derive(Default, Clone)]
 pub struct VerifyOptions {
     pub max_age: Option<i64>,
@@ -460,6 +461,11 @@ fn verify(
         // By the request's content alone, as sign_response decides it (@7p9s3g9k).
         let request_had_body = request.is_some_and(|r| has_content(r.body));
         check_minimum(items, minimum, has_body, request_had_body)?;
+    }
+    // Served authorities bind the signature to a host only if it commits to one, so supplying
+    // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+    if opts.authorities.is_some() {
+        check_minimum(items, &[component("@authority")?], false, false)?;
     }
 
     let keyid = match inner.param("keyid") {
