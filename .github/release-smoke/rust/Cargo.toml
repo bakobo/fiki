@@ -1,0 +1,15 @@
+# Release smoke test for the fiki crate, built against the version crates.io serves, never the
+# source. release-rust.yml rewrites FIKI_VERSION below to the tag's version before building.
+[package]
+name = "fiki-release-smoke"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+fiki = "=FIKI_VERSION"
+base64 = "0.22"
+hex = "0.4"
+serde_json = "1"
+
+[workspace]

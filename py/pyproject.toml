@@ -1,6 +1,6 @@
 [project]
 name = "fiki"
-version = "0.5.0"
+version = "0.6.0"
 description = "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies."
 readme = "README.md"
 # 3.11, not heti's 3.14. fiki's audience is the party for whom installing keripy is the obstacle —
@@ -8,8 +8,22 @@ readme = "README.md"
 # 3.11 is on RHEL 10, Debian 13, Ubuntu 24.04 and every current container base; 3.14 is on almost
 # nothing. Raising this floor later is cheap, so the cost of being wrong runs the safe way.
 requires-python = ">=3.11"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 authors = [{ name = "Bakobo" }]
+keywords = ["rfc9421", "http-message-signatures", "ed25519", "keri", "aid"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security :: Cryptography",
+    "Typing :: Typed",
+]
 # Two dependencies, and the count is a requirement rather than an outcome (`this.i` @07wstqk7).
 # keripy and bakobo-errors are forbidden here, not merely absent: the first is the 24-dependency
 # tree fiki exists to escape, the second would export Bakobo's error grammar into every future
@@ -24,6 +38,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/bakobo/fiki"
+Repository = "https://github.com/bakobo/fiki"
+Documentation = "https://github.com/bakobo/fiki/blob/main/docs/user-guide.md"
+Issues = "https://github.com/bakobo/fiki/issues"
 
 [dependency-groups]
 dev = [

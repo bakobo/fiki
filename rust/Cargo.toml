@@ -1,11 +1,17 @@
 [package]
 name = "fiki"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 rust-version = "1.75"
 license = "Apache-2.0"
 description = "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies."
 repository = "https://github.com/bakobo/fiki"
+homepage = "https://github.com/bakobo/fiki"
+documentation = "https://docs.rs/fiki"
+readme = "README.md"
+authors = ["Bakobo"]
+keywords = ["rfc9421", "http-signatures", "ed25519", "keri", "aid"]
+categories = ["cryptography", "web-programming::http-client", "authentication"]
 
 # Unlike the Go and JavaScript ports, this one CANNOT be dependency-free: Rust's standard library
 # has no cryptography at all, so Ed25519 and SHA-2 have to come from somewhere (`this.i`

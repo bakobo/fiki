@@ -13,12 +13,14 @@
     <RootNamespace>Bakobo.Fiki</RootNamespace>
 
     <PackageId>Bakobo.Fiki</PackageId>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <Authors>Bakobo</Authors>
     <Description>Sign and verify HTTP requests and responses with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/bakobo/fiki</PackageProjectUrl>
     <RepositoryUrl>https://github.com/bakobo/fiki</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>rfc9421;http-message-signatures;ed25519;keri;aid</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
