@@ -1,0 +1,113 @@
+name: Release (Go)
+
+# Verifies a fiki-go release when a `go/vX.Y.Z` tag is pushed. Go has no registry to publish to: the
+# tag IS the release, and the module proxy fetches it from GitHub the first time anyone asks. So
+# this workflow publishes nothing and holds no credential of any kind. It tests the tagged commit,
+# asks the proxy for the version until it answers, builds a fresh module against what the proxy
+# serves (checked against the checksum database, as any consumer's build would be), and asks
+# pkg.go.dev to index it. docs/releasing.md is the procedure.
+on:
+  push:
+    tags: ["go/v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-go
+  cancel-in-progress: false
+
+jobs:
+  # Go has no manifest version to compare: the module's version is its tag (go/errors.go says why
+  # there is no version constant). What can be checked is that the tag is a valid semantic version
+  # for this module path, that go.mod's module line is the path the proxy will be asked for, and
+  # that the tagged commit is on main.
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: check
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#go/}"
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::e.input.format.release.tag.f: The tag $TAG is not go/vX.Y.Z, so it names no release."
+            exit 1
+          fi
+          # A v2+ module needs a /v2 suffix on its path, which this one does not have.
+          if [[ ! "$version" =~ ^v[01]\. ]]; then
+            echo "::error::e.state.conflict.release.version.f: The tag $TAG is v2 or later, and go/go.mod's module path has no major-version suffix, so the proxy would refuse it."
+            exit 1
+          fi
+          module=$(awk '$1 == "module" {print $2}' go/go.mod)
+          if [ "$module" != "github.com/bakobo/fiki/go" ]; then
+            echo "::error::e.state.conflict.release.version.f: go/go.mod declares $module, and this workflow releases github.com/bakobo/fiki/go."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::e.rule.release.unmerged.f: The tag $TAG points at a commit that is not on main. Release only merged commits."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Exactly what CI runs: vet, formatting, the suite with the shared vectors, and the coverage gate.
+  # A red run here does not unpublish anything, since the tag is already public, but it says the
+  # tag should be superseded by a fixed patch release before anyone is told about it.
+  test:
+    needs: version
+    uses: ./.github/workflows/ci-go.yml
+
+  verify:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            vectors
+            .github/release-smoke/go
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.22"
+          cache: false
+      # A request for the .info endpoint is what makes the proxy fetch the tag from GitHub, so this
+      # loop is both the wait and the trigger.
+      - name: Wait for the module proxy to serve the version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -sf "https://proxy.golang.org/github.com/bakobo/fiki/go/@v/$VERSION.info"; then
+              echo
+              echo "proxy.golang.org serves github.com/bakobo/fiki/go@$VERSION (attempt $attempt)"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::e.env.registry.timeout.r: proxy.golang.org did not serve github.com/bakobo/fiki/go@$VERSION within ten minutes."
+          exit 1
+      - name: Build a fresh module against the proxy's copy and run the smoke test
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GOPROXY: https://proxy.golang.org
+          GOFLAGS: -mod=mod
+        run: |
+          scratch=$(mktemp -d)
+          cp .github/release-smoke/go/main.go "$scratch/"
+          cd "$scratch"
+          export GOPATH="$scratch/gopath" GOMODCACHE="$scratch/gopath/pkg/mod"
+          go mod init fiki-release-smoke
+          go get "github.com/bakobo/fiki/go@$VERSION"
+          go run . "$GITHUB_WORKSPACE/vectors"
+      # pkg.go.dev also discovers new versions from index.golang.org within minutes, so this is a
+      # nudge rather than a requirement, and its failure does not fail the release.
+      - name: Ask pkg.go.dev to index the version
+        continue-on-error: true
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: curl -sf -X POST "https://pkg.go.dev/fetch/github.com/bakobo/fiki/go@$VERSION" || echo "pkg.go.dev did not accept the fetch request; it will pick the version up from index.golang.org."
