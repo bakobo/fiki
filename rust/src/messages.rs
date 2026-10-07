@@ -735,10 +735,12 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
     }
     if require_created && list.param("keyid").is_none() {
         // Under a minimum, which is how a caller applies the KERI profile, keyid is REQUIRED even
-        // when expected_aid names the key, as created is below (@5xde8s6l).
-        return malformed(
-            "This signature carries no keyid, which the verifier's policy requires.".into(),
-        );
+        // when expected_aid names the key (@5xde8s6l). MissingKey, as every port names it.
+        return Err(Error::new(
+            Kind::MissingKey,
+            "This signature carries no keyid, which the verifier's policy requires even though \
+             the key was named.",
+        ));
     }
     if require_created && list.param("created").is_none() {
         // Only under a minimum, which is how a caller applies the KERI profile, where created is

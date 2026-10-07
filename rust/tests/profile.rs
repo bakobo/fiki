@@ -1944,7 +1944,7 @@ fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {
     };
     assert!(sent.verify(named(None)).is_ok());
     let err = sent.verify(named(Some(covered))).unwrap_err();
-    assert_eq!(err.kind, Kind::MalformedSignatureInput);
+    assert_eq!(err.kind, Kind::MissingKey);
 }
 
 #[test]
