@@ -380,6 +380,42 @@ pub(crate) fn value_of(item: &Item, message: &Message) -> Result<String> {
     Ok(value)
 }
 
+/// A caller's header map with every field name lowercased, or `InvalidArgument` when two names
+/// are equal case-insensitively (`this.i` @4kcthnkn). A `BTreeMap`'s keys are case-sensitive and
+/// HTTP's field names are not, so such a map holds two values for one field, and lowering it would
+/// silently keep one: a response signed over `x-role: member` would verify while also carrying
+/// `X-Role: admin`. Every public entry point canonicalizes once, and every later step reads that.
+pub(crate) fn canonical(headers: &BTreeMap<String, String>) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if out.insert(lower.clone(), value.clone()).is_some() {
+            return Err(Error::detailed(
+                Kind::InvalidArgument,
+                format!(
+                    "The headers name the field \"{lower}\" more than once in different case, so \
+                     it has two values and fiki cannot know which one was meant; combine them into \
+                     one entry before signing or verifying."
+                ),
+                lower,
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// A request whose headers are canonical, for a response's `req` components.
+pub(crate) fn canonical_request(request: Option<&Request>) -> Result<Option<Request>> {
+    request
+        .map(|r| {
+            Ok(Request {
+                headers: canonical(&r.headers)?,
+                ..r.clone()
+            })
+        })
+        .transpose()
+}
+
 pub(crate) fn lower_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     // Header field names are case-insensitive and appear lowercased in the base (section 2.1).
     // Values lose leading and trailing SP and HTAB, the only optional whitespace RFC 9110 section
@@ -465,9 +501,10 @@ pub fn signature_base(
     covered: &[String],
     params: &SignatureParams,
 ) -> Result<Vec<u8>> {
+    let headers = canonical(headers)?;
     base_for(
         &components(covered)?,
-        &Message::request(method, url, headers),
+        &Message::request(method, url, &headers),
         false,
         params,
     )
@@ -485,9 +522,11 @@ pub fn response_signature_base(
     covered: &[String],
     params: &SignatureParams,
 ) -> Result<Vec<u8>> {
+    let headers = canonical(headers)?;
+    let request = canonical_request(request)?;
     base_for(
         &components(covered)?,
-        &Message::response(status, headers, request),
+        &Message::response(status, &headers, request.as_ref()),
         true,
         params,
     )

@@ -1946,3 +1946,85 @@ fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {
     let err = sent.verify(named(Some(covered))).unwrap_err();
     assert_eq!(err.kind, Kind::MalformedSignatureInput);
 }
+
+#[test]
+fn two_header_names_equal_but_for_case_are_a_caller_error_everywhere() {
+    // D-DUPH (`this.i` @4kcthnkn): a response signed over "x-role: member" must not verify while it also
+    // carries "X-Role: admin", which one reader would see and another would not.
+    let asked = request();
+    let opts = SignOptions {
+        body: Some(RESPONSE_BODY.to_vec()),
+        ..covering(&["@status", "x-role", "content-digest"])
+    };
+    let mut signed = respond_to(Some(&asked), &[("x-role", "member")], opts).unwrap();
+    assert!(check(&signed, VerifyOptions::default()).is_ok());
+    signed.insert("X-Role".into(), "admin".into());
+    assert_eq!(
+        kind_of(check(&signed, VerifyOptions::default())),
+        Kind::InvalidArgument
+    );
+
+    let sent = signed_request_with(&[("x-role", "member")]);
+    let mut doubled = sent.headers.clone();
+    doubled.insert("X-Role".into(), "admin".into());
+    let err = verify_request(
+        &sent.method,
+        &sent.url,
+        &doubled,
+        &VerifyOptions {
+            body: sent.body.clone(),
+            ..Default::default()
+        },
+    );
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+
+    let both = [("X-Role", "admin"), ("x-role", "member")];
+    let err = sign_as(
+        &key(),
+        "POST",
+        URL,
+        &both,
+        with_body(SignOptions::default()),
+    );
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    let err = respond_to(Some(&asked), &both, SignOptions::default());
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    let params = SignatureParams::default();
+    let err = signature_base("GET", URL, &headers(&both), &strings(&["@method"]), &params);
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    let err = response_signature_base(200, &headers(&both), None, &strings(&["@status"]), &params);
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    // The request a response answers is held to the same rule.
+    let mut twice = request();
+    twice
+        .headers
+        .insert("CONTENT-DIGEST".into(), content_digest(b"other"));
+    let err = respond_to(Some(&twice), &[], SignOptions::default());
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+    let good = respond(SignOptions::default());
+    let err = check_as(
+        200,
+        &good,
+        Some(&twice),
+        Some(RESPONSE_BODY),
+        VerifyOptions::default(),
+    );
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
+}
+
+fn signed_request_with(extra: &[(&str, &str)]) -> Sent {
+    sign_as(
+        &key(),
+        "POST",
+        URL,
+        extra,
+        with_body(covering(&[
+            "@method",
+            "@path",
+            "@query",
+            "x-role",
+            "content-digest",
+        ])),
+    )
+    .unwrap()
+}

@@ -20,8 +20,8 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256, Sha512};
 
 use crate::base::{
-    base_for, check_covered, component, components, identity, lines_for, req, spec_of, Message,
-    Request, SignatureParams, CONTENT_DIGEST, DEFAULT_COVERED,
+    base_for, canonical, canonical_request, check_covered, component, components, identity,
+    lines_for, req, spec_of, Message, Request, SignatureParams, CONTENT_DIGEST, DEFAULT_COVERED,
 };
 use crate::errors::{Error, Kind, Result};
 use crate::keys::{b64std, misspelled_aid, public_key, raw_keyid, to_aid, verifying_key, Key};
@@ -74,13 +74,6 @@ fn now_or(now: Option<i64>) -> i64 {
 
 fn has_content(body: Option<&[u8]>) -> bool {
     body.is_some_and(|b| !b.is_empty())
-}
-
-fn lowered(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    headers
-        .iter()
-        .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
-        .collect()
 }
 
 /// Everything about a signature beyond the message itself. The same options sign a request or a
@@ -289,6 +282,7 @@ pub fn sign_request(
     opts: &SignOptions,
 ) -> Result<BTreeMap<String, String>> {
     let minimum = floored(opts.minimum.as_deref(), &REQUEST_MINIMUM)?;
+    let headers = &canonical(headers)?;
     let mut sending = headers.clone();
     let chosen = opts.covered.is_some();
     let mut items = match &opts.covered {
@@ -297,7 +291,7 @@ pub fn sign_request(
     };
     cover_body(&mut items, &mut sending, opts.body.as_deref(), chosen)?;
     if let Some(minimum) = &minimum {
-        let has_body = request_has_body(&lowered(&sending), opts.body.as_deref());
+        let has_body = request_has_body(&sending, opts.body.as_deref());
         check_minimum(&items, minimum, has_body, false)?;
     }
     let base = base_for(
@@ -324,6 +318,9 @@ pub fn sign_response(
     opts: &SignOptions,
 ) -> Result<BTreeMap<String, String>> {
     let minimum = floored(opts.minimum.as_deref(), &RESPONSE_MINIMUM)?;
+    let headers = &canonical(headers)?;
+    let asked = canonical_request(request)?;
+    let request = asked.as_ref();
     let mut sending = headers.clone();
     let chosen = opts.covered.is_some();
     // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
@@ -338,7 +335,7 @@ pub fn sign_response(
     let mut items = components(&covered)?;
     cover_body(&mut items, &mut sending, opts.body.as_deref(), chosen)?;
     if let (false, true, Some(request)) = (chosen, had_body, request) {
-        if !lowered(&request.headers).contains_key(CONTENT_DIGEST) {
+        if !request.headers.contains_key(CONTENT_DIGEST) {
             return Err(Error::new(
                 Kind::UncoveredBody,
                 "The request this response answers carried a body and no Content-Digest, so the \
@@ -360,7 +357,7 @@ pub fn sign_response(
     }) = request
     {
         if binds_request_digest(&items) {
-            let recognized = read_digest(lowered(asked).get(CONTENT_DIGEST))?;
+            let recognized = read_digest(asked.get(CONTENT_DIGEST))?;
             compare_digest(&recognized, Some(content))?;
         }
     }
@@ -382,6 +379,7 @@ pub fn verify_request(
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
     let minimum = floored(opts.minimum.as_deref(), &REQUEST_MINIMUM)?;
+    let headers = &canonical(headers)?;
     verify(
         &Message::request(method, url, headers),
         headers,
@@ -414,7 +412,10 @@ pub fn verify_response(
              pass authorities when verifying the request.",
         ));
     }
-    if status == 401 && !headers.keys().any(|n| n.eq_ignore_ascii_case("signature")) {
+    let headers = &canonical(headers)?;
+    let asked = canonical_request(request)?;
+    let request = asked.as_ref();
+    if status == 401 && !headers.contains_key("signature") {
         return Err(Error::new(
             Kind::Unauthenticated,
             "The server answered 401 without signing the answer, so the request was not \
@@ -446,14 +447,14 @@ fn verify(
         ));
     }
     let request = response.flatten();
-    let found = lowered(headers);
-    let (inner, signature) = read(&found, opts.expected_aid.is_none(), minimum.is_some())?;
+    let found = headers;
+    let (inner, signature) = read(found, opts.expected_aid.is_none(), minimum.is_some())?;
     let items = &inner.items;
     check_covered(items, response.is_some())?;
     if let Some(minimum) = &minimum {
         let has_body = match response {
             Some(_) => has_content(opts.body.as_deref()),
-            None => request_has_body(&found, opts.body.as_deref()),
+            None => request_has_body(found, opts.body.as_deref()),
         };
         // By the request's content alone, as sign_response decides it (@7p9s3g9k).
         let request_had_body = request.is_some_and(|r| has_content(r.body.as_deref()));
@@ -531,7 +532,7 @@ fn verify(
     // A response binding the request's digest binds a request body only if somebody hashes it. A
     // verifier handed no request body cannot, and a verdict that skipped the check would look like
     // one that made it, so that is the caller's mistake, not a pass.
-    let asked = request.map(|r| lowered(&r.headers));
+    let asked = request.map(|r| &r.headers);
     if let (Some(request), Some(asked)) = (request, &asked) {
         if binds_request_digest(items) {
             let Some(content) = request.body.as_deref() else {
