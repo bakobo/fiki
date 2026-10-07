@@ -12,7 +12,6 @@ fiki can be ported to a language whose ecosystem has never heard of CESR.
 from __future__ import annotations
 
 import base64
-import binascii
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -155,7 +154,7 @@ def misspelled_aid(keyid: str) -> bool:
         return False
     try:
         decoded = base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)
-    except binascii.Error:
+    except ValueError:  # binascii.Error, or non-ASCII input, which base64 refuses as ValueError
         return True
     return keyid[0] + base64.urlsafe_b64encode(b"\x00" + decoded[1:]).decode("ascii")[1:] != keyid
 
@@ -178,9 +177,11 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
     # than a key and surface as a cryptography ValueError from outside fiki's taxonomy. The
     # length assertion afterwards is belt to that suspenders — a decoder is exactly the place a
     # quiet shortfall turns into someone else's exception.
+    # ValueError rather than binascii.Error: a non-ASCII character is refused by base64 before
+    # any alphabet check, as a plain ValueError from outside fiki's taxonomy (tick 7wap).
     try:
         decoded = base64.b64decode("A" + aid[1:], altchars=b"-_", validate=True)
-    except binascii.Error as ex:
+    except ValueError as ex:
         raise MalformedKey(f'The AID "{aid}" is not valid base64url.', keyid=aid) from ex
     if len(decoded) != len(_PAD) + _RAW_LEN:
         raise MalformedKey(
