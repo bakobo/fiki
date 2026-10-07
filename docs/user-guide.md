@@ -40,11 +40,14 @@ Generate a key once, print the AID, and register it. Then sign.
 ### Python
 
 ```python
+import os
 from fiki import Key, sign_request
 
 key = Key.generate()
 print(key.aid)              # register this
-open("seed.bin", "wb").write(key.seed)
+fd = os.open("seed.bin", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "wb") as f:  # readable by you alone
+    f.write(key.seed)
 
 url = "https://api.example.com/things?limit=1"
 body = b'{"hello": "world"}'
