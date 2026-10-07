@@ -509,6 +509,25 @@ describe("the profile's section 9 order", () => {
     await assert.rejects(() => verify(second, { resolve }), errors.MissingKey);
   });
 
+  it('still requires a keyid under a minimum, even when the verifier names the key', async () => {
+    // keyid is REQUIRED in the KERI profile, and a minimum is how a caller applies it; expectedAid
+    // decides the key, not whether the message is well formed (rust port's hostile review). The
+    // message is genuinely signed with no keyid, so nothing but that rule could refuse it.
+    const request = { method: 'GET', url: URL_, body: null };
+    const base = signatureBase({ ...request, headers: {}, covered: [...REQUEST_MINIMUM], created: AT, alg: 'ed25519' });
+    const params = new TextDecoder().decode(base).split('"@signature-params": ')[1];
+    assert.ok(!params.includes('keyid'));
+    const headers = {
+      'Signature-Input': `sig=${params}`,
+      Signature: `sig=:${Buffer.from(await KEY.sign(base)).toString('base64')}:`,
+    };
+    assert.equal((await verify({ request, headers }, { expectedAid: KEY.aid })).aid, KEY.aid);
+    await assert.rejects(
+      () => verify({ request, headers }, { expectedAid: KEY.aid, minimum: REQUEST_MINIMUM }),
+      errors.MissingKey,
+    );
+  });
+
   it('needs no keyid when the verifier names the key', async () => {
     const signed = await sign();
     mangle(signed.headers, `;keyid="${keyidOf(signed.headers)}"`, '');

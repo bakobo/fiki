@@ -400,7 +400,13 @@ async function verify(message, headers, body, options) {
   }
 
   const found = lowered(headers);
-  const { inner, signature } = read(found, { requireKeyid: expectedAid === null, requireCreated: minimum !== null });
+  // keyid is REQUIRED under a minimum, which is how a caller applies the KERI profile, even when
+  // expectedAid decides the key: that argument chooses the key, not whether the message is well
+  // formed (the rust port's hostile review of PR #5).
+  const { inner, signature } = read(found, {
+    requireKeyid: expectedAid === null || minimum !== null,
+    requireCreated: minimum !== null,
+  });
   const { items } = inner;
   checkCovered(items, { response });
   if (minimum !== null) {
@@ -625,8 +631,8 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     // Here rather than when the key is resolved: keyid is REQUIRED, so its absence belongs with
     // the other defects of Signature-Input, ahead of the covered list (@2f227n4r).
     throw new MissingKey(
-      'This signature carries no keyid and no expectedAid was supplied, so there is no key to ' +
-        'verify it against.',
+      'This signature carries no keyid, and this verifier needs one: either no expectedAid names ' +
+        'the key, or a minimum applies the KERI profile, where keyid is REQUIRED.',
     );
   }
   if (requireCreated && !member.params.has('created')) {
