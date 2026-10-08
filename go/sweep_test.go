@@ -307,3 +307,35 @@ func TestAnUnexpectedKeyidNeverReachesTheResolver(t *testing.T) {
 		t.Errorf("expected UnknownKey without a resolution, got %v after %d", err, asked)
 	}
 }
+
+// A3 and bakobo/fiki#14's hostile pass: what sits between an IP-literal's brackets is an IPv6
+// address, with an optional zone, or IPvFuture, as Python's urlsplit checks it. The same lists as
+// fiki-py's tests/test_sweep.py, whose oracle is Python's own ipaddress.
+func TestAnIPLiteralHoldsAnIPv6AddressOrIPvFuture(t *testing.T) {
+	key := testKey(t)
+	signed, err := SignRequest(key, "GET", "https://[::1]/x", nil, SignOptions{Created: signedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, inside := range []string{"not-an-ip", "1.2.3.4", "vZ.x", "v1.", "V1.x", "v.x", "::1%",
+		"fe80::1%a%b", "1:2:3:4:5:6:7:8:9", "::01.2.3.4", "::256.1.1.1", "12345::", "", "1::2::3"} {
+		t.Run(inside, func(t *testing.T) {
+			rawURL := "https://[" + inside + "]/x"
+			_, err := SignatureBase("GET", rawURL, nil, []string{"@authority"}, SignatureParams{Created: 1})
+			isInvalidOptions(t, err)
+			_, err = VerifyRequest("GET", rawURL, signed, VerifyOptions{})
+			if kindOf(t, err) != KindSignatureMismatch {
+				t.Errorf("received: %v", err)
+			}
+		})
+	}
+	for _, inside := range []string{"::1", "::", "1::", "2001:DB8::1", "1:2:3:4:5:6:7:8",
+		"1:2:3:4:5:6:7::", "::ffff:1.2.3.4", "1:2:3:4:5:6:1.2.3.4", "fe80::1%25eth0", "v1.x",
+		"vF.a:b", "v12.["} {
+		base, err := SignatureBase("GET", "https://["+inside+"]/x", nil, []string{"@authority"}, SignatureParams{Created: 1})
+		want := `"@authority": [` + strings.ToLower(inside) + "]\n"
+		if err != nil || !strings.HasPrefix(string(base), want) {
+			t.Errorf("[%s]: %q, %v", inside, base, err)
+		}
+	}
+}

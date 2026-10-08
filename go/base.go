@@ -13,6 +13,7 @@ package fiki
 // KERI dialect.
 
 import (
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -43,6 +44,28 @@ const reqParam = "req"
 var paramOrder = []string{"created", "expires", "nonce", "alg", "keyid", "tag"}
 
 var defaultPorts = map[string]int{"http": 80, "https": 443, "ws": 80, "wss": 443}
+
+// ipLiteral is RFC 3986 section 3.2.2's IP-literal, as Python's urlsplit checks it from 3.11.4, so
+// a host fiki-py refuses is refused here too: IPvFuture ("v", hex digits, ".", then anything but a
+// line feed), or an IPv6address with an optional zone after "%". The IPv6 grammar is RFC 3986's
+// own, which accepts exactly what Python's ipaddress.IPv6Address does.
+var ipLiteral = func() *regexp.Regexp {
+	const h16 = `[0-9A-Fa-f]{1,4}`
+	const decOctet = `(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])`
+	const ls32 = `(?:` + h16 + `:` + h16 + `|` + decOctet + `(?:\.` + decOctet + `){3})`
+	ipv6 := strings.Join([]string{
+		`(?:` + h16 + `:){6}` + ls32,
+		`::(?:` + h16 + `:){5}` + ls32,
+		`(?:` + h16 + `)?::(?:` + h16 + `:){4}` + ls32,
+		`(?:(?:` + h16 + `:){0,1}` + h16 + `)?::(?:` + h16 + `:){3}` + ls32,
+		`(?:(?:` + h16 + `:){0,2}` + h16 + `)?::(?:` + h16 + `:){2}` + ls32,
+		`(?:(?:` + h16 + `:){0,3}` + h16 + `)?::` + h16 + `:` + ls32,
+		`(?:(?:` + h16 + `:){0,4}` + h16 + `)?::` + ls32,
+		`(?:(?:` + h16 + `:){0,5}` + h16 + `)?::` + h16,
+		`(?:(?:` + h16 + `:){0,6}` + h16 + `)?::`,
+	}, "|")
+	return regexp.MustCompile(`^(?:v[0-9A-Fa-f]+\.[^\n]+|(?:` + ipv6 + `)(?:%[^%]+)?)$`)
+}()
 
 // RFC 8941 section 3.3.1: an integer has at most fifteen digits.
 const sfIntegerMax = 999_999_999_999_999
@@ -325,6 +348,9 @@ func authority(m *message) (string, error) {
 		}
 		if rest != "" && !strings.HasPrefix(rest, ":") {
 			return "", unbuildable("has text after its IP literal that is not a port")
+		}
+		if !ipLiteral.MatchString(literal) {
+			return "", unbuildable("has an IP literal that is not an IPv6 address or IPvFuture")
 		}
 		host, port = "["+literal+"]", strings.TrimPrefix(rest, ":")
 	} else if strings.ContainsAny(hostinfo, "[]") {
