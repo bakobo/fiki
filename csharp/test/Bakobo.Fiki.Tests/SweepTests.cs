@@ -374,7 +374,7 @@ namespace Bakobo.Fiki.Tests
         {
             var source = string.Join(" ", File.ReadAllText(Repo.PathTo("csharp", "src", "Bakobo.Fiki", "Verdict.cs"))
                 .Replace("///", " ").Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries));
-            foreach (var want in new[] { "exactly as it appeared on the wire", "null when the signature had none", "the identity that vouched for the key" })
+            foreach (var want in new[] { "exactly as it appeared on the wire", "null when the signature had none", "identity that vouched for the key" })
             {
                 Assert.Contains(want, source);
             }

@@ -16,8 +16,8 @@ namespace Bakobo.Fiki
         /// would: lowering it would silently keep one, and a message signed over
         /// <c>x-role: member</c> would verify while also carrying <c>X-Role: admin</c>. Combining a
         /// repeated field into one value (RFC 9110 section 5.3) is the caller's to do before handing
-        /// it over, so this is a caller's mistake, an ArgumentException, as the Rust port's
-        /// InvalidArgument. fiki-py lets the last name win and is not changed by this.
+        /// it over, so this is a caller's mistake, an ArgumentException, in every port since 0.8.0
+        /// (this.i @5zrf8gjk).
         /// </summary>
         internal static IReadOnlyList<KeyValuePair<string, string>> Take(IEnumerable<KeyValuePair<string, string>> headers)
         {
@@ -25,6 +25,14 @@ namespace Bakobo.Fiki
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var header in snapshot)
             {
+                // A null name or value is no header anybody sent (@5zrf8gjk), and duplicates are found
+                // by whether the name is already present, never by what a store returns.
+                if (header.Key == null || header.Value == null)
+                {
+                    throw new ArgumentException(
+                        $"A header is a name and a value, neither of them null; this one is {header.Key ?? "null"}: {header.Value ?? "null"}.",
+                        nameof(headers));
+                }
                 var name = PyText.Lower(header.Key);
                 if (!seen.Add(name))
                 {

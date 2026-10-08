@@ -129,8 +129,22 @@ namespace Bakobo.Fiki
                 }
                 items.Add(Components.Component(Components.ContentDigest));
             }
-            if (Lowered(sending).ContainsKey(Components.ContentDigest))
+            if (Lowered(sending).TryGetValue(Components.ContentDigest, out var supplied))
             {
+                // A digest the caller supplied is signed as given, so it must be one the verifier will
+                // accept for this body: a mismatch, or one that does not parse or names nothing fiki
+                // computes, is the call's mistake, not a message (@5zrf8gjk).
+                try
+                {
+                    CompareDigest(ReadDigest(supplied), body);
+                }
+                catch (FikiException ex)
+                {
+                    throw new ArgumentException(
+                        $"The Content-Digest supplied with this body is not one a verifier would accept for it: {ex.Message} " +
+                        "Omit it and fiki computes one, or supply the body it describes.",
+                        ex);
+                }
                 return false;
             }
             sending.Add(new KeyValuePair<string, string>("Content-Digest", ContentDigest(body)));
@@ -179,6 +193,8 @@ namespace Bakobo.Fiki
             string label, long? expires, string? nonce, string? tag, string? keyId, IEnumerable<string>? minimum)
         {
             CheckLabel(label);
+            Components.CheckSignerParams(created, expires, keyId, Alg, nonce, tag);
+            Components.CheckMethod(method);
             var floor = Floored(minimum, RequestMinimum);
             var sending = new List<KeyValuePair<string, string>>(HeaderSnapshot.Take(headers ?? new KeyValuePair<string, string>[0]));
             var items = Components.Parse(covered ?? HttpSignatures.DefaultCovered);
@@ -199,6 +215,11 @@ namespace Bakobo.Fiki
             string label, long? expires, string? nonce, string? tag, string? keyId, IEnumerable<string>? minimum)
         {
             CheckLabel(label);
+            Components.CheckSignerParams(created, expires, keyId, Alg, nonce, tag);
+            if (request != null)
+            {
+                Components.CheckMethod(request.Method);
+            }
             var floor = Floored(minimum, ResponseMinimum);
             var sending = new List<KeyValuePair<string, string>>(HeaderSnapshot.Take(headers ?? new KeyValuePair<string, string>[0]));
             HeaderSnapshot.Check(request);
@@ -256,7 +277,7 @@ namespace Bakobo.Fiki
                 throw new ArgumentException("A request answers no other request; WithRequest applies to verifying a response.");
             }
             var floor = Floored(options.Minimum, RequestMinimum);
-            return Verify(Components.RequestMessage(method, url, headers), headers, options, response: false, floor);
+            return Verify(Components.RequestMessage(method, url, headers, received: true), headers, options, response: false, floor);
         }
 
         internal static Verdict VerifyResponse(int status, IEnumerable<KeyValuePair<string, string>> given, VerifyOptions options)
@@ -270,14 +291,15 @@ namespace Bakobo.Fiki
             var floor = Floored(options.Minimum, ResponseMinimum);
             // A server that refuses before it knows the agent cannot sign the refusal, so an
             // unsigned 401 is an authentication failure whose body is not to be trusted (@2f227n4r).
-            if (status == 401 && !Lowered(headers).ContainsKey("signature"))
+            // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
+            if (status == 401 && string.IsNullOrEmpty(Header(Lowered(headers), "signature")))
             {
                 throw new FikiException(
                     FikiErrorKind.Unauthenticated,
                     "The server answered 401 without signing the answer, so the request was not authenticated and the " +
                     "body of the refusal cannot be trusted.");
             }
-            return Verify(Components.ResponseMessage(status, headers, options.Request), headers, options, response: true, floor);
+            return Verify(Components.ResponseMessage(status, headers, options.Request, received: true), headers, options, response: true, floor);
         }
 
         /// <summary>The KERI profile's section 9 order, so a message has exactly one correct refusal.</summary>
@@ -309,7 +331,10 @@ namespace Bakobo.Fiki
                 CheckMinimum(items, new List<SfItem> { Authority }, hasBody: false, requestHadBody: false);
             }
 
+            // Section 9's key steps in order (@5zrf8gjk): what the keyid alone shows, then the expected
+            // keyid, and only then the resolver, which is never asked about a keyid already refused.
             var keyId = inner.Params.TryGet("keyid", out var keyIdValue) ? keyIdValue!.Text : null;
+            var publicKey = LocalKey(options.ExpectedAid, keyId, options.Resolver, out var aid);
             if (options.ExpectedKeyId != null && keyId != options.ExpectedKeyId)
             {
                 throw new FikiException(
@@ -317,7 +342,7 @@ namespace Bakobo.Fiki
                     $"This message is signed by \"{keyId}\", and the one expected is \"{options.ExpectedKeyId}\".",
                     keyId: keyId);
             }
-            var publicKey = Resolve(options.ExpectedAid, keyId, options.Resolver, out var aid);
+            publicKey ??= Resolved(keyId!, options.Resolver!, out aid);
             if (inner.Params.TryGet("alg", out var alg) && alg!.Text != Alg)
             {
                 throw new FikiException(
@@ -495,8 +520,13 @@ namespace Bakobo.Fiki
         private static FikiException TooOld(string message, long? created, long now, long maxAge) =>
             new FikiException(FikiErrorKind.SignatureTooOld, message) { Created = created, Now = now, MaxAge = maxAge };
 
-        /// <summary>The key to verify with, as raw bytes, and the identity to report.</summary>
-        private static byte[] Resolve(string? expectedAid, string? keyId, Func<string, byte[]?>? resolve, out string aid)
+        /// <summary>
+        /// Every key check that needs nothing beyond the keyid itself (profile section 9): the key to
+        /// verify with and the identity to report when no resolver is needed, or null when the
+        /// resolver decides. Either way a keyid that is not well formed is refused here, before the
+        /// expected keyid is compared and before any resolver sees it (@5zrf8gjk).
+        /// </summary>
+        private static byte[]? LocalKey(string? expectedAid, string? keyId, Func<string, byte[]?>? resolve, out string aid)
         {
             if (expectedAid != null)
             {
@@ -517,27 +547,8 @@ namespace Bakobo.Fiki
                         $"The keyid \"{keyId}\" is shaped like an AID and is not its canonical spelling, so it is not an AID at all.",
                         keyId: keyId);
                 }
-                // The resolver is authoritative: fiki never falls back to decoding the keyid, because
-                // a transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-                var resolved = resolve(keyId!) ?? throw new FikiException(
-                    FikiErrorKind.UnknownKey,
-                    $"No key is known for the keyid \"{keyId}\", so the signature cannot be checked.",
-                    keyId: keyId);
-                if (resolved.Length != KeyLength)
-                {
-                    throw new FikiException(
-                        FikiErrorKind.MalformedKey,
-                        $"The key resolved for \"{keyId}\" is not a {KeyLength}-byte Ed25519 public key.",
-                        keyId: keyId);
-                }
-                // A small-order key is refused here, in the key's place in section 9's order, rather
-                // than attempted: against it a signature anyone can write verifies.
-                if (!Aids.IsUsableKey(resolved))
-                {
-                    throw Aids.Unusable(keyId!);
-                }
                 aid = keyId!;
-                return resolved;
+                return null;
             }
             // Strictly, as an AID is decoded: a lenient decoder discards characters outside the
             // alphabet and ignores trailing bits, so a keyid that is not the key's encoding could
@@ -569,6 +580,32 @@ namespace Bakobo.Fiki
             }
             aid = Aids.ToAid(raw);
             return raw;
+        }
+
+        /// <summary>The resolver's key for a keyid already found well formed, and the keyid it vouched for.</summary>
+        private static byte[] Resolved(string keyId, Func<string, byte[]?> resolve, out string aid)
+        {
+            // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+            // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+            var resolved = resolve(keyId) ?? throw new FikiException(
+                FikiErrorKind.UnknownKey,
+                $"No key is known for the keyid \"{keyId}\", so the signature cannot be checked.",
+                keyId: keyId);
+            if (resolved.Length != KeyLength)
+            {
+                throw new FikiException(
+                    FikiErrorKind.MalformedKey,
+                    $"The key resolved for \"{keyId}\" is not a {KeyLength}-byte Ed25519 public key.",
+                    keyId: keyId);
+            }
+            // A small-order key is refused here, in the key's place in section 9's order, rather
+            // than attempted: against it a signature anyone can write verifies.
+            if (!Aids.IsUsableKey(resolved))
+            {
+                throw Aids.Unusable(keyId);
+            }
+            aid = keyId;
+            return resolved;
         }
 
         private static FikiException MissingKey() => new FikiException(
@@ -710,15 +747,55 @@ namespace Bakobo.Fiki
             }
         }
 
+        /// <summary>
+        /// Parse one signature-related header, bounded before it is read (@5zrf8gjk, ticks 65q7 and
+        /// 6mhg): its size in bytes as received, before any trimming, then the members, inner-list
+        /// items and parameters of what parsed. Over any bound is the header's malformed kind.
+        /// </summary>
         private static SfDictionary Parse(string? raw, string name, FikiErrorKind kind)
         {
+            SfDictionary parsed;
             try
             {
-                return Sfv.ParseDictionary(raw ?? throw new FormatException("There is no header."));
+                raw = raw ?? throw new FormatException("There is no header.");
+                var size = System.Text.Encoding.UTF8.GetByteCount(raw);
+                if (size > HttpSignatures.MaxFieldBytes)
+                {
+                    throw new FikiException(kind, $"The {name} header is {size} bytes, and fiki reads one of at most {HttpSignatures.MaxFieldBytes}.");
+                }
+                parsed = Sfv.ParseDictionary(raw);
             }
             catch (FormatException)
             {
                 throw new FikiException(kind, $"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary.");
+            }
+            CheckCounts(parsed, name, kind);
+            return parsed;
+        }
+
+        private static void CheckCounts(SfDictionary parsed, string name, FikiErrorKind kind)
+        {
+            FikiException Refuse(string what, int limit) => new FikiException(
+                kind, $"The {name} header has more than {limit} {what}, which is more than fiki reads from any honest signer.");
+
+            if (parsed.Count > HttpSignatures.MaxDictionaryMembers)
+            {
+                throw Refuse("members", HttpSignatures.MaxDictionaryMembers);
+            }
+            foreach (var member in parsed)
+            {
+                var items = member.Value is SfInnerList list ? list.Items : new SfItem[0];
+                if (items.Count > HttpSignatures.MaxInnerListItems)
+                {
+                    throw Refuse("items in one inner list", HttpSignatures.MaxInnerListItems);
+                }
+                foreach (var item in new List<SfMember>(items) { member.Value })
+                {
+                    if (item.Params.Count > HttpSignatures.MaxParameters)
+                    {
+                        throw Refuse("parameters on one item", HttpSignatures.MaxParameters);
+                    }
+                }
             }
         }
 

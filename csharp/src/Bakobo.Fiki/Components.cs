@@ -26,6 +26,13 @@ namespace Bakobo.Fiki
         // The only component parameter fiki supports, and only in a response (section 2.4).
         internal const string ReqParam = "req";
 
+        // RFC 9110 section 5.6.2's tchar: a token is one or more of them. A method is one (section
+        // 9.1), and so is a field name (section 5.1), which fiki further requires lowercased.
+        private const string TokenChars = "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+        // RFC 8941 section 3.3.1: an integer has at most fifteen digits.
+        private const long MaxSfInteger = 999_999_999_999_999;
+
         private static readonly Dictionary<string, int> DefaultPorts = new Dictionary<string, int>
         {
             { "http", 80 }, { "https", 443 }, { "ws", 80 }, { "wss", 443 },
@@ -35,7 +42,89 @@ namespace Bakobo.Fiki
         /// A component identifier from a caller's spelling of it: a plain name, or its RFC 8941
         /// serialization with parameters. Names are lowercased as a convenience to a local caller.
         /// </summary>
+        /// <remarks>
+        /// A field name that is not a token is the caller's mistake, an ArgumentException, because it
+        /// would be serialized into Signature-Input as given (this.i @5zrf8gjk); a derived name fiki
+        /// does not build is refused later, as UnsupportedComponent, which names it.
+        /// </remarks>
         internal static SfItem Component(string spec)
+        {
+            var item = ComponentItem(spec);
+            if (!item.Value.Text.StartsWith("@", StringComparison.Ordinal) && !IsToken(item.Value.Text))
+            {
+                throw new ArgumentException(
+                    $"\"{spec}\" is not a component fiki can name: a field is named by an HTTP field name, one or more " +
+                    "token characters, and a derived component by its @ name.");
+            }
+            return item;
+        }
+
+        internal static bool IsToken(string text)
+        {
+            if (text.Length == 0)
+            {
+                return false;
+            }
+            foreach (var c in text)
+            {
+                if (TokenChars.IndexOf(c) < 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// A request's method is an RFC 9110 token, covered or not, or the call is a mistake. Its case
+        /// is kept as given (@22g0xkr8). Checked wherever a request message is built, on sign and
+        /// verify alike (@5zrf8gjk): an empty or spaced method is never a request anybody sent.
+        /// </summary>
+        internal static void CheckMethod(string method)
+        {
+            if (method == null || !IsToken(method))
+            {
+                throw new ArgumentException(
+                    $"The method \"{method}\" is not an HTTP method: a method is one or more token characters, with no " +
+                    "spaces, line breaks or separators.",
+                    nameof(method));
+            }
+        }
+
+        /// <summary>
+        /// What a signer serializes must be serializable, or the call is a mistake (@5zrf8gjk):
+        /// created and expires are RFC 8941 integers that are not negative, and keyid, alg, nonce and
+        /// tag are sf-strings, printable ASCII only, so a line break is refused by name before it
+        /// could forge a header line. Checked before anything else about the message.
+        /// </summary>
+        internal static void CheckSignerParams(long? created, long? expires, string? keyId, string? alg, string? nonce, string? tag)
+        {
+            foreach (var (name, value) in new[] { ("created", created), ("expires", expires) })
+            {
+                if (value != null && (value < 0 || value > MaxSfInteger))
+                {
+                    throw new ArgumentException(
+                        $"{name} is {value}, and RFC 8941 carries an integer of at most fifteen digits; fiki signs one from " +
+                        $"0 to {MaxSfInteger}.",
+                        name);
+                }
+            }
+            foreach (var (name, value) in new[] { ("keyid", keyId), ("alg", alg), ("nonce", nonce), ("tag", tag) })
+            {
+                foreach (var c in value ?? "")
+                {
+                    if (c < ' ' || c > '~')
+                    {
+                        throw new ArgumentException(
+                            $"The {name} \"{value}\" holds a character outside printable ASCII, which an RFC 8941 string " +
+                            "cannot carry; a line break there would forge a header line.",
+                            name);
+                    }
+                }
+            }
+        }
+
+        private static SfItem ComponentItem(string spec)
         {
             if (spec.StartsWith("\"", StringComparison.Ordinal))
             {
@@ -196,20 +285,69 @@ namespace Bakobo.Fiki
         /// <summary>A message the base is built from: a request, or a response and what it answers.</summary>
         internal sealed class Message
         {
-            internal Message(Dictionary<string, string> headers, string? method, PyUrl? parts, int? status, Message? request)
+            private PyUrl? _parts;
+
+            internal Message(Dictionary<string, string> headers, string? method, string? url, int? status, Message? request, bool received)
             {
                 Headers = headers;
                 Method = method;
-                Parts = parts;
+                Url = url;
                 Status = status;
                 Request = request;
+                Received = received;
             }
 
             internal Dictionary<string, string> Headers { get; }
 
             internal string? Method { get; }
 
-            internal PyUrl? Parts { get; }
+            internal string? Url { get; }
+
+            /// <summary>
+            /// A message handed to a verifier rather than built by a signer, which decides what a URL
+            /// that cannot be read is: a base that cannot be built when it arrived, a caller's mistake
+            /// when signing (@5zrf8gjk).
+            /// </summary>
+            internal bool Received { get; }
+
+            /// <summary>
+            /// The URL, split only when a component needs it (@9g24rdns), so a request that covers
+            /// neither @authority nor @path nor @query is never refused for a URL it never signed.
+            /// </summary>
+            internal PyUrl Parts
+            {
+                get
+                {
+                    if (_parts == null)
+                    {
+                        try
+                        {
+                            _parts = PyUrl.Split(Url!);
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            throw Unreadable(ex.Message + ".");
+                        }
+                    }
+                    return _parts;
+                }
+            }
+
+            /// <summary>
+            /// A URL fiki cannot read. The profile's section 9 names a base that cannot be built a
+            /// signature-mismatch, so a received URL whose port is not one is refused like any other
+            /// base that does not verify, never raised from outside fiki's taxonomy.
+            /// </summary>
+            internal Exception Unreadable(string reason)
+            {
+                if (Received)
+                {
+                    return new FikiException(
+                        FikiErrorKind.SignatureMismatch,
+                        $"The URL \"{Url}\" cannot be read: {reason} So there is no signature base to check the signature against.");
+                }
+                return new ArgumentException($"The URL \"{Url}\" cannot be read: {reason}");
+            }
 
             internal int? Status { get; }
 
@@ -236,12 +374,15 @@ namespace Bakobo.Fiki
         /// </summary>
         internal static string OwsTrimmed(string value) => value.Trim(' ', '\t');
 
-        internal static Message RequestMessage(string method, string url, IEnumerable<KeyValuePair<string, string>> headers) =>
-            new Message(Lowered(headers), method, PyUrl.Split(url), null, null);
+        internal static Message RequestMessage(string method, string url, IEnumerable<KeyValuePair<string, string>> headers, bool received = false)
+        {
+            CheckMethod(method);
+            return new Message(Lowered(headers), method, url, null, null, received);
+        }
 
-        internal static Message ResponseMessage(int status, IEnumerable<KeyValuePair<string, string>> headers, Request? request) =>
+        internal static Message ResponseMessage(int status, IEnumerable<KeyValuePair<string, string>> headers, Request? request, bool received = false) =>
             new Message(Lowered(headers), null, null, status,
-                request == null ? null : RequestMessage(request.Method, request.Url, request.Headers));
+                request == null ? null : RequestMessage(request.Method, request.Url, request.Headers, received), received);
 
         /// <summary>
         /// The authority, normalized per section 2.2.3: lowercase host, default port omitted, and an
@@ -249,8 +390,10 @@ namespace Bakobo.Fiki
         /// relative URL falls back to the Host header, which in HTTP/1.1 is the authority, and then
         /// nothing is normalized away, since without a scheme no port is a default port.
         /// </summary>
-        private static string Authority(PyUrl parts, Dictionary<string, string> headers)
+        private static string Authority(Message message)
         {
+            var parts = message.Parts;
+            var headers = message.Headers;
             if (parts.Netloc.Length > 0)
             {
                 var host = PyText.Lower(parts.Hostname ?? "");
@@ -261,7 +404,17 @@ namespace Bakobo.Fiki
                 {
                     host = "[" + host + "]";
                 }
-                var port = parts.Port;
+                // A port is any run of ASCII digits read as a number from 0 to 65535, so :000080 is
+                // 80 and :08443 is written back as 8443 (@5zrf8gjk); anything else cannot be read.
+                int? port;
+                try
+                {
+                    port = parts.Port;
+                }
+                catch (ArgumentException ex)
+                {
+                    throw message.Unreadable(ex.Message + ".");
+                }
                 if (port == null || (DefaultPorts.TryGetValue(parts.Scheme, out var standard) && standard == port))
                 {
                     return host;
@@ -305,23 +458,19 @@ namespace Bakobo.Fiki
                     }
                     return status.ToString(CultureInfo.InvariantCulture);
                 case "@method":
-                    // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8). A
-                    // request has a method, so an empty one is a caller who lost it, not an empty
-                    // line to sign (this.i @56qu7gyw); refused only when @method is built.
-                    if (string.IsNullOrEmpty(message.Method))
-                    {
-                        throw new ArgumentException("The signature covers @method, and the method given is empty; pass the method as it goes on the wire.");
-                    }
+                    // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
+                    // RequestMessage checked that it is a token (@5zrf8gjk).
                     return message.Method!;
                 case "@authority":
-                    return Authority(message.Parts!, message.Headers);
+                    return Authority(message);
                 case "@path":
                     // An empty path is the "/" the origin server would have received.
-                    return message.Parts!.Path.Length == 0 ? "/" : message.Parts.Path;
+                    var path = message.Parts.Path;
+                    return path.Length == 0 ? "/" : path;
                 case "@query":
                     // Section 2.2.7: the whole query string with its leading "?", percent-encoding
                     // preserved, and a bare "?" when the request carries no query at all.
-                    return "?" + message.Parts!.Query;
+                    return "?" + message.Parts.Query;
                 default:
                     if (!message.Headers.TryGetValue(name, out var value))
                     {
@@ -416,16 +565,20 @@ namespace Bakobo.Fiki
         internal static byte[] RequestBase(string method, string url, IEnumerable<KeyValuePair<string, string>> headers,
             List<SfItem> items, long created, string keyId, string? alg, long? expires, string? nonce, string? tag)
         {
+            CheckSignerParams(created, expires, keyId, alg, nonce, tag);
+            var message = RequestMessage(method, url, headers);
             CheckCovered(items, response: false);
-            var lines = LinesFor(items, RequestMessage(method, url, headers));
+            var lines = LinesFor(items, message);
             return Join(lines, SignatureParams(items, created, keyId, alg, expires, nonce, tag));
         }
 
         internal static byte[] ResponseBase(int status, IEnumerable<KeyValuePair<string, string>> headers, Request? request,
             List<SfItem> items, long created, string keyId, string? alg, long? expires, string? nonce, string? tag)
         {
+            CheckSignerParams(created, expires, keyId, alg, nonce, tag);
+            var message = ResponseMessage(status, headers, request);
             CheckCovered(items, response: true);
-            var lines = LinesFor(items, ResponseMessage(status, headers, request));
+            var lines = LinesFor(items, message);
             return Join(lines, SignatureParams(items, created, keyId, alg, expires, nonce, tag));
         }
     }

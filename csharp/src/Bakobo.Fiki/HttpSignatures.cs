@@ -127,7 +127,14 @@ namespace Bakobo.Fiki
         /// covered list its verifier would refuse. <paramref name="created"/> defaults to now.
         /// </remarks>
         /// <exception cref="FikiException">The message cannot be signed as asked.</exception>
-        /// <exception cref="ArgumentException">A minimum below the profile's, or a value RFC 8941 cannot carry.</exception>
+        /// <exception cref="ArgumentException">
+        /// A mistake in the call, never a <see cref="FikiException"/> (this.i @5zrf8gjk): a minimum below
+        /// the profile's, a method that is not an HTTP token, a URL whose port is not a number from 0 to
+        /// 65535 when a covered component needs it, a label that is not an RFC 8941 key, a keyid, nonce
+        /// or tag outside printable ASCII, a component name that is not a field name, a created or
+        /// expires outside 0 to 999999999999999, a null header name or value, two names for one field,
+        /// or a supplied Content-Digest the body does not match.
+        /// </exception>
         public static IReadOnlyDictionary<string, string> SignRequest(
             Key key,
             string method,
@@ -181,7 +188,13 @@ namespace Bakobo.Fiki
         /// <exception cref="FikiException">The request did not verify; <see cref="FikiException.Kind"/> says why.</exception>
         /// <exception cref="ArgumentException">
         /// The call itself is wrong: both an expected AID and a resolver, a minimum below the profile's,
-        /// options that apply only to responses, or a URL Python's urlsplit would refuse.
+        /// options that apply only to responses, a method that is not an HTTP token, or a null header
+        /// name or value. A URL that cannot be read, such as one whose port is not a number from 0 to
+        /// 65535, is a base that cannot be built, so a covered component that needs it makes it a
+        /// SignatureMismatch (@5zrf8gjk). Signature, Signature-Input and Content-Digest are bounded
+        /// before they are parsed, at <see cref="MaxFieldBytes"/> each, <see cref="MaxDictionaryMembers"/>
+        /// members, <see cref="MaxInnerListItems"/> items in an inner list and <see cref="MaxParameters"/>
+        /// parameters on an item, and a header over any of them is malformed.
         /// </exception>
         public static Verdict VerifyRequest(string method, string url, IEnumerable<KeyValuePair<string, string>> headers, VerifyOptions options)
             => Messages.VerifyRequest(method, url, headers, options);

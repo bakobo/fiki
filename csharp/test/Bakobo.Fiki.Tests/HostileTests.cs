@@ -104,12 +104,13 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void FiftyThousandDistinctCoveredComponentsAreCheckedInWellUnderASecond()
         {
-            // fiki-py bounds neither the header nor the list, so neither does this port; the work is
-            // linear, as py's set in check_covered makes it.
+            // A received Signature-Input this long is over MaxFieldBytes and refused before it is
+            // parsed (@5zrf8gjk); a caller's own list is not bounded, and the work is linear, as py's
+            // set in check_covered makes it.
             var covered = Distinct(50000);
             var input = "sig=(" + string.Join(" ", covered.Select(c => "\"" + c + "\"")) + ");created=1;keyid=\"k\"";
             var headers = new Dictionary<string, string> { { "Signature-Input", input }, { "Signature", "sig=:" + Convert.ToBase64String(new byte[64]) + ":" } };
-            var verify = Seconds(() => Assert.Equal(FikiErrorKind.MissingComponent, Assert.Throws<FikiException>(() =>
+            var verify = Seconds(() => Assert.Equal(FikiErrorKind.MalformedSignatureInput, Assert.Throws<FikiException>(() =>
                 HttpSignatures.VerifyRequest("GET", Url, headers, VerifyOptions.DecliningFreshness().WithExpectedAid(Signer.Aid))).Kind));
             var sign = Seconds(() => Assert.Equal(FikiErrorKind.MissingComponent, Assert.Throws<FikiException>(() =>
                 HttpSignatures.SignatureBase("GET", Url, new Dictionary<string, string>(), covered, 1, "k")).Kind));
