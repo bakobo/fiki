@@ -734,14 +734,23 @@ class ProfileTest {
 
     @Test
     void duplicateComponentDetectionIsLinear() {
-        int n = 100_000;
+        // A covered list is bounded at MAX_INNER_LIST_ITEMS before anything is compared (@5zrf8gjk),
+        // so the duplicate is found within the bound, and the parser itself is shown linear on a
+        // list far past it.
         StringBuilder covered = new StringBuilder();
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < Fiki.MAX_INNER_LIST_ITEMS - 6; i++) {
             covered.append(" \"x").append(i).append('"');
         }
         Signed s = sign().mangle("\"@method\"", "\"@method\"" + covered + " \"x0\"");
+        assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s)));
+        int n = 100_000;
+        StringBuilder huge = new StringBuilder("sig=(");
+        for (int i = 0; i < n; i++) {
+            huge.append(" \"x").append(i).append('"');
+        }
+        huge.append(')');
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () ->
-            assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s))));
+            assertEquals(n, ((Sfv.InnerList) Sfv.parseDictionary(huge.toString()).get(0).value()).items().size()));
     }
 
     /* ------------------------------------------------ the remaining edges of the new surface */

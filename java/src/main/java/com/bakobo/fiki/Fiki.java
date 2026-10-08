@@ -45,14 +45,14 @@ public final class Fiki {
      * a conformance contract has no meaningful minor: an implementation either satisfies the
      * vectors or it does not.
      */
-    public static final int VECTORS_FORMAT = 1;
+    public static final int VECTORS_FORMAT = 2;
 
     /**
      * The KERI profile's vector set this port satisfies, vectors/keri/ (this.i @8vwrexxc). A
      * separate number from {@link #VECTORS_FORMAT}, because the two sets answer to different
      * authorities and move independently.
      */
-    public static final int KERI_VECTORS_FORMAT = 3;
+    public static final int KERI_VECTORS_FORMAT = 4;
 
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";
@@ -126,6 +126,22 @@ public final class Fiki {
     }
 
     private static final int SIGNATURE_LENGTH = 64;
+
+    // Input bounds (@5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends and
+    // low enough that no parse is slow. Each applies to Signature-Input, Signature and
+    // Content-Digest alike, and over any of them is that header's malformed class.
+
+    /** The most bytes fiki reads in one Signature-Input, Signature or Content-Digest value. */
+    public static final int MAX_FIELD_BYTES = 8192;
+
+    /** The most members fiki reads in one of those dictionaries. */
+    public static final int MAX_DICTIONARY_MEMBERS = 16;
+
+    /** The most items fiki reads in one inner list, such as a covered-component list. */
+    public static final int MAX_INNER_LIST_ITEMS = 64;
+
+    /** The most parameters fiki reads on one item or inner list. */
+    public static final int MAX_PARAMETERS = 16;
 
     // The RFC 8037 "x" form of a raw keyid (@7xrx5evg): 32 bytes, base64url, unpadded.
     private static final Pattern RAW_KEYID = Pattern.compile("[A-Za-z0-9_-]{43}");
@@ -1067,14 +1083,17 @@ public final class Fiki {
             checkMinimum(items, List.of("@authority"), false, false);
         }
 
+        // Section 9's key steps in order (@5zrf8gjk): what the keyid alone shows, then the expected
+        // keyid, and only then the resolver, which is never asked about a keyid already refused.
         String keyid = (String) inner.param("keyid");
+        Resolved local = localKey(opts.expectedAid(), keyid, opts.resolver());
         if (opts.expectedKeyid() != null && !opts.expectedKeyid().equals(keyid)) {
             throw new FikiException(
                 FikiException.Kind.UnknownKey,
                 "This message is signed by \"" + keyid + "\", and the one expected is \"" + opts.expectedKeyid() + "\".",
                 keyid);
         }
-        Resolved resolved = resolve(opts.expectedAid(), keyid, opts.resolver());
+        Resolved resolved = local != null ? local : resolved(keyid, opts.resolver());
         Object alg = inner.param("alg");
         if (alg != null && !ALG.equals(alg)) {
             throw new FikiException(
@@ -1310,18 +1329,64 @@ public final class Fiki {
         }
     }
 
+    /**
+     * Parse one signature-related header, bounded before it is read (@5zrf8gjk): its size in bytes
+     * first, on the raw value, then its shape, then the counts of what parsed. Over any bound is
+     * the header's malformed class, never a crash or a slow parse.
+     */
     private static List<Sfv.Member> parse(String raw, String name, FikiException.Kind kind) {
+        // Never null: a covered digest header that is absent is already a MissingComponent.
+        int bytes = raw.getBytes(StandardCharsets.UTF_8).length;
+        if (bytes > MAX_FIELD_BYTES) {
+            throw new FikiException(kind,
+                "The " + name + " header is " + bytes + " bytes, and fiki reads one of at most "
+                    + MAX_FIELD_BYTES + ".");
+        }
+        List<Sfv.Member> members;
         try {
-            // Never null: a covered digest header that is absent is already a MissingComponent.
-            return Sfv.parseDictionary(raw);
+            members = Sfv.parseDictionary(raw);
         } catch (Sfv.SyntaxException e) {
             throw new FikiException(kind,
                 "I could not parse the " + name + " header; RFC 9421 spells it as an RFC 8941 dictionary.");
         }
+        checkCounts(members, name, kind);
+        return members;
     }
 
-    /** The key to verify with and the identity to report. */
-    private static Resolved resolve(String expectedAid, String keyid, Resolver resolver) {
+    private static void checkCounts(List<Sfv.Member> members, String name, FikiException.Kind kind) {
+        if (members.size() > MAX_DICTIONARY_MEMBERS) {
+            throw overLimit(name, kind, MAX_DICTIONARY_MEMBERS, "members");
+        }
+        for (Sfv.Member member : members) {
+            if (member.params().size() > MAX_PARAMETERS) {
+                throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
+            }
+            if (member.value() instanceof Sfv.InnerList inner) {
+                if (inner.items().size() > MAX_INNER_LIST_ITEMS) {
+                    throw overLimit(name, kind, MAX_INNER_LIST_ITEMS, "items in one inner list");
+                }
+                for (Sfv.Item item : inner.items()) {
+                    if (item.params().size() > MAX_PARAMETERS) {
+                        throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
+                    }
+                }
+            }
+        }
+    }
+
+    private static FikiException overLimit(String name, FikiException.Kind kind, int limit, String what) {
+        return new FikiException(kind,
+            "The " + name + " header has more than " + limit + " " + what + ", which is more than fiki "
+                + "reads from any honest signer.");
+    }
+
+    /**
+     * Every key check that needs nothing beyond the keyid itself (profile section 9): the key to
+     * verify with and the identity to report, or null when the resolver decides. Either way a keyid
+     * that is not well formed is refused here, before the expected keyid is compared and before any
+     * resolver sees it (@5zrf8gjk).
+     */
+    private static Resolved localKey(String expectedAid, String keyid, Resolver resolver) {
         if (expectedAid != null) {
             byte[] raw = Key.trusted(Key.verifyingKeyBytes(expectedAid), expectedAid);
             return new Resolved(raw, Key.toAid(raw));
@@ -1342,22 +1407,7 @@ public final class Fiki {
                         + "so it is not an AID at all.",
                     keyid);
             }
-            // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-            // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-            byte[] raw = resolver.resolve(keyid);
-            if (raw == null) {
-                throw new FikiException(
-                    FikiException.Kind.UnknownKey,
-                    "No key is known for the keyid \"" + keyid + "\", so the signature cannot be checked.",
-                    keyid);
-            }
-            if (raw.length != Key.RAW_LEN) {
-                throw new FikiException(
-                    FikiException.Kind.MalformedKey,
-                    "The key resolved for \"" + keyid + "\" is not a 32-byte Ed25519 public key.",
-                    keyid);
-            }
-            return new Resolved(Key.trusted(raw.clone(), keyid), keyid);
+            return null;
         }
         // Strictly: a lenient decoder ignores trailing bits, so a keyid that is not the key's
         // encoding could verify as whatever key it happened to decode to. Only the one canonical
@@ -1377,6 +1427,26 @@ public final class Fiki {
                 keyid);
         }
         return new Resolved(Key.trusted(raw, keyid), Key.toAid(raw));
+    }
+
+    /** The resolver's key for a keyid already found well formed, and the keyid it vouched for. */
+    private static Resolved resolved(String keyid, Resolver resolver) {
+        // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+        // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+        byte[] raw = resolver.resolve(keyid);
+        if (raw == null) {
+            throw new FikiException(
+                FikiException.Kind.UnknownKey,
+                "No key is known for the keyid \"" + keyid + "\", so the signature cannot be checked.",
+                keyid);
+        }
+        if (raw.length != Key.RAW_LEN) {
+            throw new FikiException(
+                FikiException.Kind.MalformedKey,
+                "The key resolved for \"" + keyid + "\" is not a 32-byte Ed25519 public key.",
+                keyid);
+        }
+        return new Resolved(Key.trusted(raw.clone(), keyid), keyid);
     }
 
     /**

@@ -127,6 +127,8 @@ class VectorsTest {
                     c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c));
                 assertEquals(c.get("aid").asText(), verdict.aid());
                 assertEquals(strings(c.get("covered")), verdict.covered());
+                // The keyid as it appeared on the wire (@5zrf8gjk, rule B18).
+                assertEquals(c.get("keyid").asText(), verdict.keyid());
             }));
         }
         return tests.stream();
