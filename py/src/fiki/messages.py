@@ -755,7 +755,14 @@ _PADDED_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z
 
 def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
     """Parse one signature-related header, bounded before it is read (@5zrf8gjk)."""
-    encoded = raw.encode("utf-8")
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeEncodeError as ex:
+        # An unpaired surrogate has no UTF-8 spelling, so no peer sent it and nothing can read it.
+        raise error(
+            f"The {name} header holds a character that has no UTF-8 encoding, so it cannot be "
+            "read as an RFC 8941 dictionary."
+        ) from ex
     if len(encoded) > MAX_FIELD_BYTES:
         raise error(
             f"The {name} header is {len(encoded)} bytes, and fiki reads one of at most "

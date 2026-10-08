@@ -589,6 +589,28 @@ def test_a_field_over_8192_bytes_is_refused_whatever_it_holds():
         verify(request, headers)
 
 
+@pytest.mark.parametrize("header, error", [
+    ("Signature", MalformedSignature),
+    ("Signature-Input", MalformedSignatureInput),
+])
+@pytest.mark.parametrize("value", ["\ud800", "sig=:\udfff:", "\ud800" * 9000])
+def test_a_field_that_cannot_be_encoded_is_malformed(header, error, value):
+    request, headers = sign(method="POST", body=BODY)
+    headers[header] = value
+    with pytest.raises(error):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("value", ["\ud800", "sha-256=:\udfff:"])
+def test_a_content_digest_that_cannot_be_encoded_is_malformed(value):
+    asked = Request(method="POST", url=URL, headers={"Content-Digest": value}, body=BODY)
+    for covered in (["@status", req("content-digest")], None):
+        with pytest.raises(MalformedDigest):
+            sign_response(key=KEY, status=200, request=asked, created=AT, covered=covered)
+    with pytest.raises(ValueError):
+        sign(method="POST", body=BODY, headers={"Content-Digest": value})
+
+
 @pytest.mark.parametrize("header", ["Signature", "Signature-Input", "Content-Digest"])
 def test_a_field_of_exactly_8192_bytes_is_read(header):
     request, headers = sign(method="POST", body=BODY)
