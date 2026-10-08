@@ -16,6 +16,7 @@ import pytest
 
 from fiki import KEY_VECTORS_FORMAT, Key, aid_from, sign_request, verify_request
 from fiki.errors import MalformedKey
+from fiki.keys import _decode_point
 
 KEYS = Path(__file__).resolve().parents[2] / "vectors" / "keys" / "keys.json"
 VECTORS = json.loads(KEYS.read_text(encoding="utf-8"))
@@ -95,25 +96,25 @@ def test_a_private_key_with_a_weak_public_key_is_refused():
         Key.from_openssh(case["input"])
 
 
+@pytest.mark.parametrize("value", [None, b"ssh-ed25519 AAAA", 42])
+def test_a_key_that_is_not_text_is_a_caller_error_not_a_refusal(value):
+    # The guide's "Handling errors": a mistake in the call is reported in the port's own idiom,
+    # so that catching FikiError for a bad message cannot swallow a bug in the caller's code.
+    with pytest.raises(TypeError, match="is text"):
+        aid_from(value)
+    with pytest.raises(TypeError, match="is text"):
+        Key.from_openssh(value)
+
+
 def test_a_seed_mistaken_for_a_raw_key_is_not_echoed_when_refused():
     # About half of all seeds, written as 43 characters of base64url, are not a valid point and
     # so are refused by the curve check rather than by the parser. That refusal must not quote it.
-    seed = next(
-        base64.urlsafe_b64encode(bytes([n]) * 32).decode("ascii").rstrip("=")
-        for n in range(256)
-        if _refused(base64.urlsafe_b64encode(bytes([n]) * 32).decode("ascii").rstrip("="))
-    )
-    with pytest.raises(MalformedKey) as caught:
-        aid_from(seed)
-    assert not _echoes(caught.value, seed)
-
-
-def _refused(text: str) -> bool:
-    try:
+    # The seed is chosen by RFC 8032's own decoding rather than by asking aid_from.
+    seed = next(bytes([n]) * 32 for n in range(256) if _decode_point(bytes([n]) * 32) is None)
+    text = base64.urlsafe_b64encode(seed).decode("ascii").rstrip("=")
+    with pytest.raises(MalformedKey, match="not the canonical encoding of a point") as caught:
         aid_from(text)
-    except MalformedKey:
-        return True
-    return False
+    assert not _echoes(caught.value, text)
 
 
 def test_the_encrypted_refusal_says_to_keep_a_dedicated_key():

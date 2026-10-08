@@ -275,10 +275,10 @@ def test_the_guides_key_spelling_samples_run(tmp_path, monkeypatch):
     (tmp_path / "fiki_ed25519").write_text(private["input"])
 
 # guide: registering a key in another spelling
-    registered_aid = aid_from(open("alice.pub").read().rstrip("\n"))
+    registered_aid = aid_from(Path("alice.pub").read_text().rstrip("\n"))
 # end guide
 # guide: signing with an SSH key
-    key = Key.from_openssh(open("fiki_ed25519").read())
+    key = Key.from_openssh(Path("fiki_ed25519").read_text())
     headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
 # end guide
     verdict = verify_request(

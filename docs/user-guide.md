@@ -218,9 +218,10 @@ The AID is one spelling of an Ed25519 public key, and a client may hand you anot
 Convert when you load your registrations, not on each request. A bad registration then fails when your service starts, and `expected_aid` and the verdict's AID stay in the one spelling that never needs guessing.
 
 ```python
+from pathlib import Path
 from fiki import aid_from
 
-registered_aid = aid_from(open("alice.pub").read().rstrip("\n"))
+registered_aid = aid_from(Path("alice.pub").read_text().rstrip("\n"))
 ```
 
 Then pass `registered_aid` as `expected_aid`, or compare it with the verdict's AID, exactly as above.
@@ -236,9 +237,10 @@ Python has this today. The other ports will follow against the same vectors, `ve
 If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from`.
 
 ```python
+from pathlib import Path
 from fiki import Key, sign_request
 
-key = Key.from_openssh(open("fiki_ed25519").read())
+key = Key.from_openssh(Path("fiki_ed25519").read_text())
 headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
 ```
 

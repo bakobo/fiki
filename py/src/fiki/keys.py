@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from .errors import MalformedKey
+from .openssh import read_openssh
 
 # CESR's Ed25519N (non-transferable Ed25519 verification key). fiki decodes this code and no
 # other, deliberately: a parser that handles one fixed-length code can only ever be narrower than
@@ -140,8 +141,6 @@ class Key:
         fiki requests with a login key. The separation is a property of sign_request, not of the
         key: Key.sign signs any bytes.
         """
-        from .formats import read_openssh  # formats reads keys' codec, so it imports keys
-
         return cls.from_seed(read_openssh(text))
 
     @property
