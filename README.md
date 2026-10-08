@@ -49,18 +49,18 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations, all at 0.7.0, all conforming to vectors format 1 and to the KERI profile's keri vectors format 3. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
+Six implementations, all at 0.8.0, all conforming to vectors format 2 and to the KERI profile's keri vectors format 4. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
 
 The APIs are not frozen; this is 0.x. Each port is published to the registry its ecosystem expects, by a tag-triggered workflow that needs no long-lived credential ([docs/releasing.md](docs/releasing.md)), except the Java port, which is not yet on Maven Central and is built from source:
 
 [![PyPI](https://img.shields.io/pypi/v/fiki)](https://pypi.org/project/fiki/) [![npm](https://img.shields.io/npm/v/@bakobo/fiki)](https://www.npmjs.com/package/@bakobo/fiki) [![crates.io](https://img.shields.io/crates/v/fiki)](https://crates.io/crates/fiki) [![NuGet](https://img.shields.io/nuget/v/Bakobo.Fiki)](https://www.nuget.org/packages/Bakobo.Fiki) [![Go Reference](https://pkg.go.dev/badge/github.com/bakobo/fiki/go.svg)](https://pkg.go.dev/github.com/bakobo/fiki/go)
 
 ```sh
-pip install fiki==0.7.0
-npm install @bakobo/fiki@0.7.0
-go get github.com/bakobo/fiki/go@v0.7.0
-cargo add fiki@0.7.0
-dotnet add package Bakobo.Fiki --version 0.7.0
+pip install fiki==0.8.0
+npm install @bakobo/fiki@0.8.0
+go get github.com/bakobo/fiki/go@v0.8.0
+cargo add fiki@0.8.0
+dotnet add package Bakobo.Fiki --version 0.8.0
 ```
 
 Versions 0.0.1 on PyPI, npm, crates.io and NuGet are empty placeholders that reserved the names; do not depend on them. Its first consumer, [heti](https://github.com/bakobo/heti), pins fiki by commit rather than by version.
@@ -78,7 +78,7 @@ vectors/              conformance vectors, shared and normative
   signature-base.json     bases and signatures, byte for byte
   accepts.json            requests every implementation must accept, and the verdict
   refusals.json           requests every implementation must refuse, and the error
-  keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 3;
+  keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 4;
                           all six ports run it
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
@@ -95,17 +95,17 @@ A new port adds a directory here rather than a repository, so the vectors cannot
 Each implementation versions independently — a fix in the Go port does not force an empty release of the other five. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
 
 ```
-fiki (Python)      0.7.0    vectors format 1    keri vectors format 3
-fiki (JavaScript)  0.7.0    vectors format 1    keri vectors format 3
-fiki (Go)          0.7.0    vectors format 1    keri vectors format 3
-fiki (Rust)        0.7.0    vectors format 1    keri vectors format 3
-fiki (Java)        0.7.0    vectors format 1    keri vectors format 3
-fiki (C#)          0.7.0    vectors format 1    keri vectors format 3
+fiki (Python)      0.8.0    vectors format 2    keri vectors format 4
+fiki (JavaScript)  0.8.0    vectors format 2    keri vectors format 4
+fiki (Go)          0.8.0    vectors format 2    keri vectors format 4
+fiki (Rust)        0.8.0    vectors format 2    keri vectors format 4
+fiki (Java)        0.8.0    vectors format 2    keri vectors format 4
+fiki (C#)          0.8.0    vectors format 2    keri vectors format 4
 ```
 
 Same format, interchangeable; the two columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 
-Releases are tagged per port: `py/v0.7.0`, `js/v0.7.0`, `go/v0.7.0`, `rust/v0.7.0`, `java/v0.7.0`, `csharp/v0.7.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other five follow it for consistency.
+Releases are tagged per port: `py/v0.8.0`, `js/v0.8.0`, `go/v0.8.0`, `rust/v0.8.0`, `java/v0.8.0`, `csharp/v0.8.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other five follow it for consistency.
 
 ## Conformance
 
