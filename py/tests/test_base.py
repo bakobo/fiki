@@ -190,8 +190,10 @@ def test_a_missing_method_is_a_caller_error():
         line_for("@method", method=None)
 
 
-def test_an_empty_method_is_not_refused_when_nothing_covers_it():
-    assert line_for("@path", method="") == '"@path": /foo'
+def test_an_empty_method_is_refused_even_when_nothing_covers_it():
+    """The 0.8.0 sweep (@5zrf8gjk): a request message has a token for a method, covered or not."""
+    with pytest.raises(ValueError):
+        line_for("@path", method="")
 
 
 def test_an_empty_method_in_the_request_a_response_answers_is_a_caller_error():

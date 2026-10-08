@@ -53,6 +53,17 @@ def signed(**overrides):
     return request, headers
 
 
+def signed_over_digest(digest: str):
+    """A request signed over a Content-Digest the signer is not shown the body for.
+
+    sign_request refuses a supplied digest its body contradicts (@5zrf8gjk), and these are digests
+    a verifier must refuse when some other signer sends them, so the body joins afterwards.
+    """
+    request, headers = signed(headers={"Content-Digest": digest}, body=None,
+                              covered=list(DEFAULT_COVERED) + ["content-digest"])
+    return {**request, "body": BODY}, headers
+
+
 def test_a_signed_request_verifies_and_names_the_signer():
     request, headers = signed()
     verdict = verify_request(headers=headers, max_age=None, **request)
@@ -236,7 +247,7 @@ def test_a_content_digest_naming_an_unknown_algorithm_alongside_a_known_one_veri
 
 def test_a_content_digest_naming_only_algorithms_fiki_cannot_compute_is_refused():
     """Fail closed: an uncheckable digest is an unchecked body, not a checked one."""
-    request, headers = signed(headers={"Content-Digest": "sha-1=:AAAA:"})
+    request, headers = signed_over_digest("sha-1=:AAAA:")
     with pytest.raises(MalformedDigest):
         verify_request(headers=headers, max_age=None, **request)
 
@@ -326,7 +337,7 @@ def test_clock_skew_is_tolerated_so_a_second_of_disagreement_is_not_an_attack():
 def test_the_skew_allowance_is_adjustable():
     request, headers = fresh()
     with pytest.raises(SignatureTooOld):
-        verify_request(headers=headers, max_age=300, skew=0, now=SIGNED_AT + 301, **request)
+        verify_request(headers=headers, max_age=300, skew=1, now=SIGNED_AT + 302, **request)
 
 
 def test_a_signature_created_in_the_future_beyond_skew_is_refused():
@@ -480,7 +491,7 @@ def test_a_signature_with_misplaced_padding_is_malformed_on_every_interpreter(ho
 @pytest.mark.parametrize("how", _RESPELLINGS)
 def test_a_content_digest_with_misplaced_padding_is_malformed_on_every_interpreter(how):
     digest = content_digest(BODY)
-    request, headers = signed(headers={"Content-Digest": _respelled(digest, how)})
+    request, headers = signed_over_digest(_respelled(digest, how))
     with pytest.raises(MalformedDigest):
         verify_request(headers=headers, max_age=None, **request)
 
