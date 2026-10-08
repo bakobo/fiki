@@ -116,7 +116,14 @@ class MalformedSignatureValue(FikiError):
 
 
 class MalformedKey(_Detailed):
-    """A key, keyid, or AID is not a well-formed 32-byte Ed25519 public key."""
+    """A key, keyid, or AID is not a well-formed 32-byte Ed25519 public key, or a key fiki was
+    asked to load is not one it reads.
+
+    The second half is :func:`fiki.aid_from` refusing a spelling (``this.i`` @0mvgkwnl) and
+    :meth:`fiki.Key.from_openssh` refusing a private key: a malformed container, a key that is
+    not Ed25519, or one encrypted under a passphrase. Raised there, ``keyid`` is empty and the
+    message never quotes the input, since the input may be secret.
+    """
 
     _fields = ("keyid",)
 

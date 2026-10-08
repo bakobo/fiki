@@ -77,13 +77,22 @@ def _multibase_ed25519(value: str) -> bytes | None:
     return decoded[2:] if decoded[:2] == _ED25519_PUB else None
 
 
+def _aid_body(text: str) -> bytes | None:
+    """The 32 bytes under a 44-character B, D or E AID, or None unless it is spelled canonically.
+
+    An AID is base64url over a zero pad byte and the bytes, with the pad's character replaced by
+    the code; only the spelling to_aid produces, code aside, is an AID (bakobo/fiki#4).
+    """
+    if len(text) != _AID_LEN or text[:1] not in "BDE":
+        return None
+    decoded = _b64url("A" + text[1:])
+    return decoded[1:] if decoded is not None and to_aid(decoded[1:])[1:] == text[1:] else None
+
+
 def _raw_of(text: str) -> bytes | None:
     """The raw key ``text`` spells, by its shape, or None for a shape fiki does not read."""
     if len(text) == _AID_LEN and text[:1] == "B":
-        # The AID is base64url over a zero pad byte and the key, with the pad's character
-        # replaced by the code; only the spelling to_aid produces is the AID (bakobo/fiki#4).
-        decoded = _b64url("A" + text[1:])
-        return decoded[1:] if decoded is not None and to_aid(decoded[1:]) == text else None
+        return _aid_body(text)
     if len(text) == _RAW_B64URL_LEN:
         return _b64url(text)
     if text.startswith("did:key:"):
@@ -121,7 +130,8 @@ def aid_from(text: str) -> str:
             f"this one is {len(text)}.",
             keyid="",
         )
-    if len(text) == _AID_LEN and text[:1] in "DE":
+    # Shape before meaning: only a canonically spelled D or E AID is told what it is.
+    if text[:1] in "DE" and _aid_body(text) is not None:
         raise MalformedKey(
             "The text is a transferable or digest AID, whose current key is not recoverable from "
             "the identifier; resolve it to a key first.",

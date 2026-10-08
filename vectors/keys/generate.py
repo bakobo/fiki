@@ -195,6 +195,9 @@ def public_refusals() -> list[dict]:
            "the pad bits under the code are non-zero, a second spelling of a key")
     refuse("aid-transferable", "D" + aid[1:], "a D prefix embeds an inception key that may have rotated away")
     refuse("aid-digest", "E" + aid[1:], "an E prefix is a digest, not a key")
+    refuse("aid-transferable-not-base64", "D" + aid[1:-1] + "!", "a D prefix over text that is not base64url")
+    refuse("aid-transferable-misspelled", "D" + B64URL[B64URL.index(aid[1]) | 0x20] + aid[2:],
+           "a D prefix whose pad bits are non-zero, which is no AID at all")
     refuse("aid-small-order", to_aid(IDENTITY), "the identity point, under which any signature verifies")
     refuse("raw-padded", b64url(a) + "=", "base64url padding is not part of the raw form")
     refuse("raw-std-alphabet", base64.b64encode(b"\xfb" * 32).decode("ascii").rstrip("="),

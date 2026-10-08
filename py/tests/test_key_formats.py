@@ -106,6 +106,22 @@ def test_a_key_that_is_not_text_is_a_caller_error_not_a_refusal(value):
         Key.from_openssh(value)
 
 
+@pytest.mark.parametrize("case_id", ["aid-transferable", "aid-digest"])
+def test_a_canonical_transferable_or_digest_aid_is_told_to_resolve_it(case_id):
+    case = next(c for c in VECTORS["public"]["refusals"] if c["id"] == case_id)
+    with pytest.raises(MalformedKey, match="resolve it"):
+        aid_from(case["input"])
+
+
+@pytest.mark.parametrize("case_id", ["aid-transferable-not-base64", "aid-transferable-misspelled"])
+def test_a_malformed_d_prefix_is_not_called_an_aid(case_id):
+    # Shape before meaning: text that merely starts with D is not told it is a transferable AID.
+    case = next(c for c in VECTORS["public"]["refusals"] if c["id"] == case_id)
+    with pytest.raises(MalformedKey) as caught:
+        aid_from(case["input"])
+    assert "resolve it" not in str(caught.value)
+
+
 def test_a_seed_mistaken_for_a_raw_key_is_not_echoed_when_refused():
     # About half of all seeds, written as 43 characters of base64url, are not a valid point and
     # so are refused by the curve check rather than by the parser. That refusal must not quote it.
