@@ -17,7 +17,7 @@
 /// version numbers say — so this is the number to compare, not the release. Monotonic, because a
 /// conformance contract has no meaningful minor: an implementation either satisfies the vectors or
 /// it does not.
-pub const VECTORS_FORMAT: u32 = 1;
+pub const VECTORS_FORMAT: u32 = 2;
 
 /// The KERI profile's conformance contract this port satisfies, `vectors/keri/`'s
 /// `keri_vectors_format` (`this.i` @8vwrexxc, @4tkkp50h, @5e2phpjy).
@@ -25,7 +25,7 @@ pub const VECTORS_FORMAT: u32 = 1;
 /// A separate number from [`VECTORS_FORMAT`], because the two sets answer to different authorities
 /// and move independently: the shared vectors to fiki's own decisions, these to a profile fiki does
 /// not own.
-pub const KERI_VECTORS_FORMAT: u32 = 3;
+pub const KERI_VECTORS_FORMAT: u32 = 4;
 
 mod base;
 mod errors;
@@ -41,5 +41,6 @@ pub use errors::{Error, Kind, Result};
 pub use keys::{to_aid, verifying_key, Key};
 pub use messages::{
     content_digest, sign_request, sign_response, verify_request, verify_response, Resolver,
-    SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_SKEW, REQUEST_MINIMUM, RESPONSE_MINIMUM,
+    SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_SKEW, MAX_DICTIONARY_MEMBERS,
+    MAX_FIELD_BYTES, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS, REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };

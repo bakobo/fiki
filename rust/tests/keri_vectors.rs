@@ -427,7 +427,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 3);
+    assert_eq!(KERI_VECTORS_FORMAT, 4);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");

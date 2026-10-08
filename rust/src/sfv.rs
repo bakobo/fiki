@@ -198,6 +198,12 @@ impl Cursor<'_> {
         }
         let encoded = self.slice(start);
         self.expect(b':')?;
+        // Canonically padded and nothing else (`this.i` @5zrf8gjk): a whole number of quanta, so
+        // `:QQ:` and `:QQ=:` are refused rather than decoded as if padded. The decoder refuses an
+        // "=" anywhere but the end.
+        if encoded.len() % 4 != 0 {
+            return Err(SyntaxError);
+        }
         b64std_decode(&encoded).ok_or(SyntaxError)
     }
 
@@ -422,6 +428,10 @@ mod tests {
             "\"tab\there\"",
             ":AQI!:",
             ":AQID",
+            ":QQ:",
+            ":QQ=:",
+            ":=:",
+            ":QQ==QQ==:",
             "?2",
             "?",
             "-",
