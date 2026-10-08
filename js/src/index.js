@@ -10,15 +10,16 @@
 // when their declared vectors format matches, whatever their own version numbers say — so this is
 // the number to compare, not the release. Monotonic, because a conformance contract has no
 // meaningful minor: an implementation either satisfies the vectors or it does not.
-export const VECTORS_FORMAT = 1;
+export const VECTORS_FORMAT = 2;
 
 // The KERI profile's own conformance contract, vectors/keri/ (`this.i` @8vwrexxc, @9enyfktu). A
 // separate number from VECTORS_FORMAT, because the two sets answer to different authorities and
 // move independently.
-export const KERI_VECTORS_FORMAT = 3;
+export const KERI_VECTORS_FORMAT = 4;
 
 export * as errors from './errors.js';
 export { FikiError } from './errors.js';
+export { MAX_DICTIONARY_MEMBERS, MAX_FIELD_BYTES, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS } from './sfv.js';
 export { Key, toAid, verifyingKey, verifySignature } from './keys.js';
 export {
   CONTENT_DIGEST,

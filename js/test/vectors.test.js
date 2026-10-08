@@ -124,6 +124,9 @@ describe('requests every implementation must accept', () => {
         now: c.now,
       });
       assert.equal(verdict.aid, c.aid);
+      // Format 2 (@5zrf8gjk, rule B18): the keyid exactly as it arrived, beside the identity that
+      // vouched for the key.
+      assert.equal(verdict.keyid, c.keyid);
       assert.deepEqual(verdict.covered, c.covered);
     });
   }

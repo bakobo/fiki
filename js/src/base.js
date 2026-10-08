@@ -129,23 +129,60 @@ export function splitUrl(url) {
   return { scheme: scheme.toLowerCase(), netloc: netloc ?? '', path, query };
 }
 
-function authority(parts, headers) {
+/** A URL fiki cannot read: the caller's mistake when signing, an unbuildable base when not.
+ *
+ * The profile's section 9 names a base that cannot be built a signature mismatch, so a received
+ * URL whose authority cannot be read is refused like any other base that does not verify, never
+ * thrown as an exception from outside fiki's taxonomy (@5zrf8gjk).
+ */
+function unreadable(message, reason) {
+  if (message.received) {
+    return new SignatureMismatch(
+      `The URL ${message.url} cannot be read: ${reason} So there is no signature base to check the ` +
+        'signature against.',
+    );
+  }
+  return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
+}
+
+/** Split an authority's host-and-port into the host as written and the port's text.
+ *
+ * An IP-literal keeps its brackets, which RFC 3986 section 3.2.2 makes part of the host, and only
+ * ":port" may follow its closing bracket. A bracket anywhere else is not a host.
+ */
+function hostAndPort(hostport, message) {
+  if (hostport.startsWith('[')) {
+    const close = hostport.indexOf(']');
+    const rest = close < 0 ? '' : hostport.slice(close + 1);
+    if (close < 0 || (rest !== '' && !rest.startsWith(':'))) {
+      throw unreadable(message, 'an IP-literal must close with "]", followed by nothing but ":" and a port.');
+    }
+    return [hostport.slice(0, close + 1), rest.slice(1)];
+  }
+  const colon = hostport.indexOf(':');
+  const [host, port] = colon < 0 ? [hostport, ''] : [hostport.slice(0, colon), hostport.slice(colon + 1)];
+  if (/[[\]]/.test(host)) throw unreadable(message, 'a bracket belongs only around an IP-literal.');
+  return [host, port];
+}
+
+function authority(message) {
   // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to the
   // Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier actually
   // holds. Nothing is normalized away there, because without a scheme no port is a default port.
+  const { parts, headers } = message;
   if (parts.netloc) {
-    const hostport = parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1).toLowerCase();
-    const [, host, port = ''] = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/.exec(hostport);
-    if (port === '') return host;
+    const [host, port] = hostAndPort(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), message);
+    // An empty port is no port at all, as RFC 3986 section 6.2.3 normalizes it.
+    if (port === '') return host.toLowerCase();
     // RFC 3986 section 3.2.3: port = *DIGIT, so any run of ASCII digits, leading zeros and all, and
     // the value is the number: "000080" is 80 and is the default, as urlsplit reads it. The range
     // is checked on the digits that remain, so a long run of zeros cannot hide an overflow.
     const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
     if (digits === null || digits.length > 5 || Number(digits) > 65535) {
-      throw new TypeError(`The URL's port "${port}" is not a port number between 0 and 65535.`);
+      throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
     }
-    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host;
-    return `${host}:${digits}`;
+    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host.toLowerCase();
+    return `${host.toLowerCase()}:${digits}`;
   }
   const host = headers.get('host');
   if (host === undefined) {
@@ -209,19 +246,21 @@ function checked(value, spec) {
   return value;
 }
 
-export function requestMessage(method, url, headers) {
+export function requestMessage(method, url, headers, { received = false } = {}) {
   // A method is the caller's to supply, and an absent one would otherwise be signed as the string
   // "undefined". Required here, where every request and every response's request passes.
   if (typeof method !== 'string' || method === '') {
     throw new TypeError(`A request needs its method as a non-empty string, as sent; got ${String(method) || 'an empty string'}.`);
   }
-  return { headers: lowered(headers), method, parts: splitUrl(url) };
+  // `received` marks a message handed to a verifier rather than built by a signer, which decides
+  // what a URL that cannot be read is: a base that cannot be built, or a caller error.
+  return { headers: lowered(headers), method, url, parts: splitUrl(url), received };
 }
 
-export const responseMessage = (status, headers, request) => ({
+export const responseMessage = (status, headers, request, { received = false } = {}) => ({
   headers: lowered(headers),
   status,
-  request: request ? requestMessage(request.method, request.url, request.headers) : null,
+  request: request ? requestMessage(request.method, request.url, request.headers, { received }) : null,
 });
 
 function componentValue(item, message) {
@@ -252,7 +291,7 @@ function componentValue(item, message) {
   }
   // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
   if (name === '@method') return source.method;
-  if (name === '@authority') return authority(source.parts, source.headers);
+  if (name === '@authority') return authority(source);
   // An empty path is the "/" the origin server would have received.
   if (name === '@path') return source.parts.path || '/';
   // Section 2.2.7: the whole query string including the leading "?", percent-encoding preserved,

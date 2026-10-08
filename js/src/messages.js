@@ -50,7 +50,7 @@ import {
   UnsupportedAlgorithm,
 } from './errors.js';
 import { checkKey, misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
-import { parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
+import { MAX_FIELD_BYTES, parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
 
@@ -334,7 +334,7 @@ export async function verifyRequest({
   requireMaxAge(maxAge, 'verifyRequest');
   const floor = floored(minimum, REQUEST_MINIMUM);
   headers = canonicalHeaders(headers);
-  return verify(requestMessage(method, url, headers), headers, bodyBytes(body), {
+  return verify(requestMessage(method, url, headers, { received: true }), headers, bodyBytes(body), {
     response: false,
     request: null,
     maxAge,
@@ -378,13 +378,14 @@ export async function verifyResponse({
   body = bodyBytes(body);
   request = normalRequest(request);
   headers = canonicalHeaders(headers);
-  if (status === 401 && !hasName(headers, 'signature')) {
+  // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
+  if (status === 401 && !headers.signature) {
     throw new Unauthenticated(
       'The server answered 401 without signing the answer, so the request was not authenticated ' +
         'and the body of the refusal cannot be trusted.',
     );
   }
-  return verify(responseMessage(status, headers, request), headers, body, {
+  return verify(responseMessage(status, headers, request, { received: true }), headers, body, {
     response: true,
     request,
     maxAge,
@@ -673,7 +674,16 @@ function checkInput(member, { requireKeyid, requireCreated }) {
   }
 }
 
+/** Parse one signature-related header, bounded before it is read (@5zrf8gjk).
+ *
+ * Size before shape: the raw field value is measured in UTF-8 bytes before any parsing or
+ * trimming, and the parser enforces the member, item and parameter counts as it goes.
+ */
 function parse(raw, name, ErrorClass) {
+  const size = utf8(raw).length;
+  if (size > MAX_FIELD_BYTES) {
+    throw new ErrorClass(`The ${name} header is ${size} bytes, and fiki reads one of at most ${MAX_FIELD_BYTES}.`);
+  }
   try {
     return parseDictionary(raw);
   } catch {
