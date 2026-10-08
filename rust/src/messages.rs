@@ -20,8 +20,8 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256, Sha512};
 
 use crate::base::{
-    base_for, canonical, canonical_request, check_covered, component, components, identity,
-    lines_for, req, spec_of, Asked, Message, Request, SignatureParams, CONTENT_DIGEST,
+    base_for, canonical, canonical_request, check_covered, check_label, component, components,
+    identity, lines_for, req, spec_of, Asked, Message, Request, SignatureParams, CONTENT_DIGEST,
     DEFAULT_COVERED,
 };
 use crate::errors::{Error, Kind, Result};
@@ -49,6 +49,21 @@ pub const RESPONSE_MINIMUM: [&str; 4] = [
 ];
 
 const SIGNATURE_LENGTH: usize = 64;
+
+/// The most bytes fiki reads of a Signature, Signature-Input or Content-Digest field value, measured
+/// before it is parsed, so size is checked before shape (`this.i` @5zrf8gjk, ticks 65q7 and 6mhg).
+/// Over this, or any limit below, is that header's malformed kind. They are far above anything an
+/// honest signer sends and low enough that no parse is slow.
+pub const MAX_FIELD_BYTES: usize = 8192;
+
+/// The most members fiki reads in any of those three dictionaries.
+pub const MAX_DICTIONARY_MEMBERS: usize = 16;
+
+/// The most items fiki reads in any inner list of those three headers, such as a covered list.
+pub const MAX_INNER_LIST_ITEMS: usize = 64;
+
+/// The most parameters fiki reads on any item or inner list of those three headers.
+pub const MAX_PARAMETERS: usize = 16;
 
 /// Maps a keyid to the 32 raw bytes of the Ed25519 key it names, or `None` when it names no key
 /// the caller knows (`this.i` @6g9zjsv9, @5e2phpjy).
@@ -102,9 +117,11 @@ pub struct SignOptions {
 /// The outcome of a successful verification. An `Err` means it did not verify.
 ///
 /// Carries no timestamp and asserts no freshness beyond the policy the caller stated. `aid` is the
-/// non-transferable AID of the key that verified — or, when a resolver supplied that key, the keyid
-/// the resolver vouched for. `covered` names each component as [`SignOptions::covered`] would
-/// accept it, and `keyid` is the keyid as received.
+/// identity that vouched for the key: the non-transferable AID of a raw key, or the keyid a
+/// resolver vouched for (`this.i` @6g9zjsv9), or the AID of `expected_aid`. `keyid` is the keyid
+/// exactly as it appeared on the wire, or `None` when the signature had none (@5zrf8gjk), so a
+/// verifier given `expected_aid` can still see what the signer claimed. `covered` names each
+/// component as [`SignOptions::covered`] would accept it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Verdict {
     pub aid: String,
@@ -206,6 +223,22 @@ fn cover_body(
     let Some(body) = body else {
         return Ok(());
     };
+    if let Some(given) = sending.get(CONTENT_DIGEST) {
+        // A digest the caller supplied is signed as given, so it must be one the verifier will
+        // accept for this body: anything else is the call's mistake, not a message (@5zrf8gjk).
+        read_digest(Some(given))
+            .and_then(|recognized| compare_digest(&recognized, Some(body)))
+            .map_err(|refused| {
+                Error::new(
+                    Kind::InvalidArgument,
+                    format!(
+                        "The Content-Digest supplied with this body is not one a verifier would \
+                         accept for it: {refused} Omit it and fiki computes one, or supply the \
+                         body it describes."
+                    ),
+                )
+            })?;
+    }
     // Whether the caller CHOSE the covered set is the difference between fiki helping and fiki
     // overriding. On the default path a body simply gets covered; on an explicit path, silently
     // adding a component would mean the signature covers something the caller did not ask for.
@@ -220,13 +253,15 @@ fn cover_body(
         }
         items.push(component(CONTENT_DIGEST)?);
     }
-    if !sending
-        .keys()
-        .any(|name| name.eq_ignore_ascii_case(CONTENT_DIGEST))
-    {
-        sending.insert("Content-Digest".into(), content_digest(body));
-    }
+    // `sending` is canonical, so its names are lowercase already.
+    sending
+        .entry(CONTENT_DIGEST.into())
+        .or_insert_with(|| content_digest(body));
     Ok(())
+}
+
+fn label_of(opts: &SignOptions) -> &str {
+    opts.label.as_deref().unwrap_or("sig")
 }
 
 fn params_for(key: &Key, opts: &SignOptions) -> SignatureParams {
@@ -251,7 +286,7 @@ fn signed(
     let text = String::from_utf8_lossy(base);
     let marker = "\"@signature-params\": ";
     let rendered = &text[text.rfind(marker).map(|at| at + marker.len()).unwrap_or(0)..];
-    let label = opts.label.as_deref().unwrap_or("sig");
+    let label = label_of(opts);
 
     let mut out = BTreeMap::new();
     out.insert("Signature-Input".into(), format!("{label}={rendered}"));
@@ -259,11 +294,8 @@ fn signed(
         "Signature".into(),
         format!("{label}=:{}:", b64std(&signature)),
     );
-    if let Some(made) = sending.get("Content-Digest") {
-        if !given
-            .keys()
-            .any(|name| name.eq_ignore_ascii_case(CONTENT_DIGEST))
-        {
+    if let Some(made) = sending.get(CONTENT_DIGEST) {
+        if !given.contains_key(CONTENT_DIGEST) {
             out.insert("Content-Digest".into(), made.clone());
         }
     }
@@ -276,6 +308,12 @@ fn signed(
 /// headers, and covers it; with an explicit `covered` that omits `content-digest`, it refuses with
 /// `UncoveredBody`. `method` is signed exactly as given (`this.i` @22g0xkr8), so pass it as it will
 /// go on the wire.
+///
+/// Mistakes in the call are `InvalidArgument`, never another kind (`this.i` @5zrf8gjk): a method
+/// that is not an HTTP token, a URL whose port is not a number from 0 to 65535, a label that is not
+/// an RFC 8941 key, a keyid, nonce or tag outside printable ASCII, a component name that is not a
+/// field name, a `created` or `expires` outside 0 to 999999999999999, and a supplied
+/// `Content-Digest` that is unreadable or that the body does not match.
 pub fn sign_request(
     key: &Key,
     method: &str,
@@ -283,6 +321,7 @@ pub fn sign_request(
     headers: &BTreeMap<String, String>,
     opts: &SignOptions,
 ) -> Result<BTreeMap<String, String>> {
+    check_label(label_of(opts))?;
     let minimum = floored(opts.minimum.as_deref(), &REQUEST_MINIMUM)?;
     let headers = &canonical(headers)?;
     let mut sending = headers.clone();
@@ -298,7 +337,7 @@ pub fn sign_request(
     }
     let base = base_for(
         &items,
-        &Message::request(method, url, &sending),
+        &Message::request(method, url, &sending, false)?,
         false,
         &params_for(key, opts),
     )?;
@@ -319,6 +358,7 @@ pub fn sign_response(
     headers: &BTreeMap<String, String>,
     opts: &SignOptions,
 ) -> Result<BTreeMap<String, String>> {
+    check_label(label_of(opts))?;
     let minimum = floored(opts.minimum.as_deref(), &RESPONSE_MINIMUM)?;
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
@@ -365,7 +405,7 @@ pub fn sign_response(
     }
     let base = base_for(
         &items,
-        &Message::response(status, &sending, request),
+        &Message::response(status, &sending, request, false)?,
         true,
         &params_for(key, opts),
     )?;
@@ -374,16 +414,25 @@ pub fn sign_response(
 
 /// Verify a signed request, in the KERI profile's section 9 order so a message has exactly one
 /// correct refusal.
+///
+/// `max_age` and `skew`, when given, are positive; anything else is `InvalidArgument`
+/// (`this.i` @5zrf8gjk), as is a method that is not an HTTP token. A URL whose port is not a number
+/// from 0 to 65535 is a base that cannot be built, so a covered `@authority` makes it a
+/// `SignatureMismatch`. The Signature, Signature-Input and Content-Digest headers are bounded
+/// before they are parsed, at [`MAX_FIELD_BYTES`] each, [`MAX_DICTIONARY_MEMBERS`] members,
+/// [`MAX_INNER_LIST_ITEMS`] items in an inner list and [`MAX_PARAMETERS`] parameters on an item,
+/// and a header over any of them is malformed.
 pub fn verify_request(
     method: &str,
     url: &str,
     headers: &BTreeMap<String, String>,
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
+    check_window(opts)?;
     let minimum = floored(opts.minimum.as_deref(), &REQUEST_MINIMUM)?;
     let headers = &canonical(headers)?;
     verify(
-        &Message::request(method, url, headers),
+        &Message::request(method, url, headers, true)?,
         headers,
         None,
         opts,
@@ -406,6 +455,7 @@ pub fn verify_response(
     request: Option<&Request>,
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
+    check_window(opts)?;
     let minimum = floored(opts.minimum.as_deref(), &RESPONSE_MINIMUM)?;
     if opts.authorities.is_some() {
         return Err(Error::new(
@@ -417,7 +467,8 @@ pub fn verify_response(
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
     let request = asked.as_ref();
-    if status == 401 && !headers.contains_key("signature") {
+    // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
+    if status == 401 && headers.get("signature").map_or(true, String::is_empty) {
         return Err(Error::new(
             Kind::Unauthenticated,
             "The server answered 401 without signing the answer, so the request was not \
@@ -425,7 +476,7 @@ pub fn verify_response(
         ));
     }
     verify(
-        &Message::response(status, headers, request),
+        &Message::response(status, headers, request, true)?,
         headers,
         Some(request),
         opts,
@@ -472,6 +523,9 @@ fn verify(
         Some(Value::Text(keyid)) => Some(keyid.clone()),
         _ => None,
     };
+    // Section 9's key steps in order (@5zrf8gjk): what the keyid alone shows, then the expected
+    // keyid, and only then the resolver, which is never asked about a keyid already refused.
+    let local = local_key(opts, keyid.as_deref())?;
     if let Some(expected) = &opts.expected_keyid {
         if keyid.as_ref() != Some(expected) {
             let shown = keyid.clone().unwrap_or_default();
@@ -482,7 +536,10 @@ fn verify(
             ));
         }
     }
-    let (public, aid) = resolve(opts, keyid.as_deref())?;
+    let (public, aid) = match local {
+        Local::Found(public, aid) => (public, aid),
+        Local::Resolve(resolver, keyid) => resolved(resolver, keyid)?,
+    };
     if let Some(Value::Text(alg)) = inner.param("alg") {
         if alg != ALG {
             return Err(Error::detailed(
@@ -577,7 +634,12 @@ fn request_has_body(found: &BTreeMap<String, String>, body: Option<&[u8]>) -> bo
     if has_content(body) || found.contains_key("transfer-encoding") {
         return true;
     }
-    match found.get("content-length").map(|l| l.trim()) {
+    // Only SP and HTAB are optional whitespace (@5zrf8gjk); str::trim would also take a no-break
+    // space or a vertical tab, and read "0\u{a0}" as a length of zero.
+    match found
+        .get("content-length")
+        .map(|l| l.trim_matches([' ', '\t']))
+    {
         None => false,
         // Fail closed: a length that is not a plain decimal, negative ones included, is not
         // evidence that there is no body.
@@ -641,12 +703,7 @@ fn read(
         )
     })?;
 
-    let signatures = parse_dictionary(raw_signature).map_err(|_| {
-        Error::new(
-            Kind::MalformedSignature,
-            "I could not parse the Signature header; RFC 9421 spells it as an RFC 8941 dictionary.",
-        )
-    })?;
+    let signatures = parse_bounded(raw_signature, "Signature", Kind::MalformedSignature)?;
     let mut values = Vec::new();
     for (label, member) in &signatures {
         match member {
@@ -663,13 +720,7 @@ fn read(
             }
         }
     }
-    let inputs = parse_dictionary(raw_input).map_err(|_| {
-        Error::new(
-            Kind::MalformedSignatureInput,
-            "I could not parse the Signature-Input header; RFC 9421 spells it as an RFC 8941 \
-             dictionary.",
-        )
-    })?;
+    let inputs = parse_bounded(raw_input, "Signature-Input", Kind::MalformedSignatureInput)?;
     let mut lists = Vec::new();
     for (label, member) in &inputs {
         lists.push((label, check_input(member, require_keyid, require_created)?));
@@ -705,6 +756,59 @@ fn read(
         )
     })?;
     Ok((list.clone(), value))
+}
+
+/// Parse one signature-related header, bounded before it is read (`this.i` @5zrf8gjk): its size on
+/// the raw field value, before any trimming or parsing, then its counts on what parsed. Any refusal
+/// is `kind`, the header's own malformed kind.
+fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Member)>> {
+    if raw.len() > MAX_FIELD_BYTES {
+        return Err(Error::new(
+            kind,
+            format!(
+                "The {name} header is {} bytes, and fiki reads one of at most {MAX_FIELD_BYTES}.",
+                raw.len()
+            ),
+        ));
+    }
+    let parsed = parse_dictionary(raw).map_err(|_| {
+        Error::new(
+            kind,
+            format!(
+                "I could not parse the {name} header; it is spelled as an RFC 8941 dictionary."
+            ),
+        )
+    })?;
+    let too_many = |what: &str, limit: usize| {
+        Err(Error::new(
+            kind,
+            format!(
+                "The {name} header has more than {limit} {what}, which is more than fiki reads \
+                 from any honest signer."
+            ),
+        ))
+    };
+    if parsed.len() > MAX_DICTIONARY_MEMBERS {
+        return too_many("members", MAX_DICTIONARY_MEMBERS);
+    }
+    for (_, member) in &parsed {
+        let (items, params) = match member {
+            Member::Item(item) => (&[][..], &item.params),
+            Member::List(list) => (&list.items[..], &list.params),
+        };
+        if items.len() > MAX_INNER_LIST_ITEMS {
+            return too_many("items in one inner list", MAX_INNER_LIST_ITEMS);
+        }
+        let most = items
+            .iter()
+            .map(|item| item.params.len())
+            .max()
+            .unwrap_or(0);
+        if params.len().max(most) > MAX_PARAMETERS {
+            return too_many("parameters on one item", MAX_PARAMETERS);
+        }
+    }
+    Ok(parsed)
 }
 
 /// Refuse a Signature-Input member fiki would otherwise have to guess about.
@@ -787,11 +891,15 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
     Ok(list)
 }
 
-/// The key to verify with and the identity to report.
-fn resolve(opts: &VerifyOptions, keyid: Option<&str>) -> Result<(VerifyingKey, String)> {
+/// Every key check that needs nothing beyond the keyid itself (profile section 9).
+///
+/// The key to verify with and the identity to report when no resolver is needed, or `None` when
+/// the resolver decides. Either way a keyid that is not well formed is refused here, before the
+/// expected keyid is compared and before any resolver sees it (`this.i` @5zrf8gjk).
+fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Local<'a>> {
     if let Some(aid) = &opts.expected_aid {
         let public = verifying_key(aid)?;
-        return Ok((public, to_aid(public.as_bytes())));
+        return Ok(Local::Found(public, to_aid(public.as_bytes())));
     }
     let keyid = keyid.filter(|k| !k.is_empty()).ok_or_else(|| {
         Error::new(
@@ -808,25 +916,7 @@ fn resolve(opts: &VerifyOptions, keyid: Option<&str>) -> Result<(VerifyingKey, S
                  it is not an AID at all."
             )));
         }
-        // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-        // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-        let raw = resolver(keyid)?.ok_or_else(|| {
-            Error::detailed(
-                Kind::UnknownKey,
-                format!(
-                    "No key is known for the keyid \"{keyid}\", so the signature cannot be checked."
-                ),
-                keyid,
-            )
-        })?;
-        let public = public_key(&raw).ok_or_else(|| {
-            malformed(format!(
-                "The key resolved for \"{keyid}\" is not a usable Ed25519 public key: it is not a \
-                 point on the curve, or it is a small-order point, under which a signature proves \
-                 nothing."
-            ))
-        })?;
-        return Ok((public, keyid.to_string()));
+        return Ok(Local::Resolve(resolver, keyid));
     }
     let raw = raw_keyid(keyid).ok_or_else(|| {
         malformed(format!(
@@ -841,7 +931,60 @@ fn resolve(opts: &VerifyOptions, keyid: Option<&str>) -> Result<(VerifyingKey, S
              curve, or it is a small-order point, under which a signature proves nothing."
         ))
     })?;
-    Ok((public, to_aid(&raw)))
+    Ok(Local::Found(public, to_aid(&raw)))
+}
+
+/// What the keyid alone decided: the key and the identity to report, or a resolver to ask.
+enum Local<'a> {
+    Found(VerifyingKey, String),
+    Resolve(&'a Resolver, &'a str),
+}
+
+/// The resolver's key for a keyid already found well formed, and the keyid it vouched for.
+fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> {
+    // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+    // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+    let raw = resolver(keyid)?.ok_or_else(|| {
+        Error::detailed(
+            Kind::UnknownKey,
+            format!(
+                "No key is known for the keyid \"{keyid}\", so the signature cannot be checked."
+            ),
+            keyid,
+        )
+    })?;
+    let public = public_key(&raw).ok_or_else(|| {
+        Error::detailed(
+            Kind::MalformedKey,
+            format!(
+                "The key resolved for \"{keyid}\" is not a usable Ed25519 public key: it is not a \
+                 point on the curve, or it is a small-order point, under which a signature proves \
+                 nothing."
+            ),
+            keyid,
+        )
+    })?;
+    Ok((public, keyid.to_string()))
+}
+
+/// A freshness window, when given, is a positive whole number of seconds (`this.i` @5zrf8gjk).
+///
+/// The KERI profile's section 3 says so, and a zero or negative one would refuse every honest
+/// message or none. A `max_age` of `None` still declines the age check; a `skew` of `None` takes
+/// [`DEFAULT_SKEW`], since the expiry check uses a skew whatever `max_age` is.
+fn check_window(opts: &VerifyOptions) -> Result<()> {
+    for (name, value) in [("max_age", opts.max_age), ("skew", opts.skew)] {
+        if let Some(value) = value.filter(|v| *v <= 0) {
+            return Err(Error::detailed(
+                Kind::InvalidArgument,
+                format!(
+                    "{name} is {value}, and a freshness window is a positive number of seconds."
+                ),
+                value.to_string(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Enforce the verifier's `max_age`, then the signer's `expires` (profile section 9).
@@ -855,6 +998,9 @@ fn check_freshness(list: &InnerList, opts: &VerifyOptions) -> Result<()> {
     }
     let skew = opts.skew.unwrap_or(DEFAULT_SKEW);
     let stamp = now_or(opts.now);
+    // Compared in i128, where no i64 sum or difference can wrap (@5zrf8gjk): a caller's enormous
+    // window or a clock at either end of i64 is compared, never overflowed.
+    let wide = |n: i64| i128::from(n);
 
     if let Some(max_age) = opts.max_age {
         let too_old = |why: String| Err(Error::new(Kind::SignatureTooOld, why));
@@ -864,13 +1010,13 @@ fn check_freshness(list: &InnerList, opts: &VerifyOptions) -> Result<()> {
                  the {max_age}-second limit you asked for."
             ));
         };
-        if stamp - created > max_age + skew {
+        if wide(stamp) - wide(*created) > wide(max_age) + wide(skew) {
             return too_old(format!(
                 "This signature was created at {created}, which is more than {max_age} seconds \
                  before {stamp}, so it is too old to accept."
             ));
         }
-        if created - stamp > skew {
+        if wide(*created) - wide(stamp) > wide(skew) {
             return too_old(format!(
                 "This signature claims to have been created at {created}, which is in the future \
                  relative to {stamp} by more than the {skew}-second skew allowance."
@@ -878,7 +1024,7 @@ fn check_freshness(list: &InnerList, opts: &VerifyOptions) -> Result<()> {
         }
     }
     match expires {
-        Some(expires) if stamp > expires + skew => Err(Error::new(
+        Some(expires) if wide(stamp) > wide(expires) + wide(skew) => Err(Error::new(
             Kind::SignatureExpired,
             format!(
                 "This signature expired at {expires} and it is now {stamp}, so the signer has \
@@ -899,11 +1045,13 @@ type Recognized = Vec<(&'static str, Vec<u8>)>;
 /// it is asked to verify; any other algorithm is ignored (RFC 9530 section 2).
 fn read_digest(header: Option<&String>) -> Result<Recognized> {
     let malformed = |why: &str| Error::new(Kind::MalformedDigest, why.to_string());
-    let parsed = header
-        .and_then(|h| parse_dictionary(h).ok())
-        .ok_or_else(|| {
-            malformed("I could not parse the Content-Digest header; RFC 9530 spells it as an RFC 8941 dictionary.")
-        })?;
+    let header = header.ok_or_else(|| {
+        malformed(
+            "The signature covers content-digest and the message carries no Content-Digest \
+             header, so there is no digest to read.",
+        )
+    })?;
+    let parsed = parse_bounded(header, "Content-Digest", Kind::MalformedDigest)?;
     let mut recognized = Vec::new();
     for (name, member) in &parsed {
         let algorithm = match name.as_str() {

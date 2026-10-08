@@ -277,9 +277,10 @@ describe('signing and verifying', () => {
     await assert.rejects(() => verifyRequest({ ...request, headers }), TypeError);
   });
 
-  it('refuses a digest naming only algorithms it cannot compute', async () => {
-    const { request, headers } = await signed({ headers: { 'Content-Digest': 'sha-1=:AAAA:' } });
-    await assert.rejects(() => verifyRequest({ ...request, headers, maxAge: null }), errors.MalformedDigest);
+  it('refuses to sign a digest naming only algorithms it cannot compute, as the caller\'s mistake', async () => {
+    // The verifier's refusal of the same header, MalformedDigest, is the shared vector
+    // content-digest-fiki-cannot-compute; signing one is a caller error (@5zrf8gjk, E5).
+    await assert.rejects(() => signed({ headers: { 'Content-Digest': 'sha-1=:AAAA:' } }), TypeError);
   });
 
   it('accepts a digest naming an unknown algorithm alongside one it knows', async () => {
@@ -303,7 +304,7 @@ describe('freshness', () => {
     const { request, headers } = await signed();
     assert.equal((await verifyRequest({ ...request, headers, maxAge: 300, now: SIGNED_AT + 303 })).aid, AID);
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, maxAge: 300, skew: 0, now: SIGNED_AT + 301 }),
+      () => verifyRequest({ ...request, headers, maxAge: 300, skew: 1, now: SIGNED_AT + 302 }),
       errors.SignatureTooOld,
     );
   });

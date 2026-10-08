@@ -1,6 +1,6 @@
 {
   "about": "Signed requests a canonical verifier must ACCEPT, with the base.",
-  "keri_vectors_format": 3,
+  "keri_vectors_format": 4,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
@@ -641,6 +641,32 @@
         ],
         "base": "\"@method\": POST\n\"@authority\": keria.example.com\n\"@path\": /identifiers\n\"@query\": ?\n\"content-digest\": sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"Ht-14DTVkrhsGzRCHktmsA\";alg=\"ed25519\";keyid=\"EPt12fG7BNmu9VhOAXyl82r59wQ3troXZzH4zsRGyLCh\"",
         "signature": "pg/vtikPNTiU4fo7idwv7T/vdvxWxqb71ET+WzBaH2kueQmsQSOxqnk1eb0yLotYqtXoPrSVf7jqWrWJdzeUBw=="
+      }
+    },
+    {
+      "id": "content-length-zero-padded-with-sp-and-htab",
+      "note": "SP and HTAB are the only optional whitespace around a field value, so this is a Content-Length of zero and no body (fiki @5zrf8gjk).",
+      "request": {
+        "method": "GET",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Content-Length": " \t0\t ",
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;nonce=\"VM75t-OzDSnaqYneD_gyTQ\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:aR6DGEnZhZMxJz+nM+kJWFk4bVZeOWQQufcKT0pkdCrsLhDsj7A6T8t+hDiLkOEVPec3n/9NRlc7Tj50U/W2Cw==:"
+        },
+        "body": null
+      },
+      "now": 1700000030,
+      "expected": {
+        "keyid": "ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx",
+        "covered": [
+          "\"@method\"",
+          "\"@authority\"",
+          "\"@path\"",
+          "\"@query\""
+        ],
+        "base": "\"@method\": GET\n\"@authority\": keria.example.com\n\"@path\": /identifiers\n\"@query\": ?\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;nonce=\"VM75t-OzDSnaqYneD_gyTQ\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+        "signature": "aR6DGEnZhZMxJz+nM+kJWFk4bVZeOWQQufcKT0pkdCrsLhDsj7A6T8t+hDiLkOEVPec3n/9NRlc7Tj50U/W2Cw=="
       }
     },
     {

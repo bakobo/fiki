@@ -147,7 +147,7 @@ describe('the KERI vectors format', () => {
       // The same guard @4fhrre0m gives the shared set, against its own number.
       const data = load(name);
       assert.equal(data.keri_vectors_format, KERI_VECTORS_FORMAT);
-      assert.equal(KERI_VECTORS_FORMAT, 3);
+      assert.equal(KERI_VECTORS_FORMAT, 4);
       assert.ok(!('vectors_format' in data));
       assert.ok(data.cases.length > 0);
     });

@@ -16,13 +16,19 @@ namespace Bakobo.Fiki
             KeyId = keyId;
         }
 
-        /// <summary>The non-transferable AID of the key that verified, or the keyid a resolver vouched for (@6g9zjsv9).</summary>
+        /// <summary>
+        /// The identity that vouched for the key: the non-transferable AID of a raw key, or the keyid
+        /// a resolver vouched for (@6g9zjsv9), or the AID of the expected AID the verifier supplied.
+        /// </summary>
         public string Aid { get; }
 
         /// <summary>Each covered component as <see cref="HttpSignatures"/> would accept it back: a plain name, or its serialized form when it carries a parameter.</summary>
         public IReadOnlyList<string> Covered { get; }
 
-        /// <summary>The keyid as received, or null when the signature carried none.</summary>
+        /// <summary>
+        /// The keyid exactly as it appeared on the wire, or null when the signature had none
+        /// (this.i @5zrf8gjk), so a verifier given an expected AID can still see what the signer claimed.
+        /// </summary>
         public string? KeyId { get; }
     }
 }

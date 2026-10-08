@@ -181,6 +181,11 @@ fn bodiless(extra: &[(&str, &str)], opts: SignOptions) -> Sent {
     sign_as(&key(), "POST", URL, extra, opts).unwrap()
 }
 
+/// The default set plus content-digest, for a request signed without the body its digest names.
+fn with_digest_covered() -> SignOptions {
+    covering(&["@method", "@authority", "@path", "@query", "content-digest"])
+}
+
 fn covering(specs: &[&str]) -> SignOptions {
     SignOptions {
         covered: Some(strings(specs)),
@@ -277,14 +282,9 @@ fn kind_of<T: std::fmt::Debug>(result: fiki::Result<T>) -> Kind {
 fn two_recognized_digests_must_both_match() {
     let bad512 = encode(&Sha512::digest(b"other"), B64STD, true);
     let digest = format!("{}, sha-512=:{bad512}:", content_digest(BODY));
-    let sent = sign_as(
-        &key(),
-        "POST",
-        URL,
-        &[("Content-Digest", &digest)],
-        with_body(SignOptions::default()),
-    )
-    .unwrap();
+    // Signed without the body, since a signer refuses a digest its body contradicts (@5zrf8gjk).
+    let mut sent = bodiless(&[("Content-Digest", &digest)], with_digest_covered());
+    sent.body = Some(BODY.to_vec());
     assert_eq!(sent.kind(VerifyOptions::default()), Kind::DigestMismatch);
 }
 
@@ -309,15 +309,7 @@ fn two_recognized_digests_that_both_match_verify() {
 #[test]
 fn an_unparsable_digest_is_malformed_even_when_no_body_was_supplied() {
     // Section 9 puts malformed-digest before digest-mismatch.
-    let mut sent = sign_as(
-        &key(),
-        "POST",
-        URL,
-        &[("Content-Digest", "((((")],
-        with_body(SignOptions::default()),
-    )
-    .unwrap();
-    sent.body = None;
+    let sent = bodiless(&[("Content-Digest", "((((")], with_digest_covered());
     assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedDigest);
 }
 
@@ -1871,7 +1863,9 @@ fn an_empty_method_is_a_caller_error_wherever_at_method_is_built() {
     let params = SignatureParams::default();
     let err = signature_base("", URL, &BTreeMap::new(), &strings(&["@method"]), &params);
     assert_eq!(kind_of(err), Kind::InvalidArgument);
-    assert!(signature_base("", URL, &BTreeMap::new(), &strings(&["@path"]), &params).is_ok());
+    // Covered or not (@5zrf8gjk): an empty method is never a request anybody sent.
+    let err = signature_base("", URL, &BTreeMap::new(), &strings(&["@path"]), &params);
+    assert_eq!(kind_of(err), Kind::InvalidArgument);
     let methodless = Request {
         method: String::new(),
         url: URL.into(),

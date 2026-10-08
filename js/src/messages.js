@@ -18,6 +18,8 @@ import {
   DEFAULT_COVERED,
   canonicalHeaders,
   checkCovered,
+  checkLabel,
+  checkSignerParams,
   component,
   finishBase,
   identity,
@@ -50,7 +52,7 @@ import {
   UnsupportedAlgorithm,
 } from './errors.js';
 import { checkKey, misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
-import { parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
+import { MAX_FIELD_BYTES, parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
 
@@ -152,6 +154,19 @@ const coversBody = (items) => items.some((item) => identity(item) === identity(c
 /** Cover a body the caller handed over, or refuse to sign (@2hwvpm42). */
 async function coverBody(items, sending, body, chosen) {
   if (body === null) return;
+  if (hasName(sending, CONTENT_DIGEST)) {
+    // A digest the caller supplied is signed as given, so it must be one the verifier will accept
+    // for this body: one that does not parse, names nothing fiki computes, or does not match is
+    // the call's mistake, not a message (@5zrf8gjk).
+    try {
+      await compareDigest(readDigest(sending[CONTENT_DIGEST]), body);
+    } catch (err) {
+      throw new TypeError(
+        'The Content-Digest supplied with this body is not one a verifier would accept for it: ' +
+          `${err.message} Omit it and fiki computes one, or supply the body it describes.`,
+      );
+    }
+  }
   // Whether the caller CHOSE the covered set is the difference between fiki helping and fiki
   // overriding. On the default path a body simply gets covered; on an explicit path, silently
   // adding a component would mean the signature covers something the caller did not ask for, so
@@ -210,6 +225,10 @@ export async function signRequest({
   keyid = null,
   minimum = null,
 }) {
+  checkLabel(label);
+  created = createdOr(created);
+  keyid = keyid ?? key.keyid;
+  checkSignerParams({ created, expires, keyid, alg: ALG, nonce, tag });
   const floor = floored(minimum, REQUEST_MINIMUM);
   body = bodyBytes(body);
   headers = canonicalHeaders(headers);
@@ -222,11 +241,11 @@ export async function signRequest({
   }
   checkCovered(items, { response: false });
   const base = finishBase(items, requestMessage(method, url, sending), {
-    created: createdOr(created),
+    created,
     expires,
     nonce,
     alg: ALG,
-    keyid: keyid ?? key.keyid,
+    keyid,
     tag,
   });
   return signed(key, base, label, sending, headers);
@@ -258,6 +277,10 @@ export async function signResponse({
   keyid = null,
   minimum = null,
 }) {
+  checkLabel(label);
+  created = createdOr(created);
+  keyid = keyid ?? key.keyid;
+  checkSignerParams({ created, expires, keyid, alg: ALG, nonce, tag });
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
@@ -287,17 +310,24 @@ export async function signResponse({
   }
   checkCovered(items, { response: true });
   const base = finishBase(items, responseMessage(status, sending, request), {
-    created: createdOr(created),
+    created,
     expires,
     nonce,
     alg: ALG,
-    keyid: keyid ?? key.keyid,
+    keyid,
     tag,
   });
   return signed(key, base, label, sending, headers);
 }
 
 /** Verify a signed request, returning a verdict `{aid, covered, keyid}` or throwing.
+ *
+ * The verdict's `keyid` is the keyid exactly as it appeared on the wire, or null when the signature
+ * had none, so a verifier given `expectedAid` can still see what the signer claimed (@5zrf8gjk).
+ * Its `aid` is the identity that vouched for the key: the non-transferable AID of a raw key, the
+ * keyid a resolver vouched for (@6g9zjsv9), or the AID of `expectedAid`. `covered` names each
+ * component as `component` would accept it: a plain name, or its serialized form when it carries
+ * a parameter, such as `'"@path";req'`.
  *
  * `maxAge` has no default and must be given: seconds of tolerance, or `null` to decline the
  * check. Both defaults would be wrong (@67shl6c5). An `expires` the signer declared is enforced
@@ -331,10 +361,10 @@ export async function verifyRequest({
   expectedKeyid = null,
   authorities = null,
 }) {
-  requireMaxAge(maxAge, 'verifyRequest');
+  checkWindow(maxAge, skew, 'verifyRequest');
   const floor = floored(minimum, REQUEST_MINIMUM);
   headers = canonicalHeaders(headers);
-  return verify(requestMessage(method, url, headers), headers, bodyBytes(body), {
+  return verify(requestMessage(method, url, headers, { received: true }), headers, bodyBytes(body), {
     response: false,
     request: null,
     maxAge,
@@ -373,18 +403,19 @@ export async function verifyResponse({
   minimum = null,
   expectedKeyid = null,
 }) {
-  requireMaxAge(maxAge, 'verifyResponse');
+  checkWindow(maxAge, skew, 'verifyResponse');
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
   headers = canonicalHeaders(headers);
-  if (status === 401 && !hasName(headers, 'signature')) {
+  // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
+  if (status === 401 && !headers.signature) {
     throw new Unauthenticated(
       'The server answered 401 without signing the answer, so the request was not authenticated ' +
         'and the body of the refusal cannot be trusted.',
     );
   }
-  return verify(responseMessage(status, headers, request), headers, body, {
+  return verify(responseMessage(status, headers, request, { received: true }), headers, body, {
     response: true,
     request,
     maxAge,
@@ -398,12 +429,24 @@ export async function verifyResponse({
   });
 }
 
-function requireMaxAge(maxAge, name) {
+/** maxAge must be given, and a freshness window, when given, is a positive whole number of seconds.
+ *
+ * The KERI profile's section 3 says so (@5zrf8gjk), and a zero or negative one would refuse every
+ * honest message or none. `maxAge: null` still declines the age check; there is no way to decline
+ * the skew, which the expiry check uses whatever maxAge is.
+ */
+function checkWindow(maxAge, skew, name) {
   if (maxAge === undefined) {
     throw new TypeError(
       `${name} requires maxAge: seconds of tolerance, or null to decline the check. There is no ` +
         'default because both defaults are wrong.',
     );
+  }
+  for (const [field, value] of [['maxAge', maxAge], ['skew', skew]]) {
+    if (value === null && field === 'maxAge') continue;
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new TypeError(`${field} is ${String(value)}, and a freshness window is a positive whole number of seconds.`);
+    }
   }
 }
 
@@ -673,7 +716,16 @@ function checkInput(member, { requireKeyid, requireCreated }) {
   }
 }
 
+/** Parse one signature-related header, bounded before it is read (@5zrf8gjk).
+ *
+ * Size before shape: the raw field value is measured in UTF-8 bytes before any parsing or
+ * trimming, and the parser enforces the member, item and parameter counts as it goes.
+ */
 function parse(raw, name, ErrorClass) {
+  const size = utf8(raw).length;
+  if (size > MAX_FIELD_BYTES) {
+    throw new ErrorClass(`The ${name} header is ${size} bytes, and fiki reads one of at most ${MAX_FIELD_BYTES}.`);
+  }
   try {
     return parseDictionary(raw);
   } catch {

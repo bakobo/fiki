@@ -137,4 +137,6 @@ def test_accept_vectors(case):
         now=case["now"],
     )
     assert verdict.aid == case["aid"]
+    # Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.
+    assert verdict.keyid == case["keyid"]
     assert list(verdict.covered) == case["covered"]

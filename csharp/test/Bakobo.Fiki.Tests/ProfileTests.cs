@@ -97,11 +97,24 @@ namespace Bakobo.Fiki.Tests
 
         // --- Content-Digest: every recognized member must match (RFC 9530) ---
 
+        /// <summary>
+        /// A message whose covered Content-Digest the body does not support. Signed without the body,
+        /// since a signer refuses to sign a digest its body contradicts (@5zrf8gjk), and then sent
+        /// with it, as an attacker or a broken signer would.
+        /// </summary>
+        private static Msg SignDigest(string digest)
+        {
+            var message = Sign(headers: new Dictionary<string, string> { { "Content-Digest", digest } }, noBody: true,
+                covered: HttpSignatures.DefaultCovered.Concat(new[] { "content-digest" }));
+            message.Body = Body;
+            return message;
+        }
+
         [Fact]
         public void TwoRecognizedDigestsMustBothMatch()
         {
             var bad512 = Convert.ToBase64String(Sha512(Bytes.Utf8("other")));
-            var message = Sign(headers: new Dictionary<string, string> { { "Content-Digest", $"{HttpSignatures.ContentDigest(Body)}, sha-512=:{bad512}:" } });
+            var message = SignDigest($"{HttpSignatures.ContentDigest(Body)}, sha-512=:{bad512}:");
             var caught = message.Refused();
             Assert.Equal(FikiErrorKind.DigestMismatch, caught.Kind);
             Assert.Equal("The body does not match its sha-512 Content-Digest, so the body is not the one that was signed.", caught.Message);
@@ -118,18 +131,18 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void ARecognizedDigestThatIsNotAByteSequenceIsMalformed() =>
             Assert.Equal(FikiErrorKind.MalformedDigest,
-                Sign(headers: new Dictionary<string, string> { { "Content-Digest", "sha-256=\"not bytes\"" } }).Refused().Kind);
+                SignDigest("sha-256=\"not bytes\"").Refused().Kind);
 
         [Fact]
         public void ARecognizedDigestThatIsAnInnerListIsMalformed() =>
             Assert.Equal(FikiErrorKind.MalformedDigest,
-                Sign(headers: new Dictionary<string, string> { { "Content-Digest", "sha-256=(:AAAA:)" } }).Refused().Kind);
+                SignDigest("sha-256=(:AAAA:)").Refused().Kind);
 
         [Fact]
         public void AnUnparsableDigestIsMalformedEvenWhenNoBodyWasSupplied()
         {
             // Section 9 puts malformed-digest before digest-mismatch.
-            var message = Sign(headers: new Dictionary<string, string> { { "Content-Digest", "((((" } });
+            var message = SignDigest("((((");
             message.Body = null;
             Assert.Equal(FikiErrorKind.MalformedDigest, message.Refused().Kind);
         }
@@ -419,12 +432,15 @@ namespace Bakobo.Fiki.Tests
                 VerifyOptions.MaxAge(300).WithSkew(60).WithNow(At + 1000).WithBody(Body)).Kind);
 
         [Fact]
-        public void AnUnparsableUrlIsACallerErrorBeforeAnythingElse()
+        public void AnUnparsableUrlIsABaseThatCannotBeBuiltAndReadOnlyWhenNeeded()
         {
+            // The URL is read when a component needs it (@9g24rdns), where section 9 puts a base that
+            // cannot be built: a signature-mismatch, after the headers are found wanting.
             var message = Sign();
             message.Url = "https://[::1/";
+            Assert.Equal(FikiErrorKind.SignatureMismatch, message.Refused().Kind);
             message.Headers.Remove("Signature");
-            Assert.Throws<ArgumentException>(() => message.Verify());
+            Assert.Equal(FikiErrorKind.MissingSignature, message.Refused().Kind);
         }
 
         // --- the minimum covered set (profile section 3) ---

@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 1), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 2). This port follows fiki-py rather than the Java, Go, JavaScript and Rust ports, so it is the second, after Python, to pass both sets.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 2), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 4). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 
@@ -36,9 +36,11 @@ var verdict = HttpSignatures.VerifyRequest(method, url, headers,
     VerifyOptions.MaxAge(300).WithBody(body));
 ```
 
-There is no `VerifyOptions` constructor that leaves the freshness policy unstated: it is `VerifyOptions.MaxAge(seconds)` or `VerifyOptions.DecliningFreshness()`. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the choice exists to prevent. An `expires` the signer declared is enforced either way.
+There is no `VerifyOptions` constructor that leaves the freshness policy unstated: it is `VerifyOptions.MaxAge(seconds)` or `VerifyOptions.DecliningFreshness()`. A maximum age or a `WithSkew` that is not positive is an `ArgumentOutOfRangeException`. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the choice exists to prevent. An `expires` the signer declared is enforced either way.
 
-A refusal is a `FikiException` whose `Kind` names the obstacle. The `FikiErrorKind` names are fiki-py's class names, which the vectors pin, so a refusal reads the same in every port. A caller mistake rather than a message defect, such as a minimum covered set below the KERI profile's, is an `ArgumentException`.
+A refusal is a `FikiException` whose `Kind` names the obstacle. The `FikiErrorKind` names are fiki-py's class names, which the vectors pin, so a refusal reads the same in every port. A caller mistake rather than a message defect is an `ArgumentException`: a minimum covered set below the KERI profile's, a method that is not an HTTP token, a label that is not an RFC 8941 key, a keyid, nonce or tag outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, a null header name or value, or a `Content-Digest` you supplied that the body does not match. A URL whose port is not a number from 0 to 65535 is an `ArgumentException` when signing and a `SignatureMismatch` when verifying, and only when a covered component needs the URL.
+
+Signature, Signature-Input and Content-Digest are bounded before they are parsed: `HttpSignatures.MaxFieldBytes` (8192) bytes each as received, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) items in an inner list and `MaxParameters` (16) parameters on an item. A header over any of them is that header's malformed kind. `Verdict.KeyId` is the keyid exactly as it appeared on the wire, or null; `Verdict.Aid` is the identity that vouched for the key.
 
 Responses are signed and verified the same way, with `HttpSignatures.SignResponse` and `HttpSignatures.VerifyResponse`; `VerifyOptions.WithRequest` names the request a response answers, and `HttpSignatures.Req("@path")` names one of its components. `WithResolver` supplies keys for keyids such as KERI AIDs, and `WithMinimum(HttpSignatures.RequestMinimum)` applies the KERI profile's minimum covered set.
 
@@ -61,14 +63,10 @@ fiki-py's behaviour is partly its dependencies' behaviour, so this port reproduc
 
 Each is checked against an oracle generated from the Python original (`test/Bakobo.Fiki.Tests/oracle/`), and the oracle scripts say how to regenerate it.
 
-One divergence is deliberate: an IPv6 literal keeps its brackets in `@authority`, so `https://[::1]:8443/x` gives `[::1]:8443` as RFC 9421 section 2.2.3 and RFC 3986 section 3.2.2 spell it, where fiki-py gives `::1:8443` (tick 2h2g). The JavaScript port keeps them too; no vector pins either form yet.
+Where this port reads the authority itself, it matches fiki-py 0.8.0 (`this.i` @9g24rdns): an IP-literal keeps its brackets, a port is any run of ASCII digits read as a number, so `:08443` is written back as `:8443` and `:000443` is the default port of https, and the URL is split only when `@authority`, `@path` or `@query` needs it. As urlsplit does, leading C0 controls and spaces are stripped from a URL, and TAB, CR and LF are removed anywhere in it.
 
-Another is a refusal fiki-py does not make: `SignRequest` and `SignResponse` throw `ArgumentException` for a label that is not an RFC 8941 dictionary key, such as `"bad label"` or `"Sig"`, where fiki-py writes headers no verifier can parse. Nothing valid on the wire changes.
+Headers holding two field names equal case-insensitively, such as `X-Role` and `x-role`, are refused with `ArgumentException` on every signing and verifying entry point, the paired `Request` included (conductor ruling D-Q9ZT). Under a minimum covered set, a signature with no keyid is `MissingKey` even when `WithExpectedAid` names the key, since the KERI profile makes keyid required.
 
-A third: headers holding two field names equal case-insensitively, such as `X-Role` and `x-role`, are refused with `ArgumentException` on every signing and verifying entry point, the paired `Request` included, as the Rust port refuses them (conductor ruling D-Q9ZT). fiki-py keeps the later value; refusing means no message verifies over one value while carrying another an application might read.
+A field value is checked as received and only SP and HTAB are trimmed from it (`this.i` @56qu7gyw): a covered value with a CR, LF, NUL or other byte outside visible ASCII around it is a `SignatureMismatch`.
 
-And under a minimum covered set, a signature with no keyid is `MissingKey` even when `WithExpectedAid` names the key, since the KERI profile makes keyid required; fiki-py on main accepts it, and bakobo/fiki#9 brings it into line.
-
-A field value is checked as received and only SP and HTAB are trimmed from it (`this.i` @56qu7gyw): a covered value with a CR, LF, NUL or other byte outside visible ASCII around it is a `SignatureMismatch`, where fiki-py's `str.strip` removes CR, LF and Unicode whitespace first and verifies what is left.
-
-The structured-field parser is strict where http_sfv, fiki-py's, is lenient (conductor ruling D-SJ55; fiki-py's fix is tick 6ixo). It refuses an integer of 16 digits even at the end of a header, a decimal ending in `.`, an `=` anywhere but as trailing padding in a byte sequence, and RFC 9651's Dates and Display Strings, none of which RFC 8941 allows. A header carrying one is refused as unparsable, with the same kind as any other. `test/Bakobo.Fiki.Tests/SfvTests.cs` names each such input with the section that refuses it.
+The structured-field parser is strict where http_sfv, fiki-py's parser, is lenient, as fiki-py itself now is (conductor rulings D-SJ55 and D-GYJP). It refuses an integer of 16 digits even at the end of a header, a decimal ending in `.`, an `=` anywhere but as trailing padding in a byte sequence, and RFC 9651's Dates and Display Strings, none of which RFC 8941 allows. A header carrying one is refused as unparsable, with the same kind as any other. `test/Bakobo.Fiki.Tests/SfvTests.cs` names each such input with the section that refuses it.

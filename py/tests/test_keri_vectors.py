@@ -25,16 +25,16 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from fiki import Key, sign_request, signature_base, verifying_key
+from fiki import KERI_VECTORS_FORMAT, Key, sign_request, signature_base, verifying_key
 from fiki.base import component
 from fiki.errors import FikiError
 
 KERI = Path(__file__).resolve().parents[2] / "vectors" / "keri"
 FILES = ("rfc9421.json", "requests.json", "responses.json", "refusals.json", "legacy.json")
 
-# The format this port satisfies. A separate number from fiki.VECTORS_FORMAT, because the two sets
-# answer to different authorities and move independently (@8vwrexxc).
-KERI_VECTORS_FORMAT = 3
+# The format this port satisfies is fiki.KERI_VECTORS_FORMAT, exported beside fiki.VECTORS_FORMAT
+# (@5zrf8gjk): a separate number, because the two sets answer to different authorities and move
+# independently (@8vwrexxc).
 
 
 def _generator():

@@ -606,6 +606,18 @@ The binding is to what was asked, not to one particular request: two identical G
 
 fiki implements only the profile's canonical mode. The legacy mode KERIA and signify-ts deploy today, with its `Signify-Resource` header and non-RFC signature base, is not verified by fiki (`this.i` @8vwrexxc); verify it with keripy or KERIA, or, for an imbu-style server, with [heti](https://github.com/bakobo/heti)'s KERI dialect.
 
+## What fiki refuses before it reads a signature
+
+Since 0.8.0 every port applies the same limits and the same strict parsing, so a request one port accepts is one every port accepts.
+
+- Size comes first. `Signature-Input`, `Signature` and `Content-Digest` may each be at most 8192 bytes, a dictionary at most 16 members, a covered list at most 64 components, and any item at most 16 parameters. Anything larger is refused as the malformed error for that header, before it is parsed. Each port exports the four limits (`MAX_FIELD_BYTES`, `MAX_DICTIONARY_MEMBERS`, `MAX_INNER_LIST_ITEMS`, `MAX_PARAMETERS`, in its own spelling).
+- RFC 8941 is read strictly. An integer longer than 15 digits, a decimal with no fractional digit, and a byte sequence that is not canonically padded base64 (missing or partial padding, `=` in the middle, or any character outside the alphabet) are refused.
+- A port in a URL is any run of digits, read as a number, so `:000080` is port 80. A port that is not a number, or is above 65535, means the signature base cannot be built, and a verifier refuses with `SignatureMismatch`.
+- A small-order or off-curve Ed25519 key is refused as `MalformedKey` before any signature check, whichever way it arrived.
+- When signing, fiki refuses rather than emits what would not verify. That covers a method that is not an HTTP token, a keyid, nonce or tag outside printable ASCII, a label that is not an RFC 8941 key, a component name that is not a lowercase field name, a timestamp beyond 15 digits, and a supplied `Content-Digest` that does not match the body. These are caller errors in each language's idiom, not fiki errors.
+- `max_age` and `skew` must be positive. Declining the freshness check is still done the way "Declining the freshness check" shows.
+- `Verdict.keyid` is the keyid exactly as it appeared on the wire. `Verdict.aid` is the identity that vouched for the key.
+
 ## Handling errors
 
 Every refusal of a message has a name, and the names are the same in all six languages: `SignatureMismatch` is `SignatureMismatch` everywhere. Catch the base type to mean "this message was not usable", or discriminate when you care which obstacle you hit.

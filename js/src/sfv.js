@@ -22,7 +22,19 @@ const MalformedSyntax = SfvSyntaxError;
 
 import { fromBase64, toBase64 } from './bytes.js';
 
-const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+// RFC 4648 base64 whose only "=" are the ones completing the final quantum (section 3.3), which is
+// the only spelling RFC 8941 section 3.3.5 decodes: missing or partial padding is refused, and so
+// is anything outside the alphabet, CR and LF included (@5zrf8gjk).
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
+// Input bounds (@5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends and low
+// enough that no parse is slow. The byte bound is checked by the caller before parsing; these
+// counts are enforced as the parse reaches them, so an over-long list is refused without being
+// read to its end.
+export const MAX_FIELD_BYTES = 8192;
+export const MAX_DICTIONARY_MEMBERS = 16;
+export const MAX_INNER_LIST_ITEMS = 64;
+export const MAX_PARAMETERS = 16;
 
 class Cursor {
   constructor(text) {
@@ -135,6 +147,9 @@ function parseParameters(cursor) {
     } else {
       params.set(key, true);
     }
+    if (params.size > MAX_PARAMETERS) {
+      throw new MalformedSyntax(`An item carries more than ${MAX_PARAMETERS} parameters.`);
+    }
   }
   return params;
 }
@@ -150,6 +165,9 @@ function parseInnerList(cursor) {
       break;
     }
     items.push({ value: parseBareItem(cursor), params: parseParameters(cursor) });
+    if (items.length > MAX_INNER_LIST_ITEMS) {
+      throw new MalformedSyntax(`An inner list holds more than ${MAX_INNER_LIST_ITEMS} items.`);
+    }
     if (!cursor.done && cursor.peek() !== ' ' && cursor.peek() !== ')') {
       throw new MalformedSyntax(`Expected a space or ")" at offset ${cursor.at}.`);
     }
@@ -185,6 +203,9 @@ export function parseDictionary(text) {
       value = { value: true, params: parseParameters(cursor) };
     }
     out.set(key, value);
+    if (out.size > MAX_DICTIONARY_MEMBERS) {
+      throw new MalformedSyntax(`A dictionary holds more than ${MAX_DICTIONARY_MEMBERS} members.`);
+    }
     cursor.skipSpace();
     if (cursor.done) break;
     cursor.expect(',');

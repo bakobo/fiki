@@ -82,6 +82,17 @@ def sign(**overrides):
     return {"method": args["method"], "url": args["url"], "body": args["body"]}, headers
 
 
+def sign_over_digest(digest: str):
+    """A request signed over a Content-Digest the signer is not shown the body for.
+
+    sign_request refuses a supplied digest its body contradicts (@5zrf8gjk), and these are digests
+    a verifier must refuse when some other signer sends them, so the body joins afterwards.
+    """
+    request, headers = sign(headers={"Content-Digest": digest}, body=None,
+                            covered=["@method", "@authority", "@path", "@query", "content-digest"])
+    return {**request, "body": BODY}, headers
+
+
 def verify(request, headers, **overrides):
     args = dict(headers=headers, max_age=None, **request)
     args.update(overrides)
@@ -115,7 +126,7 @@ def test_a_request_signed_with_a_lowercase_method_does_not_verify_as_uppercase()
 def test_two_recognized_digests_must_both_match():
     good = content_digest(BODY)
     bad512 = base64.b64encode(hashlib.sha512(b"other").digest()).decode()
-    request, headers = sign(headers={"Content-Digest": f"{good}, sha-512=:{bad512}:"})
+    request, headers = sign_over_digest(f"{good}, sha-512=:{bad512}:")
     with pytest.raises(DigestMismatch):
         verify(request, headers)
 
@@ -127,14 +138,14 @@ def test_two_recognized_digests_that_both_match_verify():
 
 
 def test_a_recognized_digest_that_is_not_a_byte_sequence_is_malformed():
-    request, headers = sign(headers={"Content-Digest": 'sha-256="not bytes"'})
+    request, headers = sign_over_digest('sha-256="not bytes"')
     with pytest.raises(MalformedDigest):
         verify(request, headers)
 
 
 def test_an_unparsable_digest_is_malformed_even_when_no_body_was_supplied():
     """Section 9 puts malformed-digest before digest-mismatch."""
-    request, headers = sign(headers={"Content-Digest": "(((("})
+    request, headers = sign_over_digest("((((")
     request["body"] = None
     with pytest.raises(MalformedDigest):
         verify(request, headers)

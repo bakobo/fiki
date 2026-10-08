@@ -1,6 +1,6 @@
 {
   "about": "Messages a canonical verifier must REFUSE, and the section 9 code.",
-  "keri_vectors_format": 3,
+  "keri_vectors_format": 4,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
@@ -463,6 +463,23 @@
       "error": "insufficient-coverage"
     },
     {
+      "id": "content-length-with-a-no-break-space",
+      "kind": "request",
+      "note": "Only SP and HTAB are trimmed from a Content-Length. A no-break space makes it something other than a plain decimal, which is not evidence of no body (fiki @5zrf8gjk); a verifier that trims every kind of space reads zero and accepts.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Content-Length": "0 ",
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;nonce=\"jdcc7MtEAcSfRcpBrCWYqQ\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9/NE4/L1BtXOBVguLV7SWegCgBgMHFh/eMIUHzXts18XFeF2m7OmrfGWjNwfqfPP4cnvnd6RB0LZR73AjGe1Dw==:"
+        },
+        "body": null
+      },
+      "now": 1700000030,
+      "error": "insufficient-coverage"
+    },
+    {
       "id": "body-arrived-without-digest",
       "kind": "request",
       "note": "No header announced a body, and one arrived: the read-time rule of section 3.",
@@ -509,6 +526,40 @@
         "headers": {
           "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"DSTwjma20Y-1MqYdydGhdQ\";alg=\"ed25519\";keyid=\"not-an-aid\"",
           "Signature": "signify=:VriFBwfCheoFM9UJ9+CKFpFipLfLfV0pFpoZCdGOolZZvHfuWj+EDElXXE6XzGQOXP1HiH3JgKD3w0ehB6DPAw==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "now": 1700000030,
+      "error": "malformed-key"
+    },
+    {
+      "id": "padding-bit-alias-of-a-b-keyid",
+      "kind": "request",
+      "note": "The B keyid with bit 4 of its second character set: the bit lands in the pad byte, so it decodes to the same 32 bytes and is not the AID's canonical spelling (keys_rule; tick 5uvw).",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"aGVK8l2RT_Bf7d6J_TTZjw\";alg=\"ed25519\";keyid=\"BQOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4\"",
+          "Signature": "signify=:fayUgCN18AOxSFMDgnl5WJBatGmZU/YoBH0RIcBeaMcyMgRUmgkG5cjPPIYz3JUmwDvLjAZA1ObrMQ2bXHi6Bg==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "now": 1700000030,
+      "error": "malformed-key"
+    },
+    {
+      "id": "small-order-b-keyid",
+      "kind": "request",
+      "note": "A well-formed B keyid whose key is the identity point, under which a signature verifies over any message; refused before the signature is examined.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"rJyDnGZIaCd5r4tG9CoNfQ\";alg=\"ed25519\";keyid=\"BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"",
+          "Signature": "signify=:dOcQ30xiCmQe7IGhlyndxsbBnl3UoK9XqZDp+ocKLR1LCmT7UKllf0d/tZX1bkbLDJJiDFbVDAKotxAq9o2SBQ==:",
           "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
         },
         "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
@@ -1096,6 +1147,121 @@
       },
       "now": 1700000030,
       "error": "unauthenticated"
+    },
+    {
+      "id": "unsigned-401-with-an-empty-signature",
+      "kind": "response",
+      "note": "An empty Signature header is no signature, so this is the same unsigned 401 (fiki @5zrf8gjk).",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers/alice/events",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"KhFPkjriyc0blh5Hvr5S2w\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9gHQrXKRKitBgMB+dAznQcgSCJyUpuRzG2Z4NHShxBTUYfy6t3uZGKAhlHZ3YHUYK43ccnZlVTtndsuBUN1yAQ==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "Content-Type": "application/json",
+          "Signature": ""
+        },
+        "body": "{\"title\": \"401 Unauthorized\"}"
+      },
+      "policy": {
+        "expected_keyid": "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+      },
+      "now": 1700000030,
+      "error": "unauthenticated"
+    },
+    {
+      "id": "malformed-keyid-beside-an-expected-keyid",
+      "kind": "response",
+      "note": "Section 9 order with an expected keyid: the keyid's own well-formedness first, so this is malformed-key and not unknown-key, though it is not the AID expected.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers/alice/events",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"KhFPkjriyc0blh5Hvr5S2w\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9gHQrXKRKitBgMB+dAznQcgSCJyUpuRzG2Z4NHShxBTUYfy6t3uZGKAhlHZ3YHUYK43ccnZlVTtndsuBUN1yAQ==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Signature-Input": "signify=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;nonce=\"TuNyWQS0Yzuj235byvvcTw\";alg=\"ed25519\";keyid=\"EYhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6\"",
+          "Signature": "signify=:Cp2RNqzV7g23O4aqZv2SzrldJ3jCoe6hbyibHxfo17j2V1WfcVt1dXRFiWYPUzLqUm7YPjE/m66JUSDsLzm/DQ==:",
+          "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+        },
+        "body": "{\"done\": true}"
+      },
+      "policy": {
+        "expected_keyid": "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+      },
+      "now": 1700000030,
+      "error": "malformed-key"
+    },
+    {
+      "id": "unexpected-keyid-is-not-resolved",
+      "kind": "response",
+      "note": "A well-formed keyid other than the expected one is unknown-key without asking the key state. Resolving it first would report unsupported-signer.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers/alice/events",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"KhFPkjriyc0blh5Hvr5S2w\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9gHQrXKRKitBgMB+dAznQcgSCJyUpuRzG2Z4NHShxBTUYfy6t3uZGKAhlHZ3YHUYK43ccnZlVTtndsuBUN1yAQ==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Signature-Input": "signify=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;nonce=\"wc1TjFEJRpNYJ7oaU1Mdzw\";alg=\"ed25519\";keyid=\"EId9a0qAumQjSrz4ozs6UjAj_MnDTNh7IUBqD1wQRRyg\"",
+          "Signature": "signify=:zpWuepgsEZfeSGdG62svvvRALf1UWa/m01BQbbhvfhlNrtK4ueM0/EooRi1akkO99UdwAd1SbTjYp1XMcXrUBg==:",
+          "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+        },
+        "body": "{\"done\": true}"
+      },
+      "policy": {
+        "expected_keyid": "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+      },
+      "now": 1700000030,
+      "error": "unknown-key"
+    },
+    {
+      "id": "request-body-contradicts-the-requests-digest",
+      "kind": "response",
+      "note": "The response covers \"content-digest\";req, and the request body handed to the verifier does not match the request's Content-Digest (tick 5uvw).",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers/alice/events",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"KhFPkjriyc0blh5Hvr5S2w\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9gHQrXKRKitBgMB+dAznQcgSCJyUpuRzG2Z4NHShxBTUYfy6t3uZGKAhlHZ3YHUYK43ccnZlVTtndsuBUN1yAQ==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"mallory\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Signature-Input": "signify=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;nonce=\"vqNhH6JLb2M05NCqsbEG-Q\";alg=\"ed25519\";keyid=\"EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6\"",
+          "Signature": "signify=:JK+oXQL2TehrZzGEQCEj4+B+UHoG0fMCTZdZ+Qxh/hq2Jf3Q1AK6i3fie+pTN2X6yv2JC0IrUuLNA66UhuSvBA==:",
+          "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+        },
+        "body": "{\"done\": true}"
+      },
+      "policy": {
+        "expected_keyid": "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+      },
+      "now": 1700000030,
+      "error": "digest-mismatch"
     },
     {
       "id": "unsigned-200",

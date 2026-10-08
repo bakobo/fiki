@@ -35,6 +35,7 @@ from .base import (
     Request,
     canonical,
     check_covered,
+    check_label,
     component,
     identity,
     lines_for,
@@ -88,6 +89,14 @@ _KEY_LENGTH = 32
 _RAW_KEYID_LENGTH = 43
 _RAW_KEYID = re.compile(rf"[A-Za-z0-9_-]{{{_RAW_KEYID_LENGTH}}}")
 
+# Input bounds (@5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends and low
+# enough that no parse is slow. A field is measured in bytes before it is parsed, size before
+# shape; the counts are taken on what parsed. Over any of them is the header's malformed class.
+MAX_FIELD_BYTES = 8192
+MAX_DICTIONARY_MEMBERS = 16
+MAX_INNER_LIST_ITEMS = 64
+MAX_PARAMETERS = 16
+
 # Two hosts disagreeing by a second is ordinary; a verifier that treats it as an attack is
 # unusable. Adjustable per call, because a satellite link and a rack are not the same problem.
 DEFAULT_SKEW = 5
@@ -110,10 +119,12 @@ class Verdict:
     ``created`` is whatever the signer put there. Replay is the caller's problem and fiki says so
     rather than implying an endorsement it has not earned.
 
-    ``aid`` is the non-transferable AID of the key that verified — or, when a resolver supplied
-    that key, the keyid the resolver vouched for (@6g9zjsv9). ``covered`` names each component as
-    :func:`~fiki.base.component` would accept it: a plain name, or its serialized form when it
-    carries a parameter, such as ``'"@path";req'``.
+    ``aid`` is the identity that vouched for the key: the non-transferable AID of a raw key, or
+    the keyid a resolver vouched for (@6g9zjsv9), or the AID of ``expected_aid``. ``keyid`` is the
+    keyid exactly as it appeared on the wire, or None when the signature had none (@5zrf8gjk), so
+    a verifier given ``expected_aid`` can still see what the signer claimed. ``covered`` names
+    each component as :func:`~fiki.base.component` would accept it: a plain name, or its
+    serialized form when it carries a parameter, such as ``'"@path";req'``.
     """
 
     aid: str
@@ -156,6 +167,16 @@ def _cover_body(items: list, sending: dict, body: bytes | None, chosen: bool) ->
     """Cover a body the caller handed over, or refuse to sign (@2hwvpm42)."""
     if body is None:
         return
+    if CONTENT_DIGEST in sending:
+        # A digest the caller supplied is signed as given, so it must be one the verifier will
+        # accept for this body: a mismatch is the call's mistake, not a message (@5zrf8gjk).
+        try:
+            _check_digest(sending[CONTENT_DIGEST], body)
+        except (MalformedDigest, DigestMismatch) as ex:
+            raise ValueError(
+                "The Content-Digest supplied with this body is not one a verifier would accept "
+                f"for it: {ex} Omit it and fiki computes one, or supply the body it describes."
+            ) from ex
     # Whether the caller CHOSE the covered set is the difference between fiki helping and fiki
     # overriding. On the default path a body simply gets covered; on an explicit path, silently
     # adding a component would mean the signature covers something the caller did not ask for,
@@ -212,7 +233,14 @@ def sign_request(
     ``keyid`` defaults to the key itself (@7xrx5evg); name another, such as a KERI AID, only when
     the verifier resolves it (@6g9zjsv9). ``minimum``, such as :data:`REQUEST_MINIMUM`, makes
     the signer refuse a covered list its verifier would refuse (@2f227n4r).
+
+    Mistakes in the call are ValueError or TypeError, never a FikiError (@5zrf8gjk): a method
+    that is not an HTTP token, a URL whose port is not a number from 0 to 65535, a label that is
+    not an RFC 8941 key, a keyid, nonce or tag outside printable ASCII, a component name that is
+    not a field name, a created or expires outside 0 to 999999999999999, and a supplied
+    ``Content-Digest`` the body does not match.
     """
+    check_label(label)
     minimum = _floored(minimum, REQUEST_MINIMUM)
     sending = canonical(headers or {})
     chosen = covered is not None
@@ -264,6 +292,7 @@ def sign_response(
     into a response every profile client refuses (@2f227n4r). A digest the request body
     contradicts is refused the same way the verifier would refuse it.
     """
+    check_label(label)
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     sending = canonical(headers or {})
     request = _canonical_request(request)
@@ -351,11 +380,20 @@ def verify_request(
     signature that does not cover it is :class:`~fiki.errors.InsufficientCoverage` (@605z9tnw).
 
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
+    ``max_age`` and ``skew``, when given, are positive integers; anything else is a mistake in the
+    call (@5zrf8gjk), as is a method that is not an HTTP token. A URL whose port is not a number
+    from 0 to 65535 is a base that cannot be built, so a covered ``@authority`` makes it a
+    :class:`~fiki.errors.SignatureMismatch`. The Signature, Signature-Input and Content-Digest
+    headers are bounded before they are parsed, at :data:`MAX_FIELD_BYTES` each,
+    :data:`MAX_DICTIONARY_MEMBERS` members, :data:`MAX_INNER_LIST_ITEMS` items in an inner list
+    and :data:`MAX_PARAMETERS` parameters on an item, and a header over any of them is malformed.
     """
+    _check_window(max_age, skew)
     minimum = _floored(minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
     return _verify(
-        request_message(method, url, headers), headers, body, response=False, request=None,
+        request_message(method, url, headers, received=True), headers, body, response=False,
+        request=None,
         max_age=max_age, expected_aid=expected_aid, skew=skew, now=now, resolve=resolve,
         minimum=minimum, expected_keyid=expected_keyid, authorities=authorities,
     )
@@ -390,16 +428,18 @@ def verify_response(
     None: that digest is recomputed over the request body, and fiki cannot check a body it was
     not given.
     """
+    _check_window(max_age, skew)
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
-    if status == 401 and "signature" not in headers:
+    # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
+    if status == 401 and not headers.get("signature"):
         raise Unauthenticated(
             "The server answered 401 without signing the answer, so the request was not "
             "authenticated and the body of the refusal cannot be trusted."
         )
     return _verify(
-        response_message(status, headers, request), headers, body, response=True,
+        response_message(status, headers, request, received=True), headers, body, response=True,
         request=request, max_age=max_age, expected_aid=expected_aid, skew=skew, now=now,
         resolve=resolve, minimum=minimum, expected_keyid=expected_keyid, authorities=None,
     )
@@ -428,13 +468,16 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     if authorities is not None:
         _check_minimum(items, ["@authority"], has_body=False, request_had_body=False)
 
+    # Section 9's key steps in order (@5zrf8gjk): what the keyid alone shows, then the expected
+    # keyid, and only then the resolver, which is never asked about a keyid already refused.
     keyid = inner.params.get("keyid")
+    local = _local_key(expected_aid, keyid, resolve)
     if expected_keyid is not None and keyid != expected_keyid:
         raise UnknownKey(
             f'This message is signed by "{keyid}", and the one expected is "{expected_keyid}".',
             keyid=keyid,
         )
-    public_key, aid, keyid = _resolve(expected_aid, keyid, resolve)
+    public_key, aid = local if local is not None else _resolved(keyid, resolve)
     alg = inner.params.get("alg")
     if alg is not None and alg != ALG:
         raise UnsupportedAlgorithm(
@@ -512,8 +555,9 @@ def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:
     if length is None:
         return False
     # Fail closed: a length that is not a plain decimal, negative ones included, is not evidence
-    # that there is no body.
-    length = length.strip()
+    # that there is no body. Only SP and HTAB are optional whitespace (@5zrf8gjk); a no-break
+    # space or a vertical tab makes the value something other than a decimal.
+    length = length.strip(" \t")
     return not re.fullmatch(r"[0-9]+", length) or int(length) > 0
 
 
@@ -532,6 +576,23 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
                 "signature over what an intermediary is free to change.",
                 component=spec_of(item),
             )
+
+
+def _check_window(max_age, skew) -> None:
+    """A freshness window, when given, is a positive whole number of seconds (@5zrf8gjk).
+
+    The KERI profile's section 3 says so, and a zero or negative one would refuse every honest
+    message or none. ``max_age=None`` still declines the age check; there is no way to decline
+    the skew, which the expiry check uses whatever max_age is.
+    """
+    for name, value in (("max_age", max_age), ("skew", skew)):
+        if value is None and name == "max_age":
+            continue
+        if type(value) is not int:
+            raise TypeError(f"{name} is a whole number of seconds; this one is {value!r}.")
+        if value <= 0:
+            raise ValueError(f"{name} is {value}, and a freshness window is a positive number "
+                             "of seconds.")
 
 
 def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None) -> None:
@@ -680,42 +741,85 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
             )
 
 
-# A string (skipped whole), or a colon that opens a bare item and so a byte sequence, captured
-# whole up to its closing colon so a character outside base64 fails the check below rather than
-# ending the match. A colon after a token character or another colon is inside an sf-token,
-# which may contain one.
-_BYTESEQ_OR_STRING = re.compile(
-    r'"(?:[^"\\]|\\.)*"|(?<![-!#$%&\'*+.^_`|~0-9A-Za-z:/]):([^:]*):'
+# A string (skipped whole); a colon that opens a bare item and so a byte sequence, captured whole
+# up to its closing colon so a character outside base64 fails the check below rather than ending
+# the match; or a bare item that is a decimal with no fractional digit. A colon or a digit after
+# a token character, another colon or a slash is inside an sf-token, which may contain either.
+_BARE = r"(?<![-!#$%&'*+.^_`|~0-9A-Za-z:/])"
+_SCANNED = re.compile(
+    r'"(?:[^"\\]|\\.)*"|' + _BARE + r":([^:]*):|" + _BARE + r"(-?[0-9]+\.)(?![0-9])"
 )
 # RFC 4648 base64 whose only "=" are the ones completing the final quantum (section 3.3).
 _PADDED_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 
 
 def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
+    """Parse one signature-related header, bounded before it is read (@5zrf8gjk)."""
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeEncodeError as ex:
+        # An unpaired surrogate has no UTF-8 spelling, so no peer sent it and nothing can read it.
+        raise error(
+            f"The {name} header holds a character that has no UTF-8 encoding, so it cannot be "
+            "read as an RFC 8941 dictionary."
+        ) from ex
+    if len(encoded) > MAX_FIELD_BYTES:
+        raise error(
+            f"The {name} header is {len(encoded)} bytes, and fiki reads one of at most "
+            f"{MAX_FIELD_BYTES}."
+        )
     parsed = http_sfv.Dictionary()
     try:
-        parsed.parse(raw.encode("utf-8"))
+        parsed.parse(encoded)
     except Exception as ex:
         raise error(
             f"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary."
         ) from ex
+    _check_counts(parsed, name, error)
     # http_sfv decodes with Python's lenient base64, which reads data after the padding
     # differently before and after Python 3.13, so fiki checks the spelling itself (@2g4xxev9).
-    for match in _BYTESEQ_OR_STRING.finditer(raw):
-        content = match.group(1)
+    # It also reads "1." as a decimal, which RFC 8941 section 4.2.4 refuses (@5zrf8gjk).
+    for match in _SCANNED.finditer(raw):
+        content, decimal = match.group(1), match.group(2)
         if content is not None and not _PADDED_BASE64.fullmatch(content):
             raise error(
                 f"The {name} header carries a byte sequence that is not base64 with its padding "
                 "at its end, which is the only spelling RFC 8941 decodes."
             )
+        if decimal is not None:
+            raise error(
+                f"The {name} header carries the decimal {decimal}, which has no fractional "
+                "digit, and RFC 8941 requires at least one."
+            )
     return parsed
 
 
-def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | None):
-    """The key to verify with, the identity to report, and the keyid as received."""
+def _check_counts(parsed: http_sfv.Dictionary, name: str, error: type[Exception]) -> None:
+    def refuse(what: str, limit: int):
+        raise error(f"The {name} header has more than {limit} {what}, which is more than fiki "
+                    "reads from any honest signer.")
+
+    if len(parsed) > MAX_DICTIONARY_MEMBERS:
+        refuse("members", MAX_DICTIONARY_MEMBERS)
+    for member in parsed.values():
+        items = list(member) if isinstance(member, http_sfv.InnerList) else []
+        if len(items) > MAX_INNER_LIST_ITEMS:
+            refuse("items in one inner list", MAX_INNER_LIST_ITEMS)
+        for item in [member, *items]:
+            if len(item.params) > MAX_PARAMETERS:
+                refuse("parameters on one item", MAX_PARAMETERS)
+
+
+def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | None):
+    """Every key check that needs nothing beyond the keyid itself (profile section 9).
+
+    The key to verify with and the identity to report when no resolver is needed, or None when
+    the resolver decides. Either way a keyid that is not well formed is refused here, before the
+    expected keyid is compared and before any resolver sees it (@5zrf8gjk).
+    """
     if expected_aid is not None:
         expected = verifying_key(expected_aid)
-        return expected, to_aid(expected.public_bytes_raw()), keyid
+        return expected, to_aid(expected.public_bytes_raw())
     if not keyid:
         raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "
@@ -728,20 +832,7 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
                 "so it is not an AID at all.",
                 keyid=keyid,
             )
-        # The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-        # transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-        raw = resolve(keyid)
-        if raw is None:
-            raise UnknownKey(
-                f'No key is known for the keyid "{keyid}", so the signature cannot be checked.',
-                keyid=keyid,
-            )
-        if not isinstance(raw, (bytes, bytearray)) or len(raw) != _KEY_LENGTH:
-            raise MalformedKey(
-                f'The key resolved for "{keyid}" is not a {_KEY_LENGTH}-byte Ed25519 public key.',
-                keyid=keyid,
-            )
-        return public_key(bytes(raw), keyid), keyid, keyid
+        return None
     # Strictly, as keys.py decodes an AID: a lenient decoder discards characters outside the
     # alphabet and ignores trailing bits, so a keyid that is not the key's encoding could verify
     # as whatever key it happened to decode to. Only the one canonical spelling is a key.
@@ -757,7 +848,25 @@ def _resolve(expected_aid: str | None, keyid: str | None, resolve: Resolver | No
             f'The keyid "{keyid}" is not the canonical base64url spelling of any key.',
             keyid=keyid,
         )
-    return public_key(raw, keyid), to_aid(raw), keyid
+    return public_key(raw, keyid), to_aid(raw)
+
+
+def _resolved(keyid: str, resolve: Resolver):
+    """The resolver's key for a keyid already found well formed, and the keyid it vouched for."""
+    # The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+    # transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+    raw = resolve(keyid)
+    if raw is None:
+        raise UnknownKey(
+            f'No key is known for the keyid "{keyid}", so the signature cannot be checked.',
+            keyid=keyid,
+        )
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) != _KEY_LENGTH:
+        raise MalformedKey(
+            f'The key resolved for "{keyid}" is not a {_KEY_LENGTH}-byte Ed25519 public key.',
+            keyid=keyid,
+        )
+    return public_key(bytes(raw), keyid), keyid
 
 
 def _check_digest(header: str | None, body: bytes | None) -> None:

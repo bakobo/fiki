@@ -426,6 +426,9 @@ fn a_covered_component_the_verifier_cannot_build_is_refused() {
 fn digest_handling() {
     // An unknown algorithm alongside a known one verifies; only-unknown is refused; a value that
     // is not a byte sequence is refused.
+    //
+    // A signer refuses to sign a digest the verifier would refuse for its body (@5zrf8gjk), so the
+    // refused ones are signed without the body and verified with it.
     for (supplied_digest, expected) in [
         (format!("sha-1=:AAAA:, {}", content_digest(BODY)), None),
         ("sha-1=:AAAA:".to_string(), Some(Kind::MalformedDigest)),
@@ -436,16 +439,30 @@ fn digest_handling() {
         ("((( not sfv".to_string(), Some(Kind::MalformedDigest)),
     ] {
         let supplied = headers(&[("Content-Digest", &supplied_digest)]);
+        let opts = SignOptions {
+            body: Some(BODY.to_vec()),
+            created: Some(SIGNED_AT),
+            covered: Some(
+                ["@method", "@authority", "@path", "@query", "content-digest"]
+                    .map(String::from)
+                    .to_vec(),
+            ),
+            ..Default::default()
+        };
+        let signing = sign_request(&key(), "POST", URL_QUERY, &supplied, &opts);
+        if expected.is_some() {
+            assert_eq!(
+                signing.unwrap_err().kind,
+                Kind::InvalidArgument,
+                "{supplied_digest}"
+            );
+        }
         let out = sign_request(
             &key(),
             "POST",
             URL_QUERY,
             &supplied,
-            &SignOptions {
-                body: Some(BODY.to_vec()),
-                created: Some(SIGNED_AT),
-                ..Default::default()
-            },
+            &SignOptions { body: None, ..opts },
         )
         .unwrap();
         let mut all = supplied.clone();
@@ -547,7 +564,7 @@ fn freshness() {
         Kind::SignatureTooOld
     );
     assert_eq!(
-        check(SIGNED_AT + 301, Some(300), Some(0)).unwrap_err().kind,
+        check(SIGNED_AT + 302, Some(300), Some(1)).unwrap_err().kind,
         Kind::SignatureTooOld
     );
     assert_eq!(

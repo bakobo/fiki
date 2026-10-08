@@ -42,13 +42,40 @@ const DEFAULT_PORTS = new Map([
   ['wss', '443'],
 ]);
 
+// RFC 9110 section 5.6.2: a token is one or more tchar. A method is one (section 9.1), and so is a
+// field name (section 5.1), which fiki further requires lowercased in a covered list.
+const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+// RFC 8941 section 3.3.3: an sf-string holds printable ASCII and nothing else.
+const SF_STRING = /^[\x20-\x7e]*$/;
+// RFC 8941 section 3.1.2: a dictionary key, which is what a signature label is.
+const SF_KEY = /^[a-z*][a-z0-9_.*-]*$/;
+// RFC 8941 section 3.3.1: at most fifteen digits.
+const SF_INTEGER_MAX = 999_999_999_999_999;
+
+// A caller's value in a message about it: quoted when it is a string, so a control character shows.
+const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
+
 /** A component identifier from a caller's spelling of it.
  *
  * A plain name (`"@method"`, `"Content-Digest"`) or its RFC 8941 serialization with parameters
  * (`'"@method";req'`). Names are lowercased as a convenience to a local caller; a name parsed from
- * the wire is never lowercased, and is refused instead when it is not already.
+ * the wire is never lowercased, and is refused instead when it is not already. A field name that
+ * is not a token is the caller's mistake, a TypeError, because it would be serialized into
+ * Signature-Input as given (@5zrf8gjk); a derived name fiki does not build is refused later, as
+ * UnsupportedComponent, which names it.
  */
 export function component(spec) {
+  const item = componentItem(spec);
+  if (!item.value.startsWith('@') && !TOKEN.test(item.value)) {
+    throw new TypeError(
+      `${JSON.stringify(spec)} is not a component fiki can name: a field is named by an HTTP field ` +
+        'name, one or more token characters, and a derived component by its @ name.',
+    );
+  }
+  return item;
+}
+
+function componentItem(spec) {
   if (!spec.startsWith('"')) return { value: spec.toLowerCase(), params: new Map() };
   let item;
   try {
@@ -122,30 +149,96 @@ export function checkCovered(items, { response }) {
  * percent-encodes characters such as a space, so its pathname is not the path that was sent. The
  * KERI profile requires @path "in its encoded form, percent-encoding included and unnormalized"
  * (section 2), and so does RFC 9421 section 2.2.6, which is what fiki-py's urlsplit gives.
+ *
+ * Cleaned first exactly as urlsplit cleans it, so every port builds one base for the same URL
+ * (@0e832nug): leading C0 controls and spaces are stripped, and TAB, CR and LF are removed
+ * wherever they are. Trailing controls are kept, as urlsplit keeps them, and a covered component
+ * holding one is then refused like any other control character.
  */
 export function splitUrl(url) {
-  const match = /^(?:([A-Za-z][A-Za-z0-9+.-]*):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?/.exec(url);
+  const cleaned = url.replace(/^[\x00-\x20]+/, '').replace(/[\t\r\n]/g, '');
+  const match = /^(?:([A-Za-z][A-Za-z0-9+.-]*):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?/.exec(cleaned);
   const [, scheme = '', netloc, path, query = ''] = match;
   return { scheme: scheme.toLowerCase(), netloc: netloc ?? '', path, query };
 }
 
-function authority(parts, headers) {
+/** A URL fiki cannot read: the caller's mistake when signing, an unbuildable base when not.
+ *
+ * The profile's section 9 names a base that cannot be built a signature mismatch, so a received
+ * URL whose authority cannot be read is refused like any other base that does not verify, never
+ * thrown as an exception from outside fiki's taxonomy (@5zrf8gjk).
+ */
+function unreadable(message, reason) {
+  if (message.received) {
+    return new SignatureMismatch(
+      `The URL ${message.url} cannot be read: ${reason} So there is no signature base to check the ` +
+        'signature against.',
+    );
+  }
+  return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
+}
+
+// RFC 3986 section 3.2.2's IP-literal, as Python's urlsplit checks it from 3.11.4, so a host fiki-py
+// refuses is refused here too: IPvFuture ("v", hex digits, ".", then anything but a line feed), or
+// an IPv6address with an optional zone after "%". The IPv6 grammar is RFC 3986's own, which accepts
+// exactly what Python's ipaddress.IPv6Address does.
+const H16 = '[0-9A-Fa-f]{1,4}';
+const DEC_OCTET = '(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])';
+const LS32 = `(?:${H16}:${H16}|${DEC_OCTET}(?:\\.${DEC_OCTET}){3})`;
+const IPV6 = [
+  `(?:${H16}:){6}${LS32}`,
+  `::(?:${H16}:){5}${LS32}`,
+  `(?:${H16})?::(?:${H16}:){4}${LS32}`,
+  `(?:(?:${H16}:){0,1}${H16})?::(?:${H16}:){3}${LS32}`,
+  `(?:(?:${H16}:){0,2}${H16})?::(?:${H16}:){2}${LS32}`,
+  `(?:(?:${H16}:){0,3}${H16})?::${H16}:${LS32}`,
+  `(?:(?:${H16}:){0,4}${H16})?::${LS32}`,
+  `(?:(?:${H16}:){0,5}${H16})?::${H16}`,
+  `(?:(?:${H16}:){0,6}${H16})?::`,
+].join('|');
+const IP_LITERAL = new RegExp(`^(?:v[0-9A-Fa-f]+\\.[^\\n]+|(?:${IPV6})(?:%[^%]+)?)$`);
+
+/** Split an authority's host-and-port into the host as written and the port's text.
+ *
+ * An IP-literal keeps its brackets, which RFC 3986 section 3.2.2 makes part of the host, and only
+ * ":port" may follow its closing bracket. A bracket anywhere else is not a host.
+ */
+function hostAndPort(hostport, message) {
+  if (hostport.startsWith('[')) {
+    const close = hostport.indexOf(']');
+    const rest = close < 0 ? '' : hostport.slice(close + 1);
+    if (close < 0 || (rest !== '' && !rest.startsWith(':'))) {
+      throw unreadable(message, 'an IP-literal must close with "]", followed by nothing but ":" and a port.');
+    }
+    if (!IP_LITERAL.test(hostport.slice(1, close))) {
+      throw unreadable(message, 'its IP-literal is not an IPv6 address or IPvFuture.');
+    }
+    return [hostport.slice(0, close + 1), rest.slice(1)];
+  }
+  const colon = hostport.indexOf(':');
+  const [host, port] = colon < 0 ? [hostport, ''] : [hostport.slice(0, colon), hostport.slice(colon + 1)];
+  if (/[[\]]/.test(host)) throw unreadable(message, 'a bracket belongs only around an IP-literal.');
+  return [host, port];
+}
+
+function authority(message) {
   // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to the
   // Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier actually
   // holds. Nothing is normalized away there, because without a scheme no port is a default port.
+  const { parts, headers } = message;
   if (parts.netloc) {
-    const hostport = parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1).toLowerCase();
-    const [, host, port = ''] = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/.exec(hostport);
-    if (port === '') return host;
+    const [host, port] = hostAndPort(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), message);
+    // An empty port is no port at all, as RFC 3986 section 6.2.3 normalizes it.
+    if (port === '') return host.toLowerCase();
     // RFC 3986 section 3.2.3: port = *DIGIT, so any run of ASCII digits, leading zeros and all, and
     // the value is the number: "000080" is 80 and is the default, as urlsplit reads it. The range
     // is checked on the digits that remain, so a long run of zeros cannot hide an overflow.
     const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
     if (digits === null || digits.length > 5 || Number(digits) > 65535) {
-      throw new TypeError(`The URL's port "${port}" is not a port number between 0 and 65535.`);
+      throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
     }
-    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host;
-    return `${host}:${digits}`;
+    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host.toLowerCase();
+    return `${host.toLowerCase()}:${digits}`;
   }
   const host = headers.get('host');
   if (host === undefined) {
@@ -169,6 +262,11 @@ export function canonicalHeaders(headers, name = 'headers') {
   // assignment to the prototype that silently drops it (PR #5 hostile review, H1).
   const out = Object.create(null);
   for (const [field, value] of Object.entries(headers ?? {})) {
+    // A name is always a string here, since an object's keys are; a value has to be checked
+    // (@5zrf8gjk), or null would be signed as the string "null".
+    if (typeof value !== 'string') {
+      throw new TypeError(`A header is a name and a string value; the value of "${field}" is ${String(value)}.`);
+    }
     const lower = field.toLowerCase();
     if (Object.hasOwn(out, lower)) {
       throw new TypeError(
@@ -186,7 +284,7 @@ function lowered(headers) {
   // are kept exactly as received here: they are checked for forbidden characters before any
   // whitespace is trimmed, or a trailing CR LF would be trimmed into the value that was signed.
   const map = new Map();
-  for (const [name, value] of Object.entries(canonicalHeaders(headers))) map.set(name, String(value));
+  for (const [name, value] of Object.entries(canonicalHeaders(headers))) map.set(name, value);
   return map;
 }
 
@@ -209,19 +307,31 @@ function checked(value, spec) {
   return value;
 }
 
-export function requestMessage(method, url, headers) {
-  // A method is the caller's to supply, and an absent one would otherwise be signed as the string
-  // "undefined". Required here, where every request and every response's request passes.
-  if (typeof method !== 'string' || method === '') {
-    throw new TypeError(`A request needs its method as a non-empty string, as sent; got ${String(method) || 'an empty string'}.`);
+/** A request's method is an RFC 9110 token, covered or not, or the call is a mistake.
+ *
+ * Its case is kept as given (@22g0xkr8). Checked wherever a request message is built, on sign and
+ * verify alike (@5zrf8gjk): an empty or spaced method is never a request anybody sent.
+ */
+function checkMethod(method) {
+  if (typeof method !== 'string' || !TOKEN.test(method)) {
+    throw new TypeError(
+      `The method ${shown(method)} is not an HTTP method: a method is a ` +
+        'string of one or more token characters, with no spaces, line breaks or separators.',
+    );
   }
-  return { headers: lowered(headers), method, parts: splitUrl(url) };
 }
 
-export const responseMessage = (status, headers, request) => ({
+export function requestMessage(method, url, headers, { received = false } = {}) {
+  checkMethod(method);
+  // `received` marks a message handed to a verifier rather than built by a signer, which decides
+  // what a URL that cannot be read is: a base that cannot be built, or a caller error.
+  return { headers: lowered(headers), method, url, parts: splitUrl(url), received };
+}
+
+export const responseMessage = (status, headers, request, { received = false } = {}) => ({
   headers: lowered(headers),
   status,
-  request: request ? requestMessage(request.method, request.url, request.headers) : null,
+  request: request ? requestMessage(request.method, request.url, request.headers, { received }) : null,
 });
 
 function componentValue(item, message) {
@@ -252,7 +362,7 @@ function componentValue(item, message) {
   }
   // Section 2.2.1: the method as sent, with no case transformation (@22g0xkr8).
   if (name === '@method') return source.method;
-  if (name === '@authority') return authority(source.parts, source.headers);
+  if (name === '@authority') return authority(source);
   // An empty path is the "/" the origin server would have received.
   if (name === '@path') return source.parts.path || '/';
   // Section 2.2.7: the whole query string including the leading "?", percent-encoding preserved,
@@ -289,6 +399,43 @@ export function componentLines({ method, url, headers, covered }) {
   return linesFor(items, requestMessage(method, url, headers));
 }
 
+/** What a signer serializes must be serializable, or the call is a mistake (@5zrf8gjk).
+ *
+ * created and expires are RFC 8941 integers that are not negative; keyid, alg, nonce and tag are
+ * sf-strings, printable ASCII only, so a line break can never forge a header line. An absent one
+ * (undefined or null) is not serialized and so not checked.
+ */
+export function checkSignerParams({ created, expires, keyid, alg, nonce, tag }) {
+  for (const [name, value] of [['created', created], ['expires', expires]]) {
+    if (value === undefined || value === null) continue;
+    if (!Number.isInteger(value) || value < 0 || value > SF_INTEGER_MAX) {
+      throw new TypeError(
+        `${name} is ${String(value)}, and RFC 8941 carries an integer of at most fifteen digits; fiki ` +
+          `signs a whole number of seconds from 0 to ${SF_INTEGER_MAX}.`,
+      );
+    }
+  }
+  for (const [name, value] of [['keyid', keyid], ['alg', alg], ['nonce', nonce], ['tag', tag]]) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || !SF_STRING.test(value)) {
+      throw new TypeError(
+        `The ${name} ${shown(value)} is not a string of printable ASCII, which is all an RFC ` +
+          '8941 string can carry; a line break there would forge a header line.',
+      );
+    }
+  }
+}
+
+/** A signature label is an RFC 8941 dictionary key, or the call is a mistake (@5zrf8gjk). */
+export function checkLabel(label) {
+  if (typeof label !== 'string' || !SF_KEY.test(label)) {
+    throw new TypeError(
+      `The label ${shown(label)} is not an RFC 8941 key: it starts with a lowercase letter ` +
+        'or "*" and continues with lowercase letters, digits, "_", "-", "." and "*".',
+    );
+  }
+}
+
 /** The whole base for already-checked items: the component lines, then fiki's own parameters. */
 export function finishBase(items, message, values) {
   const lines = linesFor(items, message);
@@ -307,6 +454,7 @@ export function finishBase(items, message, values) {
  * the request does not carry.
  */
 export function signatureBase({ method, url, headers, covered, created, keyid, alg, expires, nonce, tag }) {
+  checkSignerParams({ created, expires, keyid, alg, nonce, tag });
   const items = covered.map(component);
   checkCovered(items, { response: false });
   return finishBase(items, requestMessage(method, url, headers), { created, expires, nonce, alg, keyid, tag });
@@ -319,6 +467,7 @@ export function signatureBase({ method, url, headers, covered, created, keyid, a
  * MissingComponent.
  */
 export function responseSignatureBase({ status, headers, covered, created, keyid, request, alg, expires, nonce, tag }) {
+  checkSignerParams({ created, expires, keyid, alg, nonce, tag });
   const items = covered.map(component);
   checkCovered(items, { response: true });
   return finishBase(items, responseMessage(status, headers, request), { created, expires, nonce, alg, keyid, tag });

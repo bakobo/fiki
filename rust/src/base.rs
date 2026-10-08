@@ -34,6 +34,102 @@ pub const CONTENT_DIGEST: &str = "content-digest";
 /// The only component parameter fiki supports, and only in a response (RFC 9421 section 2.4).
 const REQ: &str = "req";
 
+/// RFC 8941 section 3.3.1: an integer has at most fifteen digits, and fiki signs no negative time.
+const SF_INTEGER_MAX: i64 = 999_999_999_999_999;
+
+/// RFC 3986 section 3.2.3 reads a port as digits; RFC 9110's ports are 16-bit.
+const PORT_MAX: u32 = 65535;
+
+/// RFC 9110 section 5.6.2: one or more tchar. A method is a token (section 9.1), and so is a field
+/// name (section 5.1), which fiki further requires lowercased in a covered list.
+pub(crate) fn is_token(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+/// RFC 8941 section 3.1.2: a dictionary key, which is what a signature label is.
+fn is_key(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    matches!(bytes.next(), Some(b'a'..=b'z' | b'*'))
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"_.*-".contains(&b))
+}
+
+/// A request's method is an RFC 9110 token, covered or not, or the call is a mistake. Its case is
+/// kept as given (`this.i` @22g0xkr8). Checked wherever a request message is built, on sign and
+/// verify alike (@5zrf8gjk): an empty or spaced method is never a request anybody sent.
+fn check_method(method: &str) -> Result<()> {
+    if is_token(method) {
+        return Ok(());
+    }
+    Err(Error::detailed(
+        Kind::InvalidArgument,
+        format!(
+            "The method {method:?} is not an HTTP method: a method is one or more token \
+             characters, with no spaces, line breaks or separators."
+        ),
+        method,
+    ))
+}
+
+/// A signature label is an RFC 8941 dictionary key, or the call is a mistake (@5zrf8gjk): it is
+/// written into both headers as given, so a line break there would forge a header line.
+pub(crate) fn check_label(label: &str) -> Result<()> {
+    if is_key(label) {
+        return Ok(());
+    }
+    Err(Error::detailed(
+        Kind::InvalidArgument,
+        format!(
+            "The label {label:?} is not an RFC 8941 key: it starts with a lowercase letter or '*' \
+             and continues with lowercase letters, digits, '_', '-', '.' and '*'."
+        ),
+        label,
+    ))
+}
+
+/// What a signer serializes must be serializable, or the call is a mistake (@5zrf8gjk).
+///
+/// `created` and `expires` are RFC 8941 integers that are not negative; `keyid`, `alg`, `nonce`
+/// and `tag` are sf-strings, printable ASCII only. Checked before anything is serialized, so a line
+/// break is refused by name rather than written into Signature-Input.
+fn check_signer_params(params: &SignatureParams) -> Result<()> {
+    for (name, value) in [("created", params.created), ("expires", params.expires)] {
+        if let Some(value) = value.filter(|v| !(0..=SF_INTEGER_MAX).contains(v)) {
+            return Err(Error::detailed(
+                Kind::InvalidArgument,
+                format!(
+                    "{name} is {value}, and RFC 8941 carries an integer of at most fifteen \
+                     digits; fiki signs one from 0 to {SF_INTEGER_MAX}."
+                ),
+                value.to_string(),
+            ));
+        }
+    }
+    for (name, value) in [
+        ("keyid", &params.keyid),
+        ("alg", &params.alg),
+        ("nonce", &params.nonce),
+        ("tag", &params.tag),
+    ] {
+        if let Some(value) = value
+            .as_deref()
+            .filter(|v| !v.bytes().all(|b| (0x20..=0x7e).contains(&b)))
+        {
+            return Err(Error::detailed(
+                Kind::InvalidArgument,
+                format!(
+                    "The {name} {value:?} holds a character outside printable ASCII, which an RFC \
+                     8941 string cannot carry; a line break there would forge a header line."
+                ),
+                value,
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The RFC 9421 signature parameters a signer sets.
 #[derive(Debug, Default, Clone)]
 pub struct SignatureParams {
@@ -67,8 +163,26 @@ pub fn req(name: &str) -> String {
 /// A component identifier from a caller's spelling of it: a plain name (`"@method"`,
 /// `"Content-Digest"`) or its RFC 8941 serialization with parameters (`"\"@method\";req"`). Names
 /// are lowercased as a convenience to a local caller; a name parsed from the wire is never
-/// lowercased, and is refused instead when it is not already.
+/// lowercased, and is refused instead when it is not already. A field name that is not a token is
+/// the caller's mistake, `InvalidArgument`, because it would be serialized into Signature-Input as
+/// given (@5zrf8gjk); a derived name fiki does not build is refused later, as
+/// `UnsupportedComponent`, which names it.
 pub(crate) fn component(spec: &str) -> Result<Item> {
+    let item = component_item(spec)?;
+    match item.text() {
+        Some(name) if !name.starts_with('@') && !is_token(name) => Err(Error::detailed(
+            Kind::InvalidArgument,
+            format!(
+                "{spec:?} is not a component fiki can name: a field is named by an HTTP field \
+                 name, one or more token characters, and a derived component by its @ name."
+            ),
+            spec,
+        )),
+        _ => Ok(item),
+    }
+}
+
+fn component_item(spec: &str) -> Result<Item> {
     if !spec.starts_with('"') {
         return Ok(Item {
             value: Value::Text(spec.to_ascii_lowercase()),
@@ -174,12 +288,7 @@ pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
     Ok(())
 }
 
-const DEFAULT_PORTS: [(&str, &str); 4] = [
-    ("http", "80"),
-    ("https", "443"),
-    ("ws", "80"),
-    ("wss", "443"),
-];
+const DEFAULT_PORTS: [(&str, u32); 4] = [("http", 80), ("https", 443), ("ws", 80), ("wss", 443)];
 
 /// A request target, split without a URL crate: fiki needs the scheme, authority, path and raw
 /// query and nothing else, and pulling in a parser to get four slices would be a dependency for
@@ -191,7 +300,19 @@ pub(crate) struct Target {
     pub query: String,
 }
 
+/// The URL as every port reads it, which is how Python's `urlsplit` reads it (`this.i` @2n99rej7,
+/// ruled by the conductor for the 0.8.0 sweep): leading C0 controls and spaces stripped, trailing
+/// ones kept, and TAB, CR and LF removed wherever they are, as the WHATWG URL parser does.
+fn cleaned(raw: &str) -> String {
+    raw.trim_start_matches(|c: char| c <= ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\r' | '\n'))
+        .collect()
+}
+
 pub(crate) fn split_target(raw: &str) -> Target {
+    let raw = cleaned(raw);
+    let raw = raw.as_str();
     let (scheme, rest) = match raw.find("://") {
         Some(at)
             if raw[..at]
@@ -227,51 +348,208 @@ pub(crate) fn split_target(raw: &str) -> Target {
 }
 
 /// A message whose components fiki can read: a request, or a response and the request it answers.
+///
+/// `received` is a message handed to a verifier rather than built by a signer, which decides what a
+/// URL fiki cannot read is: a base that cannot be built when it arrived, a caller error when
+/// signing (@5zrf8gjk).
 pub(crate) struct Message {
     headers: BTreeMap<String, String>,
     method: Option<String>,
+    url: String,
     target: Option<Target>,
     status: Option<u16>,
     request: Option<Box<Message>>,
+    received: bool,
 }
 
 impl Message {
-    pub fn request(method: &str, url: &str, headers: &BTreeMap<String, String>) -> Self {
-        Message {
-            headers: lower_headers(headers),
+    /// `headers` are already canonical (`canonical`), so only their values are trimmed here.
+    pub fn request(
+        method: &str,
+        url: &str,
+        headers: &BTreeMap<String, String>,
+        received: bool,
+    ) -> Result<Self> {
+        check_method(method)?;
+        Ok(Message {
+            headers: trimmed(headers),
             method: Some(method.to_string()),
+            url: url.to_string(),
             target: Some(split_target(url)),
             status: None,
             request: None,
-        }
+            received,
+        })
     }
 
     pub fn response(
         status: u16,
         headers: &BTreeMap<String, String>,
         request: Option<&Asked>,
-    ) -> Self {
-        Message {
-            headers: lower_headers(headers),
+        received: bool,
+    ) -> Result<Self> {
+        Ok(Message {
+            headers: trimmed(headers),
             method: None,
+            url: String::new(),
             target: None,
             status: Some(status),
-            request: request.map(|r| Box::new(Message::request(r.method, r.url, &r.headers))),
+            request: request
+                .map(|r| Message::request(r.method, r.url, &r.headers, received).map(Box::new))
+                .transpose()?,
+            received,
+        })
+    }
+
+    /// A URL fiki cannot read: the caller's mistake when signing, an unbuildable base when not.
+    ///
+    /// The profile's section 9 names a base that cannot be built a signature mismatch, so a
+    /// received URL whose port is not one is refused like any other base that does not verify,
+    /// never as a failure outside fiki's taxonomy (@5zrf8gjk).
+    fn unreadable(&self, reason: &str) -> Error {
+        if self.received {
+            return Error::detailed(
+                Kind::SignatureMismatch,
+                format!(
+                    "The URL {:?} cannot be read: {reason} So there is no signature base to check \
+                     the signature against.",
+                    self.url
+                ),
+                &self.url,
+            );
         }
+        Error::detailed(
+            Kind::InvalidArgument,
+            format!("The URL {:?} cannot be read: {reason}", self.url),
+            &self.url,
+        )
     }
 }
 
-fn authority(target: &Target, headers: &BTreeMap<String, String>) -> Result<String> {
+/// RFC 3986 section 3.2.3: any run of ASCII digits, read as a number (@5zrf8gjk), so `:000080` is
+/// port 80 and the default port of http. An empty port is no port at all, as section 6.2.3
+/// normalizes it. Leading zeros are dropped before the number is read, so no run of them overflows.
+fn port(text: &str, message: &Message) -> Result<Option<u32>> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let significant = text.trim_start_matches('0');
+    if text.bytes().all(|b| b.is_ascii_digit()) && significant.len() <= 5 {
+        // All zeros leaves nothing to parse, and is port 0.
+        let number = significant.parse::<u32>().unwrap_or(0);
+        if number <= PORT_MAX {
+            return Ok(Some(number));
+        }
+    }
+    Err(message.unreadable(&format!(
+        "its port {text:?} is not a number from 0 to {PORT_MAX}."
+    )))
+}
+
+/// RFC 3986 section 3.2.2: what may sit between an IP-literal's brackets, as Python's urlsplit
+/// checks it from 3.11.4, so a host fiki-py refuses is refused here too. IPvFuture is "v", hex
+/// digits, "." and then anything but a line feed; otherwise an IPv6address, with an optional zone
+/// after "%", in RFC 3986's grammar, which accepts exactly what Python's ipaddress.IPv6Address does.
+fn ip_literal(inside: &str) -> bool {
+    if let Some(future) = inside.strip_prefix('v') {
+        return future.split_once('.').is_some_and(|(version, rest)| {
+            !version.is_empty()
+                && version.bytes().all(|b| b.is_ascii_hexdigit())
+                && !rest.is_empty()
+                && !rest.contains('\n')
+        });
+    }
+    let address = match inside.split_once('%') {
+        Some((address, zone)) if !zone.is_empty() && !zone.contains('%') => address,
+        Some(_) => return false,
+        None => inside,
+    };
+    // A "::" stands for one or more zero groups, so the groups either side of it number at most
+    // seven; without one there are exactly eight. A second "::" leaves an empty group in the tail.
+    match address.split_once("::") {
+        Some((head, tail)) => match (groups(head, false), groups(tail, true)) {
+            (Some(head), Some(tail)) => head + tail <= 7,
+            _ => false,
+        },
+        None => groups(address, true) == Some(8),
+    }
+}
+
+/// How many 16-bit groups a run of colon-separated h16s stands for, or None if it is not one. An
+/// IPv4 address may close the run that ends the address, and stands for two.
+fn groups(run: &str, ends_address: bool) -> Option<usize> {
+    if run.is_empty() {
+        return Some(0);
+    }
+    let pieces: Vec<&str> = run.split(':').collect();
+    let mut count = 0;
+    for (i, piece) in pieces.iter().enumerate() {
+        if ends_address && i == pieces.len() - 1 && piece.contains('.') {
+            if !ipv4(piece) {
+                return None;
+            }
+            count += 2;
+        } else if (1..=4).contains(&piece.len()) && piece.bytes().all(|b| b.is_ascii_hexdigit()) {
+            count += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(count)
+}
+
+/// RFC 3986's IPv4address: four dec-octets, none with a leading zero.
+fn ipv4(text: &str) -> bool {
+    let octets: Vec<&str> = text.split('.').collect();
+    octets.len() == 4
+        && octets.iter().all(|octet| {
+            (1..=3).contains(&octet.len())
+                && octet.bytes().all(|b| b.is_ascii_digit())
+                && !(octet.len() > 1 && octet.starts_with('0'))
+                && octet.parse::<u16>().is_ok_and(|n| n <= 255)
+        })
+}
+
+fn authority(target: &Target, message: &Message) -> Result<String> {
     // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to
     // the Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier
     // actually holds. Nothing is normalized away there, because without a scheme no port is a
     // default port.
+    let headers = &message.headers;
     if let Some(raw) = &target.authority {
-        let raw = raw.to_ascii_lowercase();
-        let (host, port) = match raw.rsplit_once(':') {
-            Some((host, port)) if port.chars().all(|c| c.is_ascii_digit()) => (host, Some(port)),
-            _ => (raw.as_str(), None),
+        // Read as written, after any userinfo. An IP-literal keeps its brackets, as RFC 3986
+        // section 3.2.2 makes them part of the host, and nothing but a port may follow its ']'.
+        let hostport = raw
+            .rsplit_once('@')
+            .map_or(raw.as_str(), |(_, after)| after);
+        let (host, port_text) = match hostport.strip_prefix('[') {
+            Some(literal) => {
+                let Some((inside, rest)) = literal.split_once(']') else {
+                    return Err(message.unreadable("its IP-literal has no closing ']'."));
+                };
+                let Some(port_text) = rest.strip_prefix(':').or((rest.is_empty()).then_some(""))
+                else {
+                    return Err(message.unreadable(
+                        "something other than a port follows the ']' of its IP-literal.",
+                    ));
+                };
+                if !ip_literal(inside) {
+                    return Err(
+                        message.unreadable("its IP-literal is not an IPv6 address or IPvFuture.")
+                    );
+                }
+                (format!("[{inside}]"), port_text)
+            }
+            None if hostport.contains(['[', ']']) => {
+                return Err(message.unreadable("it has a ']' with no IP-literal to close."));
+            }
+            None => {
+                let (host, port_text) = hostport.split_once(':').unwrap_or((hostport, ""));
+                (host.to_string(), port_text)
+            }
         };
+        let host = host.to_ascii_lowercase();
+        let port = port(port_text, message)?;
         let default = target
             .scheme
             .as_deref()
@@ -279,7 +557,7 @@ fn authority(target: &Target, headers: &BTreeMap<String, String>) -> Result<Stri
             .map(|(_, port)| *port);
         return Ok(match port {
             Some(port) if Some(port) != default => format!("{host}:{port}"),
-            _ => host.to_string(),
+            _ => host,
         });
     }
     headers
@@ -332,17 +610,12 @@ fn component_value(item: &Item, message: &Message) -> Result<String> {
             )),
         },
         // Section 2.2.1: the method as sent, with no case transformation (`this.i` @22g0xkr8).
-        ("@method", _) => match message.method.as_deref() {
-            None => Err(missing(item, "and a response has no method.")),
-            // A request has a method; an empty one is a caller who lost it (@56qu7gyw).
-            Some("") => Err(Error::new(
-                Kind::InvalidArgument,
-                "The method is empty, so there is no @method to sign or verify; pass the method \
-                 exactly as it goes on the wire.",
-            )),
-            Some(method) => Ok(method.to_string()),
-        },
-        ("@authority", Some(target)) => authority(target, &message.headers),
+        // Message::request checked it is a token (@5zrf8gjk).
+        ("@method", _) => message
+            .method
+            .clone()
+            .ok_or_else(|| missing(item, "and a response has no method.")),
+        ("@authority", Some(target)) => authority(target, message),
         ("@path", Some(target)) => Ok(target.path.clone()),
         // Section 2.2.7: the whole query string including the leading "?", percent-encoding
         // preserved, and a bare "?" when the request carries no query at all.
@@ -389,7 +662,8 @@ pub(crate) fn canonical(headers: &BTreeMap<String, String>) -> Result<BTreeMap<S
     let mut out = BTreeMap::new();
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
-        if out.insert(lower.clone(), value.clone()).is_some() {
+        // By presence, not by what an insert hands back (@5zrf8gjk, D-Q9ZT).
+        if out.contains_key(&lower) {
             return Err(Error::detailed(
                 Kind::InvalidArgument,
                 format!(
@@ -400,6 +674,7 @@ pub(crate) fn canonical(headers: &BTreeMap<String, String>) -> Result<BTreeMap<S
                 lower,
             ));
         }
+        out.insert(lower, value.clone());
     }
     Ok(out)
 }
@@ -427,19 +702,14 @@ pub(crate) fn canonical_request(request: Option<&Request>) -> Result<Option<Aske
         .transpose()
 }
 
-pub(crate) fn lower_headers(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    // Header field names are case-insensitive and appear lowercased in the base (section 2.1).
-    // Values lose leading and trailing SP and HTAB, the only optional whitespace RFC 9110 section
-    // 5.5 allows around a field value, and nothing else: str::trim would also strip a CR or LF,
-    // and value_of must see those to refuse them (`this.i` @56qu7gyw).
+fn trimmed(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    // The names are canonical already, lowercased once by `canonical` (@5zrf8gjk). Values lose
+    // leading and trailing SP and HTAB, the only optional whitespace RFC 9110 section 5.5 allows
+    // around a field value, and nothing else: str::trim would also strip a CR or LF, and value_of
+    // must see those to refuse them (`this.i` @56qu7gyw).
     headers
         .iter()
-        .map(|(name, value)| {
-            (
-                name.to_ascii_lowercase(),
-                value.trim_matches([' ', '\t']).to_string(),
-            )
-        })
+        .map(|(name, value)| (name.clone(), value.trim_matches([' ', '\t']).to_string()))
         .collect()
 }
 
@@ -495,6 +765,7 @@ pub(crate) fn base_for(
     response: bool,
     params: &SignatureParams,
 ) -> Result<Vec<u8>> {
+    check_signer_params(params)?;
     check_covered(items, response)?;
     Ok(finish(lines_for(items, message)?, items, params))
 }
@@ -504,7 +775,11 @@ pub(crate) fn base_for(
 /// `covered` names each component plainly or in serialized form. Refuses a component named twice
 /// as `DuplicateComponent`, a derived component outside [`DERIVED`] or any component parameter as
 /// `UnsupportedComponent`, a covered header the request does not carry as `MissingComponent`, and
-/// a value with no single serialization as `SignatureMismatch`.
+/// a value with no single serialization as `SignatureMismatch`. Mistakes in the call are
+/// `InvalidArgument` (`this.i` @5zrf8gjk): a method that is not an HTTP token, a URL whose port is
+/// not a number from 0 to 65535 or whose IP-literal is followed by anything but a port, a field
+/// name that is not a token, a `created` or `expires` outside 0 to 999999999999999, and a `keyid`,
+/// `alg`, `nonce` or `tag` outside printable ASCII.
 pub fn signature_base(
     method: &str,
     url: &str,
@@ -513,12 +788,8 @@ pub fn signature_base(
     params: &SignatureParams,
 ) -> Result<Vec<u8>> {
     let headers = canonical(headers)?;
-    base_for(
-        &components(covered)?,
-        &Message::request(method, url, &headers),
-        false,
-        params,
-    )
+    let message = Message::request(method, url, &headers, false)?;
+    base_for(&components(covered)?, &message, false, params)
 }
 
 /// Build the RFC 9421 signature base for a response (sections 2.2.9 and 2.4).
@@ -535,10 +806,6 @@ pub fn response_signature_base(
 ) -> Result<Vec<u8>> {
     let headers = canonical(headers)?;
     let request = canonical_request(request)?;
-    base_for(
-        &components(covered)?,
-        &Message::response(status, &headers, request.as_ref()),
-        true,
-        params,
-    )
+    let message = Message::response(status, &headers, request.as_ref(), false)?;
+    base_for(&components(covered)?, &message, true, params)
 }
