@@ -702,12 +702,13 @@ class ProfileTest {
 
     @Test
     void aSignerRefusesACallersDigestItsBodyContradicts() {
-        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() ->
-            signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts)));
-        assertEquals(FikiException.Kind.MalformedDigest, kindOf(() ->
-            signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts)));
-        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() -> respond(opts -> opts, 200, REQUEST,
-            Map.of("content-digest", Fiki.contentDigest(BODY)))));
+        // The call's mistake, not a message's defect (@5zrf8gjk, A7 and E5).
+        assertThrows(IllegalArgumentException.class, () ->
+            signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts));
+        assertThrows(IllegalArgumentException.class, () ->
+            signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts));
+        assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts, 200, REQUEST,
+            Map.of("content-digest", Fiki.contentDigest(BODY))));
         // A digest of the caller's own that holds is used as given, and covered.
         assertEquals(KEY.aid(), verify(signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY)), opts -> opts)).aid());
     }

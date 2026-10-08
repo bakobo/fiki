@@ -261,10 +261,12 @@ public final class Fiki {
     /**
      * The outcome of a successful verification. A throw means it did not verify.
      *
-     * <p>{@code aid} is the non-transferable AID of the key that verified — or, when a resolver
-     * supplied that key, the keyid the resolver vouched for (@6g9zjsv9). {@code covered} names each
-     * component as a signer would: a plain name, or its serialized form when it carries a
-     * parameter, such as {@code "@path";req}. {@code keyid} is the keyid as received.
+     * <p>{@code aid} is the identity that vouched for the key: the non-transferable AID of a raw
+     * key, or the keyid a resolver vouched for (@6g9zjsv9), or the AID of the expected AID.
+     * {@code keyid} is the keyid exactly as it appeared on the wire, or null when the signature had
+     * none (@5zrf8gjk), so a verifier given an expected AID can still see what the signer claimed.
+     * {@code covered} names each component as a signer would: a plain name, or its serialized form
+     * when it carries a parameter, such as {@code "@path";req}.
      */
     public record Verdict(String aid, List<String> covered, String keyid) {}
 
@@ -507,10 +509,19 @@ public final class Fiki {
         return new Message(lowered(headers), null, null, status, answered, received);
     }
 
+    // RFC 9110 section 5.6.2: a token is one or more tchar, and a method is one (section 9.1).
+    private static final Pattern TOKEN = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+
+    /**
+     * A request's method is an RFC 9110 token, covered or not, or the call is a mistake. Its case
+     * is kept as given (@22g0xkr8). Checked wherever a request message is built, on sign and verify
+     * alike (@5zrf8gjk): an empty or spaced method is never a request anybody sent (@3cceqvg3).
+     */
     private static void requireMethod(String method) {
-        if (method == null || method.isEmpty()) {
-            // An @method of "" or "null" is a request nobody sent (@3cceqvg3).
-            throw new IllegalArgumentException("A request needs a method, as it will be sent.");
+        if (method == null || !TOKEN.matcher(method).matches()) {
+            throw new IllegalArgumentException(
+                "A request needs a method as it will be sent: one or more token characters, with no "
+                    + "spaces, line breaks or separators.");
         }
     }
 
@@ -558,10 +569,11 @@ public final class Fiki {
     private static final long SF_INTEGER_MAX = 999_999_999_999_999L;
 
     private static void sfInteger(String name, Long value) {
-        if (value != null && (value > SF_INTEGER_MAX || value < -SF_INTEGER_MAX)) {
+        // Not negative either: a timestamp before 1970 is no time a signer means (@5zrf8gjk).
+        if (value != null && (value > SF_INTEGER_MAX || value < 0)) {
             throw new IllegalArgumentException(
-                "The signature parameter " + name + " is " + value + ", and RFC 8941 integers have at most "
-                    + "fifteen digits, so no verifier would read it.");
+                "The signature parameter " + name + " is " + value + ", and fiki signs a timestamp from 0 "
+                    + "to 999999999999999, the RFC 8941 integers that are not negative.");
         }
     }
 
@@ -625,6 +637,11 @@ public final class Fiki {
      */
     private static String fieldValue(String raw, String spec) {
         checked(raw, spec);
+        return trimOws(raw);
+    }
+
+    /** RFC 9110 section 5.5: the optional whitespace around a field value is SP and HTAB only. */
+    private static String trimOws(String raw) {
         int start = 0;
         int end = raw.length();
         while (start < end && (raw.charAt(start) == ' ' || raw.charAt(start) == '\t')) {
@@ -898,8 +915,16 @@ public final class Fiki {
             sending.put("Content-Digest", contentDigest(body));
         } else {
             // A digest of the caller's own is signed as given, so it must hold for the body: fiki
-            // does not sign what its own verifier would refuse (@0ms4j0ef).
-            compareDigest(readDigest(given), body);
+            // does not sign what its own verifier would refuse (@0ms4j0ef). One that does not
+            // parse, names nothing fiki computes, or contradicts the body is the call's mistake,
+            // not a message's defect (@5zrf8gjk, E5).
+            try {
+                compareDigest(readDigest(given), body);
+            } catch (FikiException e) {
+                throw new IllegalArgumentException(
+                    "The Content-Digest supplied with this body is not one a verifier would accept for it: "
+                        + e.getMessage() + " Omit it and fiki computes one, or supply the body it describes.", e);
+            }
         }
     }
 
@@ -1189,8 +1214,9 @@ public final class Fiki {
             return false;
         }
         // Fail closed: a length that is not a plain decimal, negative ones included, is not
-        // evidence that there is no body.
-        String trimmed = length.strip();
+        // evidence that there is no body. Only SP and HTAB are optional whitespace (@5zrf8gjk);
+        // String.strip would also take a vertical tab, a form feed or an en quad.
+        String trimmed = trimOws(length);
         return !trimmed.matches("[0-9]+") || !trimmed.matches("0+");
     }
 

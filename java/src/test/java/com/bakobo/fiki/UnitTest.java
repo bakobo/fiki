@@ -218,8 +218,9 @@ class UnitTest {
             Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)));
         Fiki.verifyRequest("POST", URL_QUERY, all, Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
         for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
-            assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.signRequest(key(), "POST", URL_QUERY,
-                headers("Content-Digest", digest), Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT))), digest);
+            // The call's mistake at signing (@5zrf8gjk, E5).
+            assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(key(), "POST", URL_QUERY,
+                headers("Content-Digest", digest), Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)), digest);
         }
         // And the verifier still refuses each, signed by a signer that is not fiki and checks
         // nothing: the base built directly and signed over the bad digest.
