@@ -49,6 +49,27 @@ async function sign(overrides = {}) {
   return { request: { method: args.method, url: args.url, body: args.body }, headers };
 }
 
+/** A POST signed over a Content-Digest of the test's own spelling.
+ *
+ * Built from the base rather than through signRequest, which refuses to sign a digest the body
+ * does not bear out (A7, @5zrf8gjk), so a test can hand the verifier a header the signer would not.
+ */
+async function signOver(digest) {
+  const headers = { 'Content-Digest': digest };
+  const base = signatureBase({
+    method: 'POST',
+    url: URL_,
+    headers,
+    covered: ['@method', '@authority', '@path', '@query', 'content-digest'],
+    created: AT,
+    keyid: KEY.keyid,
+    alg: 'ed25519',
+  });
+  headers['Signature-Input'] = `sig=${new TextDecoder().decode(base).split('"@signature-params": ').at(-1)}`;
+  headers.Signature = `sig=:${Buffer.from(await KEY.sign(base)).toString('base64')}:`;
+  return { request: { method: 'POST', url: URL_, body: BODY }, headers };
+}
+
 const verify = ({ request, headers }, overrides = {}) =>
   verifyRequest({ ...request, headers, maxAge: null, ...overrides });
 
@@ -97,7 +118,7 @@ describe('a method is required (PR #5 hostile review, finding 3)', () => {
 describe('Content-Digest: every recognized member must match (RFC 9530)', () => {
   it('refuses two recognized digests when one mismatches', async () => {
     const good = await contentDigest(BODY);
-    const signed = await sign({ headers: { 'Content-Digest': `${good}, sha-512=:${digestOf('sha512', 'other')}:` } });
+    const signed = await signOver(`${good}, sha-512=:${digestOf('sha512', 'other')}:`);
     await assert.rejects(() => verify(signed), errors.DigestMismatch);
   });
 
@@ -113,26 +134,26 @@ describe('Content-Digest: every recognized member must match (RFC 9530)', () => 
     it(`ignores a ${name} member as an unknown algorithm, never a lookup on Object.prototype`, async () => {
       // Copilot review of PR #5, C4: the algorithm table is keyed by untrusted member names.
       const digest = `${await contentDigest(BODY)}, ${name}=:AA==:`;
-      const signed = await sign({ headers: { 'Content-Digest': digest } });
+      const signed = await signOver(digest);
       assert.equal((await verify(signed)).aid, KEY.aid);
-      const only = await sign({ headers: { 'Content-Digest': `${name}=:AA==:` } });
+      const only = await signOver(`${name}=:AA==:`);
       await assert.rejects(() => verify(only), errors.MalformedDigest);
     });
   }
 
   it('refuses a __proto__ member as an unparsable header, since no RFC 8941 key starts with "_"', async () => {
-    const signed = await sign({ headers: { 'Content-Digest': `${await contentDigest(BODY)}, __proto__=:AA==:` } });
+    const signed = await signOver(`${await contentDigest(BODY)}, __proto__=:AA==:`);
     await assert.rejects(() => verify(signed), errors.MalformedDigest);
   });
 
   it('refuses a recognized digest that is not a byte sequence as malformed', async () => {
-    const signed = await sign({ headers: { 'Content-Digest': 'sha-256="not bytes"' } });
+    const signed = await signOver('sha-256="not bytes"');
     await assert.rejects(() => verify(signed), errors.MalformedDigest);
   });
 
   it('reports an unparsable digest as malformed even when no body was supplied', async () => {
     // Section 9 puts malformed-digest before digest-mismatch.
-    const signed = await sign({ headers: { 'Content-Digest': '((((' } });
+    const signed = await signOver('((((');
     signed.request.body = null;
     await assert.rejects(() => verify(signed), errors.MalformedDigest);
   });

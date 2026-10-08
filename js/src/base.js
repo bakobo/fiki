@@ -42,13 +42,40 @@ const DEFAULT_PORTS = new Map([
   ['wss', '443'],
 ]);
 
+// RFC 9110 section 5.6.2: a token is one or more tchar. A method is one (section 9.1), and so is a
+// field name (section 5.1), which fiki further requires lowercased in a covered list.
+const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+// RFC 8941 section 3.3.3: an sf-string holds printable ASCII and nothing else.
+const SF_STRING = /^[\x20-\x7e]*$/;
+// RFC 8941 section 3.1.2: a dictionary key, which is what a signature label is.
+const SF_KEY = /^[a-z*][a-z0-9_.*-]*$/;
+// RFC 8941 section 3.3.1: at most fifteen digits.
+const SF_INTEGER_MAX = 999_999_999_999_999;
+
+// A caller's value in a message about it: quoted when it is a string, so a control character shows.
+const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
+
 /** A component identifier from a caller's spelling of it.
  *
  * A plain name (`"@method"`, `"Content-Digest"`) or its RFC 8941 serialization with parameters
  * (`'"@method";req'`). Names are lowercased as a convenience to a local caller; a name parsed from
- * the wire is never lowercased, and is refused instead when it is not already.
+ * the wire is never lowercased, and is refused instead when it is not already. A field name that
+ * is not a token is the caller's mistake, a TypeError, because it would be serialized into
+ * Signature-Input as given (@5zrf8gjk); a derived name fiki does not build is refused later, as
+ * UnsupportedComponent, which names it.
  */
 export function component(spec) {
+  const item = componentItem(spec);
+  if (!item.value.startsWith('@') && !TOKEN.test(item.value)) {
+    throw new TypeError(
+      `${JSON.stringify(spec)} is not a component fiki can name: a field is named by an HTTP field ` +
+        'name, one or more token characters, and a derived component by its @ name.',
+    );
+  }
+  return item;
+}
+
+function componentItem(spec) {
   if (!spec.startsWith('"')) return { value: spec.toLowerCase(), params: new Map() };
   let item;
   try {
@@ -206,6 +233,11 @@ export function canonicalHeaders(headers, name = 'headers') {
   // assignment to the prototype that silently drops it (PR #5 hostile review, H1).
   const out = Object.create(null);
   for (const [field, value] of Object.entries(headers ?? {})) {
+    // A name is always a string here, since an object's keys are; a value has to be checked
+    // (@5zrf8gjk), or null would be signed as the string "null".
+    if (typeof value !== 'string') {
+      throw new TypeError(`A header is a name and a string value; the value of "${field}" is ${String(value)}.`);
+    }
     const lower = field.toLowerCase();
     if (Object.hasOwn(out, lower)) {
       throw new TypeError(
@@ -223,7 +255,7 @@ function lowered(headers) {
   // are kept exactly as received here: they are checked for forbidden characters before any
   // whitespace is trimmed, or a trailing CR LF would be trimmed into the value that was signed.
   const map = new Map();
-  for (const [name, value] of Object.entries(canonicalHeaders(headers))) map.set(name, String(value));
+  for (const [name, value] of Object.entries(canonicalHeaders(headers))) map.set(name, value);
   return map;
 }
 
@@ -246,12 +278,22 @@ function checked(value, spec) {
   return value;
 }
 
-export function requestMessage(method, url, headers, { received = false } = {}) {
-  // A method is the caller's to supply, and an absent one would otherwise be signed as the string
-  // "undefined". Required here, where every request and every response's request passes.
-  if (typeof method !== 'string' || method === '') {
-    throw new TypeError(`A request needs its method as a non-empty string, as sent; got ${String(method) || 'an empty string'}.`);
+/** A request's method is an RFC 9110 token, covered or not, or the call is a mistake.
+ *
+ * Its case is kept as given (@22g0xkr8). Checked wherever a request message is built, on sign and
+ * verify alike (@5zrf8gjk): an empty or spaced method is never a request anybody sent.
+ */
+function checkMethod(method) {
+  if (typeof method !== 'string' || !TOKEN.test(method)) {
+    throw new TypeError(
+      `The method ${shown(method)} is not an HTTP method: a method is a ` +
+        'string of one or more token characters, with no spaces, line breaks or separators.',
+    );
   }
+}
+
+export function requestMessage(method, url, headers, { received = false } = {}) {
+  checkMethod(method);
   // `received` marks a message handed to a verifier rather than built by a signer, which decides
   // what a URL that cannot be read is: a base that cannot be built, or a caller error.
   return { headers: lowered(headers), method, url, parts: splitUrl(url), received };
@@ -328,6 +370,43 @@ export function componentLines({ method, url, headers, covered }) {
   return linesFor(items, requestMessage(method, url, headers));
 }
 
+/** What a signer serializes must be serializable, or the call is a mistake (@5zrf8gjk).
+ *
+ * created and expires are RFC 8941 integers that are not negative; keyid, alg, nonce and tag are
+ * sf-strings, printable ASCII only, so a line break can never forge a header line. An absent one
+ * (undefined or null) is not serialized and so not checked.
+ */
+export function checkSignerParams({ created, expires, keyid, alg, nonce, tag }) {
+  for (const [name, value] of [['created', created], ['expires', expires]]) {
+    if (value === undefined || value === null) continue;
+    if (!Number.isInteger(value) || value < 0 || value > SF_INTEGER_MAX) {
+      throw new TypeError(
+        `${name} is ${String(value)}, and RFC 8941 carries an integer of at most fifteen digits; fiki ` +
+          `signs a whole number of seconds from 0 to ${SF_INTEGER_MAX}.`,
+      );
+    }
+  }
+  for (const [name, value] of [['keyid', keyid], ['alg', alg], ['nonce', nonce], ['tag', tag]]) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || !SF_STRING.test(value)) {
+      throw new TypeError(
+        `The ${name} ${shown(value)} is not a string of printable ASCII, which is all an RFC ` +
+          '8941 string can carry; a line break there would forge a header line.',
+      );
+    }
+  }
+}
+
+/** A signature label is an RFC 8941 dictionary key, or the call is a mistake (@5zrf8gjk). */
+export function checkLabel(label) {
+  if (typeof label !== 'string' || !SF_KEY.test(label)) {
+    throw new TypeError(
+      `The label ${shown(label)} is not an RFC 8941 key: it starts with a lowercase letter ` +
+        'or "*" and continues with lowercase letters, digits, "_", "-", "." and "*".',
+    );
+  }
+}
+
 /** The whole base for already-checked items: the component lines, then fiki's own parameters. */
 export function finishBase(items, message, values) {
   const lines = linesFor(items, message);
@@ -346,6 +425,7 @@ export function finishBase(items, message, values) {
  * the request does not carry.
  */
 export function signatureBase({ method, url, headers, covered, created, keyid, alg, expires, nonce, tag }) {
+  checkSignerParams({ created, expires, keyid, alg, nonce, tag });
   const items = covered.map(component);
   checkCovered(items, { response: false });
   return finishBase(items, requestMessage(method, url, headers), { created, expires, nonce, alg, keyid, tag });
@@ -358,6 +438,7 @@ export function signatureBase({ method, url, headers, covered, created, keyid, a
  * MissingComponent.
  */
 export function responseSignatureBase({ status, headers, covered, created, keyid, request, alg, expires, nonce, tag }) {
+  checkSignerParams({ created, expires, keyid, alg, nonce, tag });
   const items = covered.map(component);
   checkCovered(items, { response: true });
   return finishBase(items, responseMessage(status, headers, request), { created, expires, nonce, alg, keyid, tag });
