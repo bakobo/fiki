@@ -1,6 +1,6 @@
 {
   "name": "@bakobo/fiki",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard RFC 9421, no KERI dependencies.",
   "keywords": [
     "rfc9421",
