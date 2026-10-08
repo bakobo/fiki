@@ -24,6 +24,18 @@ import (
 	"strings"
 )
 
+// Input bounds (`this.i` @5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends
+// and low enough that no parse is slow. Each of Signature, Signature-Input and Content-Digest is
+// measured in bytes as received, before it is trimmed or parsed, so size is checked before shape;
+// the counts apply to every dictionary, inner list and item in all three. Over any of them is the
+// malformed kind of the header being read.
+const (
+	MaxFieldBytes        = 8192
+	MaxDictionaryMembers = 16
+	MaxInnerListItems    = 64
+	MaxParameters        = 16
+)
+
 // errSyntax is this file's alone and never escapes the package: the parser cannot know WHICH
 // header it is reading, and the taxonomy distinguishes an unparsable Signature from an unparsable
 // Signature-Input, so callers translate it into the kind that names the header.
