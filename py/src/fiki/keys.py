@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from .errors import MalformedKey
+from .openssh import read_openssh
 
 # CESR's Ed25519N (non-transferable Ed25519 verification key). fiki decodes this code and no
 # other, deliberately: a parser that handles one fixed-length code can only ever be narrower than
@@ -76,25 +77,26 @@ def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
     identity point, the key 0x01 followed by 31 zero bytes, a signature of 0x01 followed by 63
     zero bytes verifies over any message, and OpenSSL accepts it.
     """
+    # An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
+    subject = f'The key for "{keyid}"' if keyid else "The key given"
     # First, on every path: the decoding below reads any length as an integer, and cryptography
     # would refuse a wrong one with a ValueError from outside fiki's taxonomy.
     if len(raw) != _RAW_LEN:
         raise MalformedKey(
-            f'The key for "{keyid}" is {len(raw)} bytes, and an Ed25519 public key is '
-            f"{_RAW_LEN}.",
+            f"{subject} is {len(raw)} bytes, and an Ed25519 public key is {_RAW_LEN}.",
             keyid=keyid,
         )
     point = _decode_point(raw)
     if point is None:
         raise MalformedKey(
-            f'The key for "{keyid}" is not the canonical encoding of a point on the Ed25519 '
-            "curve, so no signature could be checked against it.",
+            f"{subject} is not the canonical encoding of a point on the Ed25519 curve, so no "
+            "signature could be checked against it.",
             keyid=keyid,
         )
     if _small_order(*point):
         raise MalformedKey(
-            f'The key for "{keyid}" is a point of small order, under which a signature can be '
-            "forged for any message, so no signature is checked against it.",
+            f"{subject} is a point of small order, under which a signature can be forged for "
+            "any message, so no signature is checked against it.",
             keyid=keyid,
         )
     return Ed25519PublicKey.from_public_bytes(raw)
@@ -126,6 +128,20 @@ class Key:
                 f"An Ed25519 seed is {_RAW_LEN} bytes; this one is {len(seed)}.", keyid=""
             )
         return cls(Ed25519PrivateKey.from_private_bytes(seed), bytes(seed))
+
+    @classmethod
+    def from_openssh(cls, text: str) -> Key:
+        """Load an unencrypted OpenSSH Ed25519 private key, as ssh-keygen writes it (@0mvgkwnl).
+
+        Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross
+        between protocols -- every base sign_request and sign_response build begins with a double
+        quote, SSH user authentication signs data beginning with a length-prefixed session
+        identifier (RFC 4252 section 7), and SSHSIG signs data beginning "SSHSIG" -- but an agent
+        signs whatever bytes it is asked to, so anyone able to use a forwarded agent could sign
+        fiki requests with a login key. The separation is a property of sign_request, not of the
+        key: Key.sign signs any bytes.
+        """
+        return cls.from_seed(read_openssh(text))
 
     @property
     def aid(self) -> str:

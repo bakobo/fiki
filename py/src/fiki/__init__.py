@@ -12,6 +12,7 @@ from __future__ import annotations
 from . import errors
 from .base import DEFAULT_COVERED, DERIVED, Request, req, response_signature_base, signature_base
 from .errors import FikiError
+from .formats import aid_from
 from .keys import Key, to_aid, verifying_key
 from .messages import (
     MAX_DICTIONARY_MEMBERS,
@@ -37,9 +38,12 @@ VECTORS_FORMAT = 2
 # port exports both (@5zrf8gjk).
 KERI_VECTORS_FORMAT = 4
 
+KEY_VECTORS_FORMAT = 1
+
 __all__ = [
     "VECTORS_FORMAT",
     "KERI_VECTORS_FORMAT",
+    "KEY_VECTORS_FORMAT",
     "MAX_DICTIONARY_MEMBERS",
     "MAX_FIELD_BYTES",
     "MAX_INNER_LIST_ITEMS",
@@ -52,6 +56,7 @@ __all__ = [
     "Key",
     "Request",
     "Verdict",
+    "aid_from",
     "errors",
     "req",
     "response_signature_base",

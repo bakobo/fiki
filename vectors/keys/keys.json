@@ -1,0 +1,917 @@
+{
+  "about": "Key-spelling vectors for fiki (this.i @0mvgkwnl). Every implementation runs these.",
+  "key_vectors_format": 1,
+  "generated_by": "vectors/keys/generate.py",
+  "max_public_chars": 1024,
+  "max_private_chars": 4096,
+  "signed_message": "fiki",
+  "public": {
+    "accepts": [
+      {
+        "id": "aid",
+        "input": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "the AID itself, unchanged"
+      },
+      {
+        "id": "raw-b64url",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "the wire keyid of @7xrx5evg, also a JWK's x member"
+      },
+      {
+        "id": "raw-b64url-rfc",
+        "input": "JrQLj5P_89iXES9-vFgrIy29clF9CC_oPPsw3c5D0bs",
+        "aid": "BCa0C4-T__PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7",
+        "source": "RFC 9421 B.1.4's key as its JWK x member"
+      },
+      {
+        "id": "raw-b64url-begins-B",
+        "input": "Br18cdwzNyzRByiDzHaMzu18k2ugP80fgbt5VAqBbv0",
+        "aid": "BAa9fHHcMzcs0Qcog8x2jM7tfJNroD_NH4G7eVQKgW79",
+        "source": "a raw key whose first character is B, read by length rather than by prefix"
+      },
+      {
+        "id": "raw-b64url-begins-D",
+        "input": "DIUexzHpp-1yMylWrECpDvAvjcQaLio_vnRRf8BNMRo",
+        "aid": "BAyFHscx6aftcjMpVqxAqQ7wL43EGi4qP750UX_ATTEa",
+        "source": "a raw key whose first character is D, read by length rather than by prefix"
+      },
+      {
+        "id": "raw-b64url-begins-E",
+        "input": "EnF9N-EqthhlF1LIuPi7YAW-cnDg-yDnBJAe_8-V40E",
+        "aid": "BBJxfTfhKrYYZRdSyLj4u2AFvnJw4Psg5wSQHv_PleNB",
+        "source": "a raw key whose first character is E, read by length rather than by prefix"
+      },
+      {
+        "id": "did-key-z",
+        "input": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "base58btc via the base58 package"
+      },
+      {
+        "id": "did-key-z-b",
+        "input": "did:key:z6MkneMkZqwqRiU5mJzSG3kDwzt9P8C59N4NGTfBLfSGE7c7",
+        "aid": "BHm1Vi6P5lT5QHixEuipi6eQH4U65pW-1-DjkQutBJZk",
+        "source": "base58btc via the base58 package"
+      },
+      {
+        "id": "did-peer-0-z",
+        "input": "did:peer:0z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "peer DID numalgo 0"
+      },
+      {
+        "id": "did-key-spec-example-1",
+        "input": "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+        "aid": "BC5vzONnAdx5FIjg0LF0XMHjOkwcn8xBxjvTQ9u-CXDm",
+        "source": "w3c-ccg/did-key-spec index.html, the simple Ed25519 example"
+      },
+      {
+        "id": "did-key-spec-example-2",
+        "input": "did:key:z6Mkf5rGMoatrSj1f4CyvuHBeXJELe9RPdzo2PKGNCKVtZxP",
+        "aid": "BAlfmhpZXd51XYJ4aGStA9-lpPvWiDJWY2Titl4TzJ5E",
+        "source": "w3c-ccg/did-key-spec index.html"
+      },
+      {
+        "id": "did-peer-spec-example",
+        "input": "did:peer:0z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH",
+        "aid": "BJSWa3wI5AV3X43mzBxFCPbrInQD4QJbLIrS10dzmMWy",
+        "source": "peer-did-method-spec spec/core.md, Method 0"
+      },
+      {
+        "id": "did-key-peer-equivalent",
+        "input": "did:key:z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH",
+        "aid": "BJSWa3wI5AV3X43mzBxFCPbrInQD4QJbLIrS10dzmMWy",
+        "source": "peer-did-method-spec spec/core.md, the did:key it calls equivalent"
+      },
+      {
+        "id": "ssh",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "cryptography's OpenSSH serializer"
+      },
+      {
+        "id": "ssh-comment",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 alice@example.com",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "with a comment"
+      },
+      {
+        "id": "ssh-comment-spaces",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 fiki test key, never use",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "a comment may hold spaces"
+      },
+      {
+        "id": "ssh-at-bound",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "source": "exactly the 1024-character bound, which is inclusive"
+      },
+      {
+        "id": "ssh-keygen-pub",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAQb8Fc0pDLVmUbhYjvOwN1i83RWC33hYF1XrJoaxGWc fiki test key, never use",
+        "aid": "BAQb8Fc0pDLVmUbhYjvOwN1i83RWC33hYF1XrJoaxGWc",
+        "source": "openssh/ed25519.pub as ssh-keygen wrote it, newline removed"
+      }
+    ],
+    "refusals": [
+      {
+        "id": "empty",
+        "input": "",
+        "error": "MalformedKey",
+        "why": "nothing to read"
+      },
+      {
+        "id": "too-long",
+        "input": "did:key:z11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "error": "MalformedKey",
+        "why": "over the 1024-character bound"
+      },
+      {
+        "id": "ssh-over-bound",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "error": "MalformedKey",
+        "why": "one character over the bound, otherwise well formed"
+      },
+      {
+        "id": "whitespace-leading",
+        "input": " BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "surrounding whitespace is the caller's to strip"
+      },
+      {
+        "id": "whitespace-trailing",
+        "input": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4\n",
+        "error": "MalformedKey",
+        "why": "a line terminator is the caller's to strip"
+      },
+      {
+        "id": "unknown-shape",
+        "input": "hello",
+        "error": "MalformedKey",
+        "why": "no spelling fiki reads"
+      },
+      {
+        "id": "aid-misspelled",
+        "input": "BgOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "the pad bits under the code are non-zero, a second spelling of a key"
+      },
+      {
+        "id": "aid-transferable",
+        "input": "DAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "a D prefix embeds an inception key that may have rotated away"
+      },
+      {
+        "id": "aid-digest",
+        "input": "EAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "an E prefix is a digest, not a key"
+      },
+      {
+        "id": "aid-transferable-not-base64",
+        "input": "DAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG!",
+        "error": "MalformedKey",
+        "why": "a D prefix over text that is not base64url"
+      },
+      {
+        "id": "aid-transferable-misspelled",
+        "input": "DgOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "a D prefix whose pad bits are non-zero, which is no AID at all"
+      },
+      {
+        "id": "aid-small-order",
+        "input": "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "error": "MalformedKey",
+        "why": "the identity point, under which any signature verifies"
+      },
+      {
+        "id": "raw-padded",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+        "error": "MalformedKey",
+        "why": "base64url padding is not part of the raw form"
+      },
+      {
+        "id": "raw-std-alphabet",
+        "input": "+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/s",
+        "error": "MalformedKey",
+        "why": "the standard alphabet's + and / are not base64url"
+      },
+      {
+        "id": "raw-spare-bits",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbh",
+        "error": "MalformedKey",
+        "why": "the two unused bits are non-zero"
+      },
+      {
+        "id": "raw-short",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb",
+        "error": "MalformedKey",
+        "why": "42 characters do not hold 32 bytes"
+      },
+      {
+        "id": "raw-small-order",
+        "input": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "error": "MalformedKey",
+        "why": "the identity point"
+      },
+      {
+        "id": "raw-not-on-curve",
+        "input": "7f_______________________________________38",
+        "error": "MalformedKey",
+        "why": "y = p is not a canonical encoding"
+      },
+      {
+        "id": "raw-astral-at-43",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb\ud83d\ude00",
+        "error": "MalformedKey",
+        "why": "an emoji where a raw key's last character goes"
+      },
+      {
+        "id": "aid-astral-at-44",
+        "input": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG\ud83d\ude00",
+        "error": "MalformedKey",
+        "why": "an emoji where an AID's last character goes"
+      },
+      {
+        "id": "raw-fullwidth",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb\uff21",
+        "error": "MalformedKey",
+        "why": "a fullwidth letter is not base64url"
+      },
+      {
+        "id": "did-key-uppercase-scheme",
+        "input": "DID:KEY:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "DID scheme and method are lowercase"
+      },
+      {
+        "id": "did-key-no-multibase",
+        "input": "did:key:6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "no multibase prefix"
+      },
+      {
+        "id": "did-key-base16",
+        "input": "did:key:fed0103a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+        "error": "MalformedKey",
+        "why": "base16 is not in the did:key ABNF"
+      },
+      {
+        "id": "did-key-bad-base58",
+        "input": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvV0",
+        "error": "MalformedKey",
+        "why": "0 is not in the base58btc alphabet"
+      },
+      {
+        "id": "did-key-base58-leading-one",
+        "input": "did:key:z16MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "a leading 1 adds a zero byte, a second spelling of the same key"
+      },
+      {
+        "id": "did-key-x25519",
+        "input": "did:key:z6LSbvLobBXjMboYeSQheFRS6g3i5CzHVGdc8NSNQ27pV5V1",
+        "error": "MalformedKey",
+        "why": "an X25519 key cannot verify a signature"
+      },
+      {
+        "id": "did-key-secp256k1",
+        "input": "did:key:zQ3shMexPubhYAsnDwKHBx397z7oiNovnZdeB9RP8vjzx264X",
+        "error": "MalformedKey",
+        "why": "not an Ed25519 key"
+      },
+      {
+        "id": "did-key-varint-non-minimal",
+        "input": "did:key:zQhVUSeLmuut4bfSCgcS1T3WnoL8ajWjXJL6qgG9wiTWapHNo",
+        "error": "MalformedKey",
+        "why": "0xed in a non-minimal varint, a second spelling of the header"
+      },
+      {
+        "id": "did-key-short",
+        "input": "did:key:z2DQV2TSJFGUYseu2wM5iGq72rUh7VFxZ51dv7G6NwUV2Lp",
+        "error": "MalformedKey",
+        "why": "31 bytes of key"
+      },
+      {
+        "id": "did-key-long",
+        "input": "did:key:zQebfPRx3FmWg5fr99gVQnZ7Cgq6ad6UHxw8B9Jck4nh5D7Ku",
+        "error": "MalformedKey",
+        "why": "33 bytes of key"
+      },
+      {
+        "id": "did-key-fragment",
+        "input": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd#z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "a DID URL, not a DID"
+      },
+      {
+        "id": "did-key-query",
+        "input": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd?x=1",
+        "error": "MalformedKey",
+        "why": "a DID URL, not a DID"
+      },
+      {
+        "id": "did-key-u",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
+        "error": "MalformedKey",
+        "why": "did:key resolution requires z"
+      },
+      {
+        "id": "did-peer-0-u",
+        "input": "did:peer:0u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
+        "error": "MalformedKey",
+        "why": "peer DID transform is z only"
+      },
+      {
+        "id": "did-key-u-45",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxu",
+        "error": "MalformedKey",
+        "why": "a length no base64url has"
+      },
+      {
+        "id": "did-key-header-ed02",
+        "input": "did:key:z6Mkwvk49uiuPjK3Edf42M3cpQBkJ8NLwkmuRTawbks5Csju",
+        "error": "MalformedKey",
+        "why": "the second header byte is wrong"
+      },
+      {
+        "id": "did-peer-1-key",
+        "input": "did:peer:1z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "numalgo 1 is a document hash, not a key"
+      },
+      {
+        "id": "did-key-u-padded",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA==",
+        "error": "MalformedKey",
+        "why": "base64url padding"
+      },
+      {
+        "id": "did-key-u-spare-bits",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuB",
+        "error": "MalformedKey",
+        "why": "the unused bits are non-zero"
+      },
+      {
+        "id": "did-key-small-order",
+        "input": "did:key:z6MkeXATEjyXENzBXBxgC5EHk2JE5aqd7qMGGtDpLUH1e2Sj",
+        "error": "MalformedKey",
+        "why": "the identity point"
+      },
+      {
+        "id": "did-key-not-on-curve",
+        "input": "did:key:z6MkvUK5T7wX3YKPL8TakfM6vdwQQtkJSzV8fTKGdgosTh6E",
+        "error": "MalformedKey",
+        "why": "y = p"
+      },
+      {
+        "id": "did-key-empty",
+        "input": "did:key:",
+        "error": "MalformedKey",
+        "why": "no key"
+      },
+      {
+        "id": "did-peer-2",
+        "input": "did:peer:2.Vz6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "numalgo 2 carries a document, not one key"
+      },
+      {
+        "id": "did-peer-no-numalgo",
+        "input": "did:peer:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "numalgo is required"
+      },
+      {
+        "id": "did-peer-0-x25519",
+        "input": "did:peer:0z6LSbvLobBXjMboYeSQheFRS6g3i5CzHVGdc8NSNQ27pV5V1",
+        "error": "MalformedKey",
+        "why": "not an Ed25519 key"
+      },
+      {
+        "id": "ssh-rsa",
+        "input": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDGMxbarrZ1GRnMMo3M+EEJW3OMsPUdz/sl0iXRqurWk65q3+/e+C/Rqhv3+OxIqLP2XDy0ChArtKH+5DV+g+iD77DjZD+vCw4B6HpYlTTxnLNG9qRgX25D4IYWLCA+JRpgDqH2i91gtzuwiCaUgAE2Vv10BAsxShYP7kUY+7+OIOwAb8j4RhCm9o+FhOz7ohQ5XCoL9EGVpbhST2pMLn0ir66OAMlHLQqJITdUtUFAZnDb8t/mN5NwbT0tRS7z2UGdo1AqbcY0e2DsTnaC8KEwKeKSLVx/f8v9G34IGFUhV3RfbOX6SVDqZCP/Kxi33jaF+YydtUxMyTTGM+fXVdoh fiki rsa test key",
+        "error": "MalformedKey",
+        "why": "an RSA key"
+      },
+      {
+        "id": "ssh-ecdsa",
+        "input": "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBwi6NMneSfT1hSsm1V8vQYsB5e3G6CVmiK+B5vo/UNuIE2R9B+vL4hcnHd/rs5QBXx+yNpH89WJyjkSC1JWkLw= fiki ecdsa test key",
+        "error": "MalformedKey",
+        "why": "an ECDSA key"
+      },
+      {
+        "id": "ssh-sk",
+        "input": "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAABHNzaDo=",
+        "error": "MalformedKey",
+        "why": "a security-key signature carries flags and a counter, not plain Ed25519"
+      },
+      {
+        "id": "ssh-type-mismatch",
+        "input": "ssh-ed25519 AAAAB3NzaC1yc2EAAAAgA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+        "error": "MalformedKey",
+        "why": "the blob names another key type than the line does"
+      },
+      {
+        "id": "ssh-trailing-bytes",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AA==",
+        "error": "MalformedKey",
+        "why": "bytes after the key"
+      },
+      {
+        "id": "ssh-short-key",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAHwOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTE=",
+        "error": "MalformedKey",
+        "why": "31 bytes of key"
+      },
+      {
+        "id": "ssh-length-overrun",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAQAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "a length longer than what follows"
+      },
+      {
+        "id": "ssh-two-spaces",
+        "input": "ssh-ed25519  AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "one space separates the fields"
+      },
+      {
+        "id": "ssh-tab",
+        "input": "ssh-ed25519\tAAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "one space separates the fields"
+      },
+      {
+        "id": "ssh-crlf",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4\r\n",
+        "error": "MalformedKey",
+        "why": "a line terminator is the caller's to strip"
+      },
+      {
+        "id": "ssh-options",
+        "input": "restrict ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "an authorized_keys options prefix"
+      },
+      {
+        "id": "ssh-empty-comment",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 ",
+        "error": "MalformedKey",
+        "why": "a separator promises a comment"
+      },
+      {
+        "id": "ssh-comment-control",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 a\u0000b",
+        "error": "MalformedKey",
+        "why": "a control character in the comment"
+      },
+      {
+        "id": "ssh-comment-newline",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 a\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHm1Vi6P5lT5QHixEuipi6eQH4U65pW+1+DjkQutBJZk",
+        "error": "MalformedKey",
+        "why": "a second line smuggled in the comment"
+      },
+      {
+        "id": "ssh-comment-del",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 a\u007fb",
+        "error": "MalformedKey",
+        "why": "DEL is a control character"
+      },
+      {
+        "id": "ssh-comment-leading-space",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4  x",
+        "error": "MalformedKey",
+        "why": "the comment may not begin with a space"
+      },
+      {
+        "id": "ssh-comment-trailing-space",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 x ",
+        "error": "MalformedKey",
+        "why": "the comment may not end with a space"
+      },
+      {
+        "id": "ssh-two-trailing-spaces",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4  ",
+        "error": "MalformedKey",
+        "why": "surrounding whitespace is the caller's to strip"
+      },
+      {
+        "id": "ssh-blob-then-padding-and-more",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4=AAAA",
+        "error": "MalformedKey",
+        "why": "base64 that continues after padding"
+      },
+      {
+        "id": "ssh-comment-non-ascii",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 caf\u00e9",
+        "error": "MalformedKey",
+        "why": "the comment is printable ASCII only"
+      },
+      {
+        "id": "ssh-blob-padded",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4=",
+        "error": "MalformedKey",
+        "why": "padding after a blob that needs none"
+      },
+      {
+        "id": "ssh-blob-url-alphabet",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPv7-_v7-_v7-_v7-_v7-_v7-_v7-_v7-_v7-_v7-_v7",
+        "error": "MalformedKey",
+        "why": "the blob is standard base64, not base64url"
+      },
+      {
+        "id": "ssh-small-order",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "error": "MalformedKey",
+        "why": "the identity point"
+      },
+      {
+        "id": "ssh-uppercase-type",
+        "input": "SSH-ED25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "key types are case-sensitive"
+      },
+      {
+        "id": "openssh-private-key",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnAAAAKBUgq7+VIKu\n/gAAAAtzc2gtZWQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnA\nAAAEA2xaRChwLaelALmp0HyZQQ5PSjpNeq4/Yoste82Ea7IgQb8Fc0pDLVmUbhYjvOwN1i\n83RWC33hYF1XrJoaxGWcAAAAGGZpa2kgdGVzdCBrZXksIG5ldmVyIHVzZQECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a private key, the .key file given where the .pub was meant"
+      },
+      {
+        "id": "pkcs8-private-key",
+        "input": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a PKCS #8 private key"
+      }
+    ]
+  },
+  "private": {
+    "accepts": [
+      {
+        "id": "ssh-keygen",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnAAAAKBUgq7+VIKu\n/gAAAAtzc2gtZWQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnA\nAAAEA2xaRChwLaelALmp0HyZQQ5PSjpNeq4/Yoste82Ea7IgQb8Fc0pDLVmUbhYjvOwN1i\n83RWC33hYF1XrJoaxGWcAAAAGGZpa2kgdGVzdCBrZXksIG5ldmVyIHVzZQECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BAQb8Fc0pDLVmUbhYjvOwN1i83RWC33hYF1XrJoaxGWc",
+        "signature": "7Sov_sbgWsFI5086Y0sI6uliZToiXuQs5DKNBxwkivc6mAsV3n3XCHZ9jEXJrEEZy8gKagSgRCNj5RS06-wBDg",
+        "source": "openssh/ed25519.key as ssh-keygen wrote it",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "ssh-keygen-no-final-newline",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnAAAAKBUgq7+VIKu\n/gAAAAtzc2gtZWQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnA\nAAAEA2xaRChwLaelALmp0HyZQQ5PSjpNeq4/Yoste82Ea7IgQb8Fc0pDLVmUbhYjvOwN1i\n83RWC33hYF1XrJoaxGWcAAAAGGZpa2kgdGVzdCBrZXksIG5ldmVyIHVzZQECAwQF\n-----END OPENSSH PRIVATE KEY-----",
+        "aid": "BAQb8Fc0pDLVmUbhYjvOwN1i83RWC33hYF1XrJoaxGWc",
+        "signature": "7Sov_sbgWsFI5086Y0sI6uliZToiXuQs5DKNBxwkivc6mAsV3n3XCHZ9jEXJrEEZy8gKagSgRCNj5RS06-wBDg",
+        "source": "no final newline, which OpenSSH 10.2 refuses and fiki accepts, because a secret store or an environment variable routinely strips it and the shorter text means nothing else",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "written",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAABGZpa2kB\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "signature": "gQ0N34IpAZW817ME-Yqyn-V3xeOe2CyJ65vp2mh9XK4vCuCJ1qKJbOuXXjcbeLlDNBpBgIkOxigf-avLRQRiBg",
+        "source": "this generator's writer",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "written-no-comment",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "signature": "gQ0N34IpAZW817ME-Yqyn-V3xeOe2CyJ65vp2mh9XK4vCuCJ1qKJbOuXXjcbeLlDNBpBgIkOxigf-avLRQRiBg",
+        "source": "an empty comment",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "written-near-bound",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAACzhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAKtXh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "signature": "gQ0N34IpAZW817ME-Yqyn-V3xeOe2CyJ65vp2mh9XK4vCuCJ1qKJbOuXXjcbeLlDNBpBgIkOxigf-avLRQRiBg",
+        "source": "the longest key this writer makes within the bound",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "written-long-lines",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZAAA\nAIhmaWtpZmlraQAAAAtzc2gtZWQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+F\nOuaVvtfg45ELrQSWZAAAAEABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\nIHm1Vi6P5lT5QHixEuipi6eQH4U65pW+1+DjkQutBJZkAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BHm1Vi6P5lT5QHixEuipi6eQH4U65pW-1-DjkQutBJZk",
+        "signature": "Kg2quVS0EESZTmsPdDqAXDFedg7fMvxytYWLJmb5TUFOTMOKd6TGpy4oZcckkiBw0fNKphgM3PvllsdEOlAPDA",
+        "source": "64-character lines",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "cryptography",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1yUX0IL+g8+zDdzkPRuwAA\nAIh7zbTSe8200gAAAAtzc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1y\nUX0IL+g8+zDdzkPRuwAAAECfg2L4ekhKlU5udAxbTA6EIpE5ogqoq1b/Zlhvan0p\nxSa0C4+T//PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "aid": "BCa0C4-T__PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7",
+        "signature": "LmMzwOEkPeXMhwudb6lbWz7n4l7NtyBBGlq2sdGCY7WLYzlQj1Ldn_mLR06x3Gxe2FmLjYHfaeaC78sLMq3OBg",
+        "source": "cryptography's OpenSSH writer, RFC 9421 B.1.4's key",
+        "ssh_keygen_refuses": false
+      }
+    ],
+    "refusals": [
+      {
+        "id": "empty",
+        "input": "",
+        "error": "MalformedKey",
+        "why": "nothing to read",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "too-long",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAADEBmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAALuHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4\neHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eH\nh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "over the 4096-character bound",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "encrypted",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABDaIONws6\nQSl41DNuvegr4rAAAAGAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIMwl4HPGNpgk55WO\np7H7nfXHFrzG6uNZAA68apYzxSq+AAAAoGeeFLx6VIZN//AvQadDIzZCHQEVRAzFXtOG5F\nwWa9seObNFAGPvMMU1NgWb+Oh2C+WiBaoLVdaf2ZxsWNmfl2q+9TypBMLcHlFZsaJWB0tM\ngDZH0KNn3BcnRRrp6njHnCLYv8JAlarpuY9h0JdCt6Kd2TqlbCrB/TfCa/QRKY5E5FR4Vz\nt6+eFsF81luZeqAhVwDtpz0ltiL6xj19t2+5w=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "encrypted under a passphrase, which fiki does not decrypt",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "rsa",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn\nNhAAAAAwEAAQAAAQEAxjMW2q62dRkZzDKNzPhBCVtzjLD1Hc/7JdIl0arq1pOuat/v3vgv\n0aob9/jsSKiz9lw8tAoQK7Sh/uQ1foPog++w42Q/rwsOAeh6WJU08ZyzRvakYF9uQ+CGFi\nwgPiUaYA6h9ovdYLc7sIgmlIABNlb9dAQLMUoWD+5FGPu/jiDsAG/I+EYQpvaPhYTs+6IU\nOVwqC/RBlaW4Uk9qTC59Iq+ujgDJRy0KiSE3VLVBQGZw2/Lf5jeTcG09LUUu89lBnaNQKm\n3GNHtg7E52gvChMCniki1cf3/L/Rt+CBhVIVd0X2zl+klQ6mQj/ysYt942hfmMnbVMTMk0\nxjPn11XaIQAAA8gbbVN2G21TdgAAAAdzc2gtcnNhAAABAQDGMxbarrZ1GRnMMo3M+EEJW3\nOMsPUdz/sl0iXRqurWk65q3+/e+C/Rqhv3+OxIqLP2XDy0ChArtKH+5DV+g+iD77DjZD+v\nCw4B6HpYlTTxnLNG9qRgX25D4IYWLCA+JRpgDqH2i91gtzuwiCaUgAE2Vv10BAsxShYP7k\nUY+7+OIOwAb8j4RhCm9o+FhOz7ohQ5XCoL9EGVpbhST2pMLn0ir66OAMlHLQqJITdUtUFA\nZnDb8t/mN5NwbT0tRS7z2UGdo1AqbcY0e2DsTnaC8KEwKeKSLVx/f8v9G34IGFUhV3RfbO\nX6SVDqZCP/Kxi33jaF+YydtUxMyTTGM+fXVdohAAAAAwEAAQAAAQADbg5oRsuTCHmHu0Af\ndYYHtuWTNXgyrMtsYBqnuHiCo4Dmu9sxIgfkQ0acPiigaSiJq/p1upmhijeQ58zyMOgjKX\ntc7HqBxCtKv4zgeIKMvNjz8oPKGX9Y3RYF1l9feGNLJ6aPYg7cck5t/kkvhYl1KsCbmoH6\nTM1kGuh1J5XtBR9r8bs/k8jwuoWXgQbTl131zMNxv62fUIieRgoiHUyMjlo91s0Wpjnu4/\ni4557yYOJ7kre2R+7wL0/DfeX08greVx4H8/GfWV8HsZDqix6VHCEuDla0Uoaa/tPWMekT\nphMnhahWV/wRYV7CC8JgwPEflSff/EnDdqaXgMoQFgFdAAAAgE/oJlpvPhW0utcUgKwF6/\nbrO3mP/OV9XMUWN8lLRNhb/Tld2zYV9nEBwArixp2v6F6T7I0UmbsLnUgfvd9twCr56Y52\nogIpPjpiugJt/o0yrS4zIUUI8cIG+zvQOQ65NLdNoHcMW9pgXHyiz65TjN9raidGebXWuC\netaiDJvt3fAAAAgQDm945rhB0sAKL9BJwJXeVaPNeuavs9CCkDUD/Y4KbExrYK1ZChwO85\ny/Ws/6iEdWFul41TWwqNxDjzwRcoZlmJ/yD1ryazi8lxqtynvZsTfXW0siJ7Bgabr0Y7LX\nn+OqvNNNATUb+S67I1BmwJKxHHj7Dh3t6RX1ulZhLPAzbNrQAAAIEA265c1dnAjjUsTkxg\np29FIef9Mf8vGEE7sHFs2yo8j85RurNrL6FVEJ+L+TCJed93dMSS9H7EFlSjAKPqVUoqOr\n1q4ETFfdLDJE3xtFyajVbMt6yS3p3bUZsTkSME+0nah0lUALyXnnMLKajUomXiJjlREnht\nSXOgX2TIjiNaZMUAAAARZmlraSByc2EgdGVzdCBrZXkBAg==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "an RSA key",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "ecdsa",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS\n1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQcIujTJ3kn09YUrJtVfL0GLAeXtxug\nlZoivgeb6P1DbiBNkfQfry+IXJx3f67OUAV8fsjaR/PVico5EgtSVpC8AAAAsGPw7KNj8O\nyjAAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBBwi6NMneSfT1hSs\nm1V8vQYsB5e3G6CVmiK+B5vo/UNuIE2R9B+vL4hcnHd/rs5QBXx+yNpH89WJyjkSC1JWkL\nwAAAAgbleIQ/NwBquH1Feps6EGyB/2v+jcpskg10NN3iAMEEAAAAATZmlraSBlY2RzYSB0\nZXN0IGtleQECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "an ECDSA key",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "pkcs8",
+        "input": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a PKCS #8 key, not OpenSSH's format",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "public-line",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+        "error": "MalformedKey",
+        "why": "a public key",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "leading-text",
+        "input": "key:\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "text before the armor",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "trailing-text",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\nmore\n",
+        "error": "MalformedKey",
+        "why": "text after the armor",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "missing-end",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n",
+        "error": "MalformedKey",
+        "why": "no closing armor",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "blank-line",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "an empty line in the body",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "space-in-body",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA BG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a space in the base64 body",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "bare-cr",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\rb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\rQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\raQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\rAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\r5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\r-----END OPENSSH PRIVATE KEY-----\r",
+        "error": "MalformedKey",
+        "why": "a line ending that is neither LF nor CRLF",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "crlf",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\r\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\r\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\r\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\r\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\r\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\r\n-----END OPENSSH PRIVATE KEY-----\r\n",
+        "error": "MalformedKey",
+        "why": "CRLF line endings, which ssh-keygen also refuses",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "mixed-line-endings",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\r\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "LF and CRLF in one key",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "body-url-alphabet",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7_zzhC-HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "base64url characters in a standard base64 body",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "body-unpadded",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAJBmaWtpZmlraQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAACGFhYWFhYWFhAQIDBAU\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "standard base64 keeps its padding",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "bad-magic",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjIAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "an unknown format",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "cipher",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAEbm9uZQAAAAAAAAABAAAAMwAAAA\ntzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhm\naWtpZmlraQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3I\nZkElUxuAAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDd\nGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a cipher with no KDF",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "kdf",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAGYmNyeXB0AAAAAAAAAAEAAAAzAAAAC3NzaC\n1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAiGZpa2lm\naWtpAAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVT\nG4AAAAQAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fA6EHv/POEL4dcN0Y50vA\nmWfk1jCbpQ1fHdyGZBJVMbgAAAAAAQIDBAU=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a KDF with no cipher",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "kdfoptions",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAEAAAAAAQAAADMAAAALc3NoLW\nVkMjU1MTkAAAAgA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbgAAACIZmlraWZp\na2kAAAALc3NoLWVkMjU1MTkAAAAgA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb\ngAAABAAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe/884Qvh1w3RjnS8CZ\nZ+TWMJulDV8d3IZkElUxuAAAAAABAgMEBQ==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "KDF options under no KDF",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "truncated-header",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAA=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the key count and everything after it are missing",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "truncated-public",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAD\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a public section shorter than its length",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "empty-private-section",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAAA=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a private section with nothing in it",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "two-keys",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAACAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "more than one key",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "zero-keys",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAAAAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "no key",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "checkint-mismatch",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIgAAAABAAAA\nAgAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the check integers differ, which is how OpenSSH detects a wrong passphrase",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "padding-wrong",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIZmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECBA==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "padding is 1, 2, 3, ...",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "padding-block",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAI5maWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQFBgcICQoL\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "padding that leaves the private section misaligned",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "padding-extra-block",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAJBmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQFBgcICQoLDA0=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a whole extra block of padding, aligned, which ssh-keygen reads",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "unaligned",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIVmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAEC\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the private section is not a multiple of eight",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "type-mismatch",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAALwAAAAdzc2gtcn\nNhAAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAgGZpa2lmaWtpAAAA\nB3NzaC1yc2EAAAAgA6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbgAAABAAAECAw\nQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8DoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d\n3IZkElUxuAAAAAAB\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "not ssh-ed25519",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "public-mismatch",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the public section names another key than the private section",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "inner-public-mismatch",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the private section's public key is not the seed's",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "private-tail-mismatch",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH3m1Vi6P5lT5QHixEuipi6eQ\nH4U65pW+1+DjkQutBJZkAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the 64-byte private key's second half is not the seed's public key",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "all-publics-another-key",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH3m1Vi6P5lT5QHixEuipi6eQ\nH4U65pW+1+DjkQutBJZkAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "every stored public key agrees, and none is the one the seed derives",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "comment-del",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAmF/AQID\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "DEL in the comment",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "tab-in-body",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n\tQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a tab in the body",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "body-spare-bits",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAJhmaWtpZmlraQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAEGFhYWFhYWFhYWFhYWFhYWEBAgMEBR==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the base64 body's unused bits are non-zero",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "public-small-order",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwEAAAAAAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a public key of small order, whatever the seed",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "trailing-bytes",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQFAAAAAA==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "bytes after the private section",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "extra-private",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAAAAAAB\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a field after the comment that is not padding",
+        "ssh_keygen_refuses": true
+      },
+      {
+        "id": "comment-control",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAA2EKYgEC\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a control character in the comment",
+        "ssh_keygen_refuses": false
+      }
+    ]
+  }
+}

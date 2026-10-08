@@ -11,6 +11,8 @@ Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standar
 
 The public half of an Ed25519 key is rendered as a non-transferable AID — a 44-character `B…` string in CESR's `Ed25519N` encoding — and that string is both the identifier and the verifying key. A verifier needs no key event log, no directory lookup, and no network call to recover it. A client registers its AID once with whoever it calls, and signs from then on. There is nothing to rotate and nothing to fetch.
 
+The AID is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has a DID, or is willing to make a dedicated SSH key, needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
+
 fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want [heti](https://github.com/bakobo/heti) instead; fiki is deliberately the floor.
 
 **To use fiki in your own project, read the [user guide](docs/user-guide.md).** What follows is about the repository.
@@ -80,6 +82,8 @@ vectors/              conformance vectors, shared and normative
   refusals.json           requests every implementation must refuse, and the error
   keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 4;
                           all six ports run it
+  keys/                   the spellings of an Ed25519 key fiki reads, format key_vectors_format 1,
+                          with OpenSSH fixtures written by ssh-keygen; Python runs it so far
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
@@ -103,7 +107,9 @@ fiki (Java)        0.8.0    vectors format 2    keri vectors format 4
 fiki (C#)          0.8.0    vectors format 2    keri vectors format 4
 ```
 
-Same format, interchangeable; the two columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
+The Python port, from its next release, also satisfies key vectors format 1 (`vectors/keys/`); the other ports do not read the alternate key spellings yet.
+
+Same format, interchangeable; the columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 
 Releases are tagged per port: `py/v0.8.0`, `js/v0.8.0`, `go/v0.8.0`, `rust/v0.8.0`, `java/v0.8.0`, `csharp/v0.8.0`. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other five follow it for consistency.
 

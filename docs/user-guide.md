@@ -203,6 +203,53 @@ If you already know whose request this should be, say so, and fiki verifies agai
 
 That closes the gap where a request carries a perfectly valid signature from the wrong party. Without it, you get a verdict naming a stranger and you have to compare it yourself, which works but puts the check in your code rather than fiki's.
 
+### Registering a key in another spelling
+
+The AID is one spelling of an Ed25519 public key, and a client may hand you another. fiki reads five, and converts each to the AID you compare against:
+
+| Spelling | Example shape |
+|---|---|
+| The AID | `BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4` |
+| The raw key, unpadded base64url, which is also a JWK's `x` member | `A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg` |
+| A did:key, base58btc | `did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK` |
+| A did:peer with numalgo 0 | `did:peer:0z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH` |
+| An OpenSSH public key line, comment optional | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop` |
+
+Convert when you load your registrations, not on each request. A bad registration then fails when your service starts, and `expected_aid` and the verdict's AID stay in the one spelling that never needs guessing.
+
+```python
+from pathlib import Path
+from fiki import aid_from
+
+registered_aid = aid_from(Path("alice.pub").read_text().rstrip("\n"))
+```
+
+Then pass `registered_aid` as `expected_aid`, or compare it with the verdict's AID, exactly as above.
+
+Every spelling has exactly one accepted form. fiki strips nothing, so trim a line ending yourself, and it refuses as `MalformedKey` anything it would otherwise have to guess at: surrounding whitespace, base64 with stray padding or non-zero spare bits, base58 with an extra leading `1`, a did:key whose key is not Ed25519 or whose value is not base58btc, a DID URL with a fragment, an SSH line with an options prefix, and a transferable `D…` AID, whose current key the identifier alone cannot tell you. An SSH comment must be printable ASCII and may not begin or end with a space; a comment like `josé@höst` is refused, so edit it out of the line. A key of small order is refused in every spelling, as it is in a keyid. Only the JWK's `x` member is read rather than the whole JWK, so that no port needs a JSON parser for it.
+
+The did:key spec's grammar also admits a base64url value beginning with `u`, but its resolution algorithm requires `z`, and peer DIDs allow only `z`, so fiki reads `z` alone. A refusal never quotes what it was given, because the thing handed over by mistake is sometimes a private key: the `.key` file instead of the `.pub`.
+
+Python has this today. The other ports will follow against the same vectors, `vectors/keys/`, which carry their own format number, `key_vectors_format`, so that adding them does not move the shared contract.
+
+## Signing with an SSH key
+
+If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from`.
+
+```python
+from pathlib import Path
+from fiki import Key, sign_request
+
+key = Key.from_openssh(Path("fiki_ed25519").read_text())
+headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
+```
+
+A passphrase-protected key is refused, because decrypting one would cost fiki dependencies it does not otherwise need. Generate a dedicated key for this rather than removing the passphrase from one you use elsewhere: `ssh-keygen -t ed25519 -N '' -f fiki_ed25519`, and do not load it into `ssh-agent`.
+
+Do not register a key you also log in with. A fiki signature and an SSH login signature are made over data that cannot be mistaken for each other, so neither can be replayed as the other. But anything that can make SSH signatures with the key can also sign fiki requests: an `ssh-agent` signs whatever bytes it is asked to, and with agent forwarding (`ssh -A`) so can anyone with root on a host you forward to. A dedicated key that is never in an agent has neither exposure, and its file sitting where a service can read it costs you nothing else.
+
+fiki is stricter than OpenSSH about the file in most respects: it refuses a key whose stored public half disagrees with its seed, trailing text after the armor, spaces or tabs inside the base64, extra blocks of padding, and a comment that is not printable ASCII (generate with `-C` set to something ASCII). It is more lenient in one respect: it accepts a key whose final newline is missing, which OpenSSH refuses, because a secret store or an environment variable routinely strips it. Errors about a private key never include any part of it.
+
 ## Declining the freshness check
 
 Sometimes you have replay protection elsewhere — a nonce store, a gateway, an idempotency key — and an age limit would be redundant. Say so explicitly:

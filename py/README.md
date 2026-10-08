@@ -47,6 +47,18 @@ verdict.aid               # who signed it
 
 `max_age` has no default and must be given. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the argument exists to prevent. An `expires` the signer declared is enforced either way.
 
+## Other spellings of a key
+
+`aid_from` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.from_openssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aid_from` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers.
+
+```python
+from pathlib import Path
+from fiki import Key, aid_from
+
+aid = aid_from("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+key = Key.from_openssh(Path("fiki_ed25519").read_text())
+```
+
 ## Responses, resolved keyids, and a minimum covered set
 
 These exist for the KERI profile of RFC 9421 (`this.i` @7f28p7xk, @6g9zjsv9) and are, for now, in this port only.
