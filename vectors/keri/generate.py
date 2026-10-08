@@ -54,8 +54,10 @@ from fiki.base import component  # noqa: E402
 from fiki.errors import FikiError, MalformedKey, UnsupportedSigner  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
-# The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m).
-KERI_VECTORS_FORMAT = 3
+# The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m). Format 4
+# is the 0.8.0 cross-port sweep (@5zrf8gjk): the keyid order, the empty-Signature 401,
+# Content-Length's whitespace, weak and aliased B keyids, and the request-digest response case.
+KERI_VECTORS_FORMAT = 4
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -260,6 +262,13 @@ KEYS = [
 ]
 
 
+def padding_bit_alias(aid: str) -> str:
+    """The same 32 bytes spelled with bit 4 of the second character set, as py/tests/test_keys.py
+    builds it: that bit lands in the pad byte the code character replaced."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    return aid[0] + alphabet[alphabet.index(aid[1]) ^ 16] + aid[2:]
+
+
 def well_formed_aid(keyid: str) -> bool:
     """KEYS_RULE's test, shared by this generator and fiki-py's driver."""
     if len(keyid) != 44 or keyid[0] not in "BDE":
@@ -326,12 +335,23 @@ def body_bytes(body: str | None) -> bytes | None:
 def signed_request(case_id, *, keyid=CONTROLLER_AID, key=None, method="POST",
                    url=f"{HOST}/identifiers", headers=None, body=BODY, covered=None,
                    created=AT, expires=None, emit_alg=True, with_nonce=True,
-                   minimum=REQUEST_MINIMUM):
+                   minimum=REQUEST_MINIMUM, unchecked=False):
     """A request signed as a Signify client would sign it: refusing, as the profile's signer
-    does, to cover less than the minimum set unless a case deliberately asks for that."""
+    does, to cover less than the minimum set unless a case deliberately asks for that.
+
+    ``unchecked`` signs over the base directly, for a Content-Digest the body contradicts, which
+    sign_request refuses to sign (@5zrf8gjk) and a verifier must still refuse. The bytes are the
+    ones sign_request emits for the same inputs: the same base and parameter order, alg included.
+    """
     key = key or SIGNERS[keyid]
     sending = dict(headers or {})
-    if emit_alg:
+    if unchecked:
+        covered = list(covered or DEFAULT_COVERED) + ["content-digest"]
+        base = signature_base(method=method, url=url, headers=sending, covered=covered,
+                              created=created, keyid=keyid, alg="ed25519",
+                              nonce=nonce(case_id) if with_nonce else None)
+        attach(sending, base, key.sign(base))
+    elif emit_alg:
         sending.update(sign_request(
             key=key, method=method, url=url, headers=dict(sending), body=body_bytes(body),
             covered=covered, created=created, expires=expires, label=LABEL,
@@ -585,6 +605,11 @@ def requests():
             "passcode-rotated-controller", keyid=PASSCODE_AID),
             note="Profile R4: keys [new, prior-next] with threshold ['1','0'] has one effective "
                  "signer, the first key, and it signed."),
+        accept("content-length-zero-padded-with-sp-and-htab", signed_request(
+            "content-length-zero-padded-with-sp-and-htab", method="GET",
+            url=f"{HOST}/identifiers", body=None, headers={"Content-Length": " \t0\t "}),
+            note="SP and HTAB are the only optional whitespace around a field value, so this "
+                 "is a Content-Length of zero and no body (fiki @5zrf8gjk)."),
         accept("authority-in-the-served-set", signed_request(
             "authority-in-the-served-set", url="/identifiers",
             headers={"Host": "keria.example.com"}),
@@ -700,6 +725,12 @@ def refusals():
         "negative-content-length", body=None, minimum=None, headers={"Content-Length": "-1"}),
         note="A Content-Length that is not a plain decimal is not evidence of no body; fail "
              "closed.")
+    add("content-length-with-a-no-break-space", "insufficient-coverage", signed_request(
+        "content-length-with-a-no-break-space", body=None, minimum=None,
+        headers={"Content-Length": "0\u00a0"}),
+        note="Only SP and HTAB are trimmed from a Content-Length. A no-break space makes it "
+             "something other than a plain decimal, which is not evidence of no body (fiki "
+             "@5zrf8gjk); a verifier that trims every kind of space reads zero and accepts.")
     add("body-arrived-without-digest", "insufficient-coverage", {**signed_request(
         "body-arrived-without-digest", body=None), "body": BODY},
         note="No header announced a body, and one arrived: the read-time rule of section 3.")
@@ -719,6 +750,15 @@ def refusals():
     add("keyid-not-an-aid", "malformed-key", signed_request(
         "keyid-not-an-aid", keyid="not-an-aid", key=CONTROLLER),
         note="The keyid is not a well-formed AID.")
+    add("padding-bit-alias-of-a-b-keyid", "malformed-key", signed_request(
+        "padding-bit-alias-of-a-b-keyid", keyid=padding_bit_alias(B_AID), key=NON_TRANSFERABLE),
+        note="The B keyid with bit 4 of its second character set: the bit lands in the pad byte, "
+             "so it decodes to the same 32 bytes and is not the AID's canonical spelling "
+             "(keys_rule; tick 5uvw).")
+    add("small-order-b-keyid", "malformed-key", signed_request(
+        "small-order-b-keyid", keyid=qb64("B", b"\x01" + bytes(31)), key=NON_TRANSFERABLE),
+        note="A well-formed B keyid whose key is the identity point, under which a signature "
+             "verifies over any message; refused before the signature is examined.")
     add("unknown-transferable-keyid", "unknown-key", signed_request(
         "unknown-transferable-keyid", keyid=UNKNOWN_AID, key=CONTROLLER),
         note="A well-formed E keyid the verifier holds no KEL for; never a raw key.")
@@ -776,14 +816,16 @@ def refusals():
 
     # The body.
     add("digest-with-no-recognized-algorithm", "malformed-digest", signed_request(
-        "digest-with-no-recognized-algorithm", headers={"Content-Digest": "x-unknown=:AAAA:"}),
+        "digest-with-no-recognized-algorithm", headers={"Content-Digest": "x-unknown=:AAAA:"},
+        unchecked=True),
         note="No sha-256 or sha-512 member: an error, not a pass.")
     add("swapped-body", "digest-mismatch", {**post, "body": '{"name": "mallory"}'},
         note="The body does not match its covered digest.")
     add("two-recognized-digests-one-mismatching", "digest-mismatch", signed_request(
         "two-recognized-digests-one-mismatching",
         headers={"Content-Digest": content_digest(BODY.encode()) + ", sha-512=:"
-                 + base64.b64encode(hashlib.sha512(b"other").digest()).decode() + ":"}),
+                 + base64.b64encode(hashlib.sha512(b"other").digest()).decode() + ":"},
+        unchecked=True),
         note="sha-256 matches and sha-512 does not; every recognized member must match.")
 
     # Responses.
@@ -831,6 +873,24 @@ def refusals():
             note="Section 8: KERIA cannot sign a refusal issued before it resolves the agent. "
                  "Reported as an authentication failure whose body is not trusted; checked "
                  "before anything else.")
+    respond("unsigned-401-with-an-empty-signature", "unauthenticated", asked,
+            {"status": 401, "headers": {"Content-Type": "application/json", "Signature": ""},
+             "body": '{"title": "401 Unauthorized"}'},
+            note="An empty Signature header is no signature, so this is the same unsigned 401 "
+                 "(fiki @5zrf8gjk).")
+    respond("malformed-keyid-beside-an-expected-keyid", "malformed-key", asked, signed_response(
+        "malformed-keyid-beside-an-expected-keyid", asked, keyid=padding_bit_alias(AGENT_AID),
+        key=AGENT),
+        note="Section 9 order with an expected keyid: the keyid's own well-formedness first, "
+             "so this is malformed-key and not unknown-key, though it is not the AID expected.")
+    respond("unexpected-keyid-is-not-resolved", "unknown-key", asked, signed_response(
+        "unexpected-keyid-is-not-resolved", asked, keyid=EITHER_AID),
+        note="A well-formed keyid other than the expected one is unknown-key without asking the "
+             "key state. Resolving it first would report unsupported-signer.")
+    respond("request-body-contradicts-the-requests-digest", "digest-mismatch",
+            {**asked, "body": '{"name": "mallory"}'}, answer,
+            note="The response covers \"content-digest\";req, and the request body handed to "
+                 "the verifier does not match the request's Content-Digest (tick 5uvw).")
     respond("unsigned-200", "missing-signature", asked,
             {"status": 200, "headers": {"Content-Type": "application/json"},
              "body": '{"done": true}'},

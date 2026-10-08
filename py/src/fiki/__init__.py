@@ -35,7 +35,7 @@ VECTORS_FORMAT = 2
 
 # The KERI profile's vector set, vectors/keri/, answers to its own number (@8vwrexxc), and every
 # port exports both (@5zrf8gjk).
-KERI_VECTORS_FORMAT = 3
+KERI_VECTORS_FORMAT = 4
 
 __all__ = [
     "VECTORS_FORMAT",
