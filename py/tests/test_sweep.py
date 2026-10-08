@@ -322,6 +322,24 @@ def test_a_port_that_is_not_one_is_a_signature_mismatch_when_verifying(port):
         verify({**request, "url": f"https://a.example:{port}/x"}, headers)
 
 
+def test_a_port_of_thousands_of_leading_zeros_is_read_without_converting_them():
+    """Python refuses to convert a string of over 4300 digits, with a ValueError of its own."""
+    zeros = "0" * 5000
+    assert authority(f"https://a.example:{zeros}443/x") == "a.example"
+    assert authority(f"https://a.example:{zeros}8443/x") == "a.example:8443"
+    request, headers = sign(url="https://a.example:443/x")
+    assert verify({**request, "url": f"https://a.example:{zeros}443/x"}, headers).aid == KEY.aid
+
+
+@pytest.mark.parametrize("port", ["0" * 5000 + "65536", "1" + "0" * 5000, "9" * 5000])
+def test_a_port_of_thousands_of_digits_is_out_of_range(port):
+    with pytest.raises(ValueError, match="not a number from 0 to 65535"):
+        authority(f"https://a.example:{port}/x")
+    request, headers = sign(url="https://a.example/x")
+    with pytest.raises(SignatureMismatch):
+        verify({**request, "url": f"https://a.example:{port}/x"}, headers)
+
+
 def test_a_bad_port_is_a_signature_mismatch_in_the_request_a_response_answers():
     asked = Request(method="GET", url="https://a.example/x")
     headers = sign_response(key=KEY, status=200, request=asked, created=AT,

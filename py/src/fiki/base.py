@@ -269,9 +269,13 @@ def _port(text: str, message: _Message) -> int | None:
     """
     if not text:
         return None
-    if not text.isascii() or not text.isdigit() or int(text) > _PORT_MAX:
+    # Leading zeros go first, so no digit string longer than five is ever converted: Python
+    # refuses one of over 4300 digits with a ValueError outside fiki's taxonomy.
+    digits = text.lstrip("0")
+    if (not text.isascii() or not text.isdigit() or len(digits) > 5
+            or int(digits or "0") > _PORT_MAX):
         raise _unreadable(message, f"its port {text!r} is not a number from 0 to {_PORT_MAX}.")
-    return int(text)
+    return int(digits or "0")
 
 
 def _authority(message: _Message) -> str:
