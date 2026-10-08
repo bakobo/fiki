@@ -241,6 +241,56 @@ namespace Bakobo.Fiki.Tests
             Assert.StartsWith("\"@authority\": " + authority + "\n", bas);
         }
 
+        // --- bakobo/fiki#14's hostile pass, pinned here though this port never had the defects ---
+
+        // The same list as fiki-py's tests/test_sweep.py, whose oracle is Python's own ipaddress.
+        [Theory]
+        [InlineData("not-an-ip")]
+        [InlineData("1.2.3.4")]
+        [InlineData("vZ.x")]
+        [InlineData("v1.")]
+        [InlineData("V1.x")]
+        [InlineData("v.x")]
+        [InlineData("::1%")]
+        [InlineData("fe80::1%a%b")]
+        [InlineData("1:2:3:4:5:6:7:8:9")]
+        [InlineData("::01.2.3.4")]
+        [InlineData("::256.1.1.1")]
+        [InlineData("12345::")]
+        [InlineData("")]
+        [InlineData("1::2::3")]
+        public void ABracketedHostThatIsNotAnAddressIsUnreadable(string inside)
+        {
+            var url = "https://[" + inside + "]/x";
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(TheKey, "GET", url, created: At));
+            var good = HttpSignatures.SignRequest(TheKey, "GET", "https://[::1]/x", created: At);
+            Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyRequest("GET", url, good, VerifyOptions.DecliningFreshness())));
+        }
+
+        [Fact]
+        public void APortOfThousandsOfDigitsIsReadWithoutConvertingThem()
+        {
+            var zeros = new string('0', 5000);
+            var bas = Bytes.Text(HttpSignatures.SignatureBase("GET", "https://a.example:" + zeros + "8443/x", new KeyValuePair<string, string>[0], new[] { "@authority" }, At, "k"));
+            Assert.StartsWith("\"@authority\": a.example:8443\n", bas);
+            foreach (var port in new[] { zeros + "65536", "1" + zeros, new string('9', 5000) })
+            {
+                Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(TheKey, "GET", "https://a.example:" + port + "/x", created: At));
+            }
+        }
+
+        [Theory]
+        [InlineData("\ud800")]
+        [InlineData("sig=:\udfff:")]
+        public void ASignatureHeaderHoldingAnUnpairedSurrogateIsMalformed(string value)
+        {
+            var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At);
+            var signature = new Dictionary<string, string>(signed) { ["Signature"] = value };
+            Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signature, VerifyOptions.DecliningFreshness())));
+            var input = new Dictionary<string, string>(signed) { ["Signature-Input"] = value };
+            Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, input, VerifyOptions.DecliningFreshness())));
+        }
+
         // --- B15: what the signer serializes must be serializable ---
 
         [Theory]
