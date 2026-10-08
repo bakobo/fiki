@@ -224,6 +224,65 @@ class SweepTest {
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", bad, signed, declined()).aid());
     }
 
+    /* ---------------------------- A3 and PR #14's hostile pass: what an IP-literal holds */
+
+    private static String authorityOf(String url) {
+        String base = new String(Fiki.signatureBase("GET", url, Map.of(), List.of("@authority"),
+            Fiki.Params.of(AT, "k")), StandardCharsets.UTF_8);
+        return base.substring("\"@authority\": ".length(), base.indexOf('\n'));
+    }
+
+    // The same lists as fiki-py's tests/test_sweep.py, whose oracle is Python's own ipaddress.
+    @ParameterizedTest
+    @ValueSource(strings = {"not-an-ip", "1.2.3.4", "vZ.x", "v1.", "V1.x", "v.x", "::1%", "fe80::1%a%b",
+        "1:2:3:4:5:6:7:8:9", "::01.2.3.4", "::256.1.1.1", "12345::", "", "1::2::3"})
+    void a3ABracketedHostThatIsNotAnAddressIsUnreadable(String inside) {
+        String url = "https://[" + inside + "]/x";
+        assertThrows(IllegalArgumentException.class, () -> authorityOf(url));
+        Map<String, String> signed = sign("GET", "https://[::1]/x", Map.of(), opts -> opts);
+        assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest("GET", url, signed, declined())));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"::1", "::", "1::", "2001:DB8::1", "1:2:3:4:5:6:7:8", "1:2:3:4:5:6:7::",
+        "::ffff:1.2.3.4", "1:2:3:4:5:6:1.2.3.4", "fe80::1%25eth0", "v1.x", "vF.a:b", "v12.["})
+    void a3AnIpv6AddressOrIpvFutureIsAnIpLiteral(String inside) {
+        assertEquals("[" + inside.toLowerCase(java.util.Locale.ROOT) + "]", authorityOf("https://[" + inside + "]/x"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a]b[", "a]b", "a[b"})
+    void a3ABracketOutsideAnIpLiteralIsUnreadable(String host) {
+        String url = "https://" + host + "/x";
+        assertThrows(IllegalArgumentException.class, () -> authorityOf(url));
+        assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest("GET", url, sign(), declined())));
+    }
+
+    /* ------------------------ B14 and PR #14's hostile pass: ports of thousands of digits */
+
+    @Test
+    void b14APortOfThousandsOfLeadingZerosIsReadAsItsNumber() {
+        String zeros = "0".repeat(5000);
+        assertEquals("a.example", authorityOf("https://a.example:" + zeros + "443/x"));
+        assertEquals("a.example:8443", authorityOf("https://a.example:" + zeros + "8443/x"));
+        for (String port : List.of(zeros + "65536", "1" + zeros, "9".repeat(5000))) {
+            assertThrows(IllegalArgumentException.class, () -> authorityOf("https://a.example:" + port + "/x"));
+        }
+    }
+
+    /* ------------------- PR #14's hostile pass: a header that cannot be encoded as UTF-8 */
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\ud800", "sig=:\udfff:"})
+    void aSignatureHeaderHoldingAnUnpairedSurrogateIsMalformed(String value) {
+        Map<String, String> signature = sign();
+        signature.put("Signature", value);
+        assertEquals(FikiException.Kind.MalformedSignature, kindOf(() -> Fiki.verifyRequest("GET", URL, signature, declined())));
+        Map<String, String> input = sign();
+        input.put("Signature-Input", value);
+        assertEquals(FikiException.Kind.MalformedSignatureInput, kindOf(() -> Fiki.verifyRequest("GET", URL, input, declined())));
+    }
+
     @Test
     void b14ABadPortInTheRequestAResponseAnswersIsAMismatch() {
         Fiki.Request good = new Fiki.Request("GET", "https://example.com/p", Map.of(), null);

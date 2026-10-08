@@ -748,6 +748,27 @@ public final class Fiki {
         }
     }
 
+    private static final String H16 = "[0-9A-Fa-f]{1,4}";
+    private static final String DEC_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
+    private static final String LS32 = "(?:" + H16 + ":" + H16 + "|" + DEC_OCTET + "(?:\\." + DEC_OCTET + "){3})";
+
+    /**
+     * RFC 3986 section 3.2.2's IP-literal, as Python's urlsplit checks it from 3.11.4, so a host
+     * fiki-py refuses is refused here too: IPvFuture ("v", hex digits, ".", then anything but a
+     * line feed), or an IPv6address with an optional zone after "%". The IPv6 grammar is RFC 3986's
+     * own, which accepts exactly what Python's ipaddress.IPv6Address does.
+     */
+    private static final Pattern IP_LITERAL = Pattern.compile("v[0-9A-Fa-f]+\\.[^\\n]+|(?:" + String.join("|",
+        "(?:" + H16 + ":){6}" + LS32,
+        "::(?:" + H16 + ":){5}" + LS32,
+        "(?:" + H16 + ")?::(?:" + H16 + ":){4}" + LS32,
+        "(?:(?:" + H16 + ":){0,1}" + H16 + ")?::(?:" + H16 + ":){3}" + LS32,
+        "(?:(?:" + H16 + ":){0,2}" + H16 + ")?::(?:" + H16 + ":){2}" + LS32,
+        "(?:(?:" + H16 + ":){0,3}" + H16 + ")?::" + H16 + ":" + LS32,
+        "(?:(?:" + H16 + ":){0,4}" + H16 + ")?::" + LS32,
+        "(?:(?:" + H16 + ":){0,5}" + H16 + ")?::" + H16,
+        "(?:(?:" + H16 + ":){0,6}" + H16 + ")?::") + ")(?:%[^%]+)?");
+
     /**
      * The authority, normalized per RFC 9421 section 2.2.3: lowercase host, default port omitted.
      * Userinfo is dropped and the port compared as a number, as fiki-py's urlsplit does; an IPv6
@@ -770,7 +791,7 @@ public final class Fiki {
             return lower(fieldValue(host, "@authority"));
         }
         String raw = target.authority();
-        raw = raw.substring(raw.lastIndexOf('@') + 1).toLowerCase(Locale.ROOT);
+        raw = raw.substring(raw.lastIndexOf('@') + 1);
         String host;
         String port;
         if (raw.startsWith("[")) {
@@ -778,6 +799,11 @@ public final class Fiki {
             if (close < 0) {
                 throw unreadable("The URL's IPv6 literal " + raw + " has no closing bracket.", received);
             }
+            // Checked before lowercasing: IPvFuture's "v" is lowercase only, as urlsplit reads it.
+            if (!IP_LITERAL.matcher(raw.substring(1, close)).matches()) {
+                throw unreadable("The URL's IP-literal " + raw + " is not an IPv6 address or IPvFuture.", received);
+            }
+            raw = raw.toLowerCase(Locale.ROOT);
             host = raw.substring(0, close + 1);
             String after = raw.substring(close + 1);
             if (!after.isEmpty() && !after.startsWith(":")) {
@@ -785,9 +811,13 @@ public final class Fiki {
             }
             port = after.isEmpty() ? "" : after.substring(1);
         } else {
+            raw = raw.toLowerCase(Locale.ROOT);
             int colon = raw.lastIndexOf(':');
             host = colon < 0 ? raw : raw.substring(0, colon);
             port = colon < 0 ? "" : raw.substring(colon + 1);
+            if (host.indexOf('[') >= 0 || host.indexOf(']') >= 0) {
+                throw unreadable("The URL's authority " + raw + " has a bracket outside an IP-literal.", received);
+            }
         }
         if (port.isEmpty()) {
             return host;
