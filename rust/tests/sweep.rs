@@ -278,6 +278,64 @@ fn a3_text_after_an_ip_literal_is_a_signature_mismatch_when_verifying() {
     }
 }
 
+// The same lists as fiki-py's tests/test_sweep.py, whose oracle is Python's own ipaddress
+// (bakobo/fiki#14's hostile pass).
+const NOT_ADDRESSES: [&str; 14] = [
+    "not-an-ip",
+    "1.2.3.4",
+    "vZ.x",
+    "v1.",
+    "V1.x",
+    "v.x",
+    "::1%",
+    "fe80::1%a%b",
+    "1:2:3:4:5:6:7:8:9",
+    "::01.2.3.4",
+    "::256.1.1.1",
+    "12345::",
+    "",
+    "1::2::3",
+];
+
+#[test]
+fn a3_a_bracketed_host_that_is_not_an_address_is_unreadable() {
+    let sent = sign("GET", "https://[::1]/x", &[], SignOptions::default()).unwrap();
+    for inside in NOT_ADDRESSES {
+        let url = format!("https://[{inside}]/x");
+        assert_eq!(kind_of(authority(&url)), Kind::InvalidArgument, "{url}");
+        assert_eq!(
+            sent.at(&url).kind(VerifyOptions::default()),
+            Kind::SignatureMismatch,
+            "{url}"
+        );
+    }
+}
+
+#[test]
+fn a3_an_ipv6_address_or_ipvfuture_is_an_ip_literal() {
+    for inside in [
+        "::1",
+        "::",
+        "1::",
+        "2001:DB8::1",
+        "1:2:3:4:5:6:7:8",
+        "1:2:3:4:5:6:7::",
+        "::ffff:1.2.3.4",
+        "1:2:3:4:5:6:1.2.3.4",
+        "fe80::1%25eth0",
+        "v1.x",
+        "vF.a:b",
+        "v12.[",
+    ] {
+        let url = format!("https://[{inside}]/x");
+        assert_eq!(
+            authority(&url).unwrap(),
+            format!("[{}]", inside.to_ascii_lowercase()),
+            "{url}"
+        );
+    }
+}
+
 // --- A4: header names are compared case-insensitively, by presence ---
 
 #[test]

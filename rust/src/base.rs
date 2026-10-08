@@ -446,6 +446,70 @@ fn port(text: &str, message: &Message) -> Result<Option<u32>> {
     )))
 }
 
+/// RFC 3986 section 3.2.2: what may sit between an IP-literal's brackets, as Python's urlsplit
+/// checks it from 3.11.4, so a host fiki-py refuses is refused here too. IPvFuture is "v", hex
+/// digits, "." and then anything but a line feed; otherwise an IPv6address, with an optional zone
+/// after "%", in RFC 3986's grammar, which accepts exactly what Python's ipaddress.IPv6Address does.
+fn ip_literal(inside: &str) -> bool {
+    if let Some(future) = inside.strip_prefix('v') {
+        return future.split_once('.').is_some_and(|(version, rest)| {
+            !version.is_empty()
+                && version.bytes().all(|b| b.is_ascii_hexdigit())
+                && !rest.is_empty()
+                && !rest.contains('\n')
+        });
+    }
+    let address = match inside.split_once('%') {
+        Some((address, zone)) if !zone.is_empty() && !zone.contains('%') => address,
+        Some(_) => return false,
+        None => inside,
+    };
+    // A "::" stands for one or more zero groups, so the groups either side of it number at most
+    // seven; without one there are exactly eight. A second "::" leaves an empty group in the tail.
+    match address.split_once("::") {
+        Some((head, tail)) => match (groups(head, false), groups(tail, true)) {
+            (Some(head), Some(tail)) => head + tail <= 7,
+            _ => false,
+        },
+        None => groups(address, true) == Some(8),
+    }
+}
+
+/// How many 16-bit groups a run of colon-separated h16s stands for, or None if it is not one. An
+/// IPv4 address may close the run that ends the address, and stands for two.
+fn groups(run: &str, ends_address: bool) -> Option<usize> {
+    if run.is_empty() {
+        return Some(0);
+    }
+    let pieces: Vec<&str> = run.split(':').collect();
+    let mut count = 0;
+    for (i, piece) in pieces.iter().enumerate() {
+        if ends_address && i == pieces.len() - 1 && piece.contains('.') {
+            if !ipv4(piece) {
+                return None;
+            }
+            count += 2;
+        } else if (1..=4).contains(&piece.len()) && piece.bytes().all(|b| b.is_ascii_hexdigit()) {
+            count += 1;
+        } else {
+            return None;
+        }
+    }
+    Some(count)
+}
+
+/// RFC 3986's IPv4address: four dec-octets, none with a leading zero.
+fn ipv4(text: &str) -> bool {
+    let octets: Vec<&str> = text.split('.').collect();
+    octets.len() == 4
+        && octets.iter().all(|octet| {
+            (1..=3).contains(&octet.len())
+                && octet.bytes().all(|b| b.is_ascii_digit())
+                && !(octet.len() > 1 && octet.starts_with('0'))
+                && octet.parse::<u16>().is_ok_and(|n| n <= 255)
+        })
+}
+
 fn authority(target: &Target, message: &Message) -> Result<String> {
     // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to
     // the Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier
@@ -469,6 +533,11 @@ fn authority(target: &Target, message: &Message) -> Result<String> {
                         "something other than a port follows the ']' of its IP-literal.",
                     ));
                 };
+                if !ip_literal(inside) {
+                    return Err(
+                        message.unreadable("its IP-literal is not an IPv6 address or IPvFuture.")
+                    );
+                }
                 (format!("[{inside}]"), port_text)
             }
             None if hostport.contains(['[', ']']) => {
