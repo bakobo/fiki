@@ -702,12 +702,13 @@ class ProfileTest {
 
     @Test
     void aSignerRefusesACallersDigestItsBodyContradicts() {
-        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() ->
-            signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts)));
-        assertEquals(FikiException.Kind.MalformedDigest, kindOf(() ->
-            signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts)));
-        assertEquals(FikiException.Kind.DigestMismatch, kindOf(() -> respond(opts -> opts, 200, REQUEST,
-            Map.of("content-digest", Fiki.contentDigest(BODY)))));
+        // The call's mistake, not a message's defect (@5zrf8gjk, A7 and E5).
+        assertThrows(IllegalArgumentException.class, () ->
+            signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts));
+        assertThrows(IllegalArgumentException.class, () ->
+            signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts));
+        assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts, 200, REQUEST,
+            Map.of("content-digest", Fiki.contentDigest(BODY))));
         // A digest of the caller's own that holds is used as given, and covered.
         assertEquals(KEY.aid(), verify(signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY)), opts -> opts)).aid());
     }
@@ -734,14 +735,23 @@ class ProfileTest {
 
     @Test
     void duplicateComponentDetectionIsLinear() {
-        int n = 100_000;
+        // A covered list is bounded at MAX_INNER_LIST_ITEMS before anything is compared (@5zrf8gjk),
+        // so the duplicate is found within the bound, and the parser itself is shown linear on a
+        // list far past it.
         StringBuilder covered = new StringBuilder();
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < Fiki.MAX_INNER_LIST_ITEMS - 6; i++) {
             covered.append(" \"x").append(i).append('"');
         }
         Signed s = sign().mangle("\"@method\"", "\"@method\"" + covered + " \"x0\"");
+        assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s)));
+        int n = 100_000;
+        StringBuilder huge = new StringBuilder("sig=(");
+        for (int i = 0; i < n; i++) {
+            huge.append(" \"x").append(i).append('"');
+        }
+        huge.append(')');
         org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () ->
-            assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s))));
+            assertEquals(n, ((Sfv.InnerList) Sfv.parseDictionary(huge.toString()).get(0).value()).items().size()));
     }
 
     /* ------------------------------------------------ the remaining edges of the new surface */

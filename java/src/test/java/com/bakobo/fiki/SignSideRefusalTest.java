@@ -54,9 +54,11 @@ class SignSideRefusalTest {
         assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(big)));
         assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(big)));
         assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(-big)));
+        // Not negative either (@5zrf8gjk, B16): the range is 0 to fifteen nines.
+        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(-1)));
         Map<String, String> edge = sign(Fiki.SignOptions.none().withCreated(999_999_999_999_999L)
-            .withExpires(-999_999_999_999_999L));
+            .withExpires(0));
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, edge, Fiki.VerifyOptions.decliningFreshness()
-            .withNow(0).withSkew(Long.MAX_VALUE / 4)).aid());
+            .withNow(0)).aid());
     }
 }

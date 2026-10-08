@@ -76,8 +76,15 @@ class CopilotReviewTest {
 
     @Test
     void theFreshnessArithmeticDoesNotWrap() {
-        Map<String, String> old = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
-            Fiki.SignOptions.none().withCreated(-999_999_999_999_999L).withExpires(999_999_999_999_999L));
+        // fiki signs no negative created (@5zrf8gjk, B16), and a verifier still meets one from a
+        // signer that is not fiki, so this one is signed over the base directly.
+        String base = new String(Fiki.signatureBase("GET", "https://example.com/p", Map.of(), Fiki.DEFAULT_COVERED,
+            new Fiki.Params(0L, KEY.keyid(), null, 999_999_999_999_999L, null, null)), java.nio.charset.StandardCharsets.UTF_8)
+            .replace(";created=0;", ";created=-999999999999999;");
+        Map<String, String> old = Map.of(
+            "Signature-Input", "sig=" + base.substring(base.lastIndexOf(": (") + 2),
+            "Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(
+                KEY.sign(base.getBytes(java.nio.charset.StandardCharsets.UTF_8))) + ":");
         // maxAge + skew would wrap past Long.MAX_VALUE; it means no limit instead.
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", "https://example.com/p", old,
             Fiki.VerifyOptions.maxAge(Long.MAX_VALUE).withNow(Long.MAX_VALUE).withSkew(Long.MAX_VALUE)).aid());
