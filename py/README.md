@@ -49,7 +49,7 @@ verdict.aid               # who signed it
 
 ## Other spellings of a key
 
-`aid_from` converts a public key given as raw base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.from_openssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aid_from` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers.
+`aid_from` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.from_openssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aid_from` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers.
 
 ```python
 from fiki import Key, aid_from

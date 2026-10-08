@@ -144,9 +144,7 @@ def public_accepts() -> list[dict]:
             f"a raw key whose first character is {code}, read by length rather than by prefix")
     add("did-key-z", "did:key:" + z(ED25519_PUB + a), a, "base58btc via the base58 package")
     add("did-key-z-b", "did:key:" + z(ED25519_PUB + b), b, "base58btc via the base58 package")
-    add("did-key-u", "did:key:" + u(ED25519_PUB + a), a, "the did:key ABNF's base64url form")
     add("did-peer-0-z", "did:peer:0" + z(ED25519_PUB + a), a, "peer DID numalgo 0")
-    add("did-peer-0-u", "did:peer:0" + u(ED25519_PUB + a), a, "peer DID numalgo 0, base64url")
     # The specs' own examples, decoded by the base58 package and checked for the header.
     for case_id, did, source in (
         ("did-key-spec-example-1", "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
@@ -165,7 +163,6 @@ def public_accepts() -> list[dict]:
         add(case_id, did, decoded[2:], source)
     add("ssh", ssh_line(a), a, "cryptography's OpenSSH serializer")
     add("ssh-comment", ssh_line(a, "alice@example.com"), a, "with a comment")
-    add("ssh-comment-leading-space", ssh_line(a, " x"), a, "the comment is everything after the separator")
     add("ssh-comment-spaces", ssh_line(a, "fiki test key, never use"), a, "a comment may hold spaces")
     at_bound = ssh_line(a, "x" * (MAX_PUBLIC_CHARS - len(ssh_line(a)) - 1))
     assert len(at_bound) == MAX_PUBLIC_CHARS
@@ -206,6 +203,10 @@ def public_refusals() -> list[dict]:
     refuse("raw-short", b64url(a)[:42], "42 characters do not hold 32 bytes")
     refuse("raw-small-order", b64url(IDENTITY), "the identity point")
     refuse("raw-not-on-curve", b64url(Y_IS_P), "y = p is not a canonical encoding")
+    # Lengths are counted in code points. A UTF-16 port that counts code units sees these two as
+    # 44 and 45 long, and must still refuse them rather than read one as an AID.
+    refuse("raw-astral-at-43", b64url(a)[:42] + "\U0001F600", "an emoji where a raw key's last character goes")
+    refuse("aid-astral-at-44", aid[:43] + "\U0001F600", "an emoji where an AID's last character goes")
     refuse("raw-fullwidth", b64url(a)[:42] + "Ａ", "a fullwidth letter is not base64url")
     # did:key and did:peer:0.
     good = z(ED25519_PUB + a)
@@ -223,6 +224,14 @@ def public_refusals() -> list[dict]:
     refuse("did-key-long", "did:key:" + z(ED25519_PUB + a + b"\x00"), "33 bytes of key")
     refuse("did-key-fragment", "did:key:" + good + "#" + good, "a DID URL, not a DID")
     refuse("did-key-query", "did:key:" + good + "?x=1", "a DID URL, not a DID")
+    # The did:key ABNF admits a base64url ("u") value, but the spec's resolution algorithm says the
+    # value "MUST be a string and begin with the letter `z`" or invalidDid "MUST be raised", and
+    # the peer DID ABNF has transform = "z". Reading "u" as well would give every key two DIDs.
+    refuse("did-key-u", "did:key:" + u(ED25519_PUB + a), "did:key resolution requires z")
+    refuse("did-peer-0-u", "did:peer:0" + u(ED25519_PUB + a), "peer DID transform is z only")
+    refuse("did-key-u-45", "did:key:u" + b64url(ED25519_PUB + a)[:45], "a length no base64url has")
+    refuse("did-key-header-ed02", "did:key:" + z(b"\xed\x02" + a), "the second header byte is wrong")
+    refuse("did-peer-1-key", "did:peer:1" + good, "numalgo 1 is a document hash, not a key")
     refuse("did-key-u-padded", "did:key:" + u(ED25519_PUB + a) + "==", "base64url padding")
     refuse("did-key-u-spare-bits", "did:key:u" + flip_spare_bits(b64url(ED25519_PUB + a), B64URL),
            "the unused bits are non-zero")
@@ -254,6 +263,12 @@ def public_refusals() -> list[dict]:
     refuse("ssh-comment-control", line + " a\x00b", "a control character in the comment")
     refuse("ssh-comment-newline", line + " a\nssh-ed25519 " + b64(ssh_blob(raw_of(SEED_B))),
            "a second line smuggled in the comment")
+    refuse("ssh-comment-del", line + " a\x7fb", "DEL is a control character")
+    refuse("ssh-comment-leading-space", line + "  x", "the comment may not begin with a space")
+    refuse("ssh-comment-trailing-space", line + " x ", "the comment may not end with a space")
+    refuse("ssh-two-trailing-spaces", line + "  ", "surrounding whitespace is the caller's to strip")
+    refuse("ssh-blob-then-padding-and-more", line[:len("ssh-ed25519 ") + len(blob)] + "=AAAA",
+           "base64 that continues after padding")
     refuse("ssh-comment-non-ascii", line + " café", "the comment is printable ASCII only")
     # An ssh-ed25519 blob is 51 bytes, a multiple of three, so its base64 has neither padding
     # nor spare bits to get wrong; padding appended to it is the only malformation of that kind.
@@ -263,6 +278,13 @@ def public_refusals() -> list[dict]:
            "the blob is standard base64, not base64url")
     refuse("ssh-small-order", "ssh-ed25519 " + b64(ssh_blob(IDENTITY)), "the identity point")
     refuse("ssh-uppercase-type", "SSH-ED25519 " + blob, "key types are case-sensitive")
+    # A private key handed over by mistake: refused, and (each port's own tests check) never
+    # echoed into the error.
+    refuse("openssh-private-key", (HERE / "openssh" / "ed25519.key").read_text("ascii"),
+           "a private key, the .key file given where the .pub was meant")
+    refuse("pkcs8-private-key", Ed25519PrivateKey.from_private_bytes(SEED_A).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    ).decode("ascii"), "a PKCS #8 private key")
     return cases
 
 
@@ -434,7 +456,10 @@ def private_refusals() -> list[dict]:
            "the check integers differ, which is how OpenSSH detects a wrong passphrase")
     refuse("padding-wrong", armor(openssh_key(SEED_A, padding=b"\x01\x02\x04")), "padding is 1, 2, 3, ...")
     refuse("padding-block", armor(openssh_key(SEED_A, padding=b"\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b")),
-           "padding past the next eight-byte boundary")
+           "padding that leaves the private section misaligned")
+    natural = len(openssh_key(SEED_A)) - len(openssh_key(SEED_A, padding=b""))
+    refuse("padding-extra-block", armor(openssh_key(SEED_A, padding=bytes(range(1, natural + 9)))),
+           "a whole extra block of padding, aligned, which ssh-keygen reads")
     refuse("unaligned", armor(openssh_key(SEED_A, padding=b"\x01\x02")), "the private section is not a multiple of eight")
     refuse("type-mismatch", armor(openssh_key(SEED_A, ktype=b"ssh-rsa")), "not ssh-ed25519")
     refuse("public-mismatch", armor(openssh_key(SEED_A, public_raw=other)),
@@ -443,6 +468,16 @@ def private_refusals() -> list[dict]:
            "the private section's public key is not the seed's")
     refuse("private-tail-mismatch", armor(openssh_key(SEED_A, private_tail=other)),
            "the 64-byte private key's second half is not the seed's public key")
+    refuse("all-publics-another-key", armor(openssh_key(SEED_A, public_raw=other, inner_public_raw=other,
+                                                       private_tail=other)),
+           "every stored public key agrees, and none is the one the seed derives")
+    refuse("comment-del", armor(openssh_key(SEED_A, comment=b"a\x7f")), "DEL in the comment")
+    refuse("tab-in-body", good.replace("\n", "\n\t", 2).replace("\n\t", "\n", 1), "a tab in the body")
+    padded_blob = next(b for b in (openssh_key(SEED_A, comment=b"a" * n) for n in range(0, 32, 8)) if len(b) % 3 == 1)
+    padded_body = b64(padded_blob)
+    assert padded_body.endswith("==") and B64STD.index(padded_body[-3]) & 1 == 0
+    refuse("body-spare-bits", "-----BEGIN OPENSSH PRIVATE KEY-----\n" + flip_spare_bits(padded_body[:-2], B64STD)
+           + "==\n-----END OPENSSH PRIVATE KEY-----\n", "the base64 body's unused bits are non-zero")
     refuse("public-small-order", armor(openssh_key(SEED_A, public_raw=IDENTITY, inner_public_raw=IDENTITY,
                                                    private_tail=IDENTITY)),
            "a public key of small order, whatever the seed")

@@ -34,12 +34,25 @@ def test_a_public_spelling_converts_to_its_aid(case):
     assert aid_from(case["input"]) == case["aid"]
 
 
+def _echoes(error: MalformedKey, text: str) -> bool:
+    """Whether ``error`` carries ``text``, or any run of it long enough to hold key material."""
+    message = str(error)
+    runs = re.findall(r"[A-Za-z0-9+/=_-]{12,}", text)
+    return bool(error.keyid) or any(run in message for run in runs) or (len(text) >= 12 and text in message)
+
+
 @pytest.mark.parametrize("case", _cases("public", "refusals"))
-def test_a_malformed_public_spelling_is_refused(case):
+def test_a_malformed_public_spelling_is_refused_without_echoing_it(case):
+    # Never echoed, because what a caller hands aid_from by mistake can be a private key: the
+    # .key file instead of the .pub, or a seed in base64url, which is 43 characters like a raw key.
     assert case["error"] == "MalformedKey"
     with pytest.raises(MalformedKey) as caught:
         aid_from(case["input"])
     assert type(caught.value) is MalformedKey
+    assert not _echoes(caught.value, case["input"])
+    # Nor chained to an exception that might carry it.
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None or caught.value.__suppress_context__
 
 
 @pytest.mark.parametrize("case", _cases("private", "accepts"))
@@ -82,18 +95,25 @@ def test_a_private_key_with_a_weak_public_key_is_refused():
         Key.from_openssh(case["input"])
 
 
-def test_a_public_refusal_carries_the_spelling_it_refused():
+def test_a_seed_mistaken_for_a_raw_key_is_not_echoed_when_refused():
+    # About half of all seeds, written as 43 characters of base64url, are not a valid point and
+    # so are refused by the curve check rather than by the parser. That refusal must not quote it.
+    seed = next(
+        base64.urlsafe_b64encode(bytes([n]) * 32).decode("ascii").rstrip("=")
+        for n in range(256)
+        if _refused(base64.urlsafe_b64encode(bytes([n]) * 32).decode("ascii").rstrip("="))
+    )
     with pytest.raises(MalformedKey) as caught:
-        aid_from("did:key:zzz")
-    assert caught.value.keyid == "did:key:zzz"
+        aid_from(seed)
+    assert not _echoes(caught.value, seed)
 
 
-def test_an_oversized_public_spelling_is_not_carried_into_the_error():
-    text = "x" * (VECTORS["max_public_chars"] + 1)
-    with pytest.raises(MalformedKey) as caught:
+def _refused(text: str) -> bool:
+    try:
         aid_from(text)
-    assert caught.value.keyid == ""
-    assert text not in str(caught.value)
+    except MalformedKey:
+        return True
+    return False
 
 
 def test_the_encrypted_refusal_says_to_keep_a_dedicated_key():

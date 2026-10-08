@@ -211,7 +211,7 @@ The AID is one spelling of an Ed25519 public key, and a client may hand you anot
 |---|---|
 | The AID | `BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4` |
 | The raw key, unpadded base64url, which is also a JWK's `x` member | `A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg` |
-| A did:key, base58btc or base64url | `did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK` |
+| A did:key, base58btc | `did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK` |
 | A did:peer with numalgo 0 | `did:peer:0z6MkpTHR8VNsBxYAAWHut2Geadd9jSwuBV8xRoAnwWsdvktH` |
 | An OpenSSH public key line, comment optional | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... alice@laptop` |
 
@@ -225,7 +225,9 @@ registered_aid = aid_from(open("alice.pub").read().rstrip("\n"))
 
 Then pass `registered_aid` as `expected_aid`, or compare it with the verdict's AID, exactly as above.
 
-Every spelling has exactly one accepted form. fiki strips nothing, so trim a line ending yourself, and it refuses as `MalformedKey` anything it would otherwise have to guess at: surrounding whitespace, base64 with stray padding or non-zero spare bits, base58 with an extra leading `1`, a did:key whose key is not Ed25519, a DID URL with a fragment, an SSH line with an options prefix or a non-ASCII comment, and a transferable `D…` AID, whose current key the identifier alone cannot tell you. A key of small order is refused in every spelling, as it is in a keyid. Only the JWK's `x` member is read rather than the whole JWK, so that no port needs a JSON parser for it.
+Every spelling has exactly one accepted form. fiki strips nothing, so trim a line ending yourself, and it refuses as `MalformedKey` anything it would otherwise have to guess at: surrounding whitespace, base64 with stray padding or non-zero spare bits, base58 with an extra leading `1`, a did:key whose key is not Ed25519 or whose value is not base58btc, a DID URL with a fragment, an SSH line with an options prefix, and a transferable `D…` AID, whose current key the identifier alone cannot tell you. An SSH comment must be printable ASCII and may not begin or end with a space; a comment like `josé@höst` is refused, so edit it out of the line. A key of small order is refused in every spelling, as it is in a keyid. Only the JWK's `x` member is read rather than the whole JWK, so that no port needs a JSON parser for it.
+
+The did:key spec's grammar also admits a base64url value beginning with `u`, but its resolution algorithm requires `z`, and peer DIDs allow only `z`, so fiki reads `z` alone. A refusal never quotes what it was given, because the thing handed over by mistake is sometimes a private key: the `.key` file instead of the `.pub`.
 
 Python has this today. The other ports will follow against the same vectors, `vectors/keys/`, which carry their own format number, `key_vectors_format`, so that adding them does not move the shared contract.
 
@@ -240,9 +242,11 @@ key = Key.from_openssh(open("fiki_ed25519").read())
 headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
 ```
 
-A passphrase-protected key is refused, because decrypting one would cost fiki dependencies it does not otherwise need. Generate a dedicated key for this rather than removing the passphrase from one you use elsewhere: `ssh-keygen -t ed25519 -N '' -f fiki_ed25519`. Reusing a key you also log in with is not a cryptographic hazard, since an SSH login signature and a fiki signature are made over data that can never be mistaken for each other. The reason for a separate key is that the file now has to sit somewhere a service can read it.
+A passphrase-protected key is refused, because decrypting one would cost fiki dependencies it does not otherwise need. Generate a dedicated key for this rather than removing the passphrase from one you use elsewhere: `ssh-keygen -t ed25519 -N '' -f fiki_ed25519`, and do not load it into `ssh-agent`.
 
-fiki is stricter than OpenSSH about the file in most respects: it refuses a key whose stored public half disagrees with its seed, trailing text after the armor, and spaces inside the base64. It is more lenient in one respect: it accepts a key whose final newline is missing, which OpenSSH refuses, because a secret store or an environment variable routinely strips it. Errors about a private key never include any part of it.
+Do not register a key you also log in with. A fiki signature and an SSH login signature are made over data that cannot be mistaken for each other, so neither can be replayed as the other. But anything that can make SSH signatures with the key can also sign fiki requests: an `ssh-agent` signs whatever bytes it is asked to, and with agent forwarding (`ssh -A`) so can anyone with root on a host you forward to. A dedicated key that is never in an agent has neither exposure, and its file sitting where a service can read it costs you nothing else.
+
+fiki is stricter than OpenSSH about the file in most respects: it refuses a key whose stored public half disagrees with its seed, trailing text after the armor, spaces or tabs inside the base64, extra blocks of padding, and a comment that is not printable ASCII (generate with `-C` set to something ASCII). It is more lenient in one respect: it accepts a key whose final newline is missing, which OpenSSH refuses, because a secret store or an environment variable routinely strips it. Errors about a private key never include any part of it.
 
 ## Declining the freshness check
 

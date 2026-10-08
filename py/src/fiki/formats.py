@@ -1,8 +1,8 @@
 """Other spellings of an Ed25519 key, read at the edge of the API (``this.i`` @0mvgkwnl).
 
 :func:`aid_from` turns a public key spelled as an AID, as raw base64url (the wire keyid of
-@7xrx5evg, also a JWK's ``x``), as a did:key, as a did:peer with numalgo 0, or as an OpenSSH public
-line into the canonical AID. :func:`read_openssh` reads the seed out of an unencrypted
+@7xrx5evg, also a JWK's ``x``), as a base58btc did:key, as a did:peer with numalgo 0, or as an
+OpenSSH public line into the canonical AID. :func:`read_openssh` reads the seed out of an unencrypted
 openssh-key-v1 private key, for :meth:`fiki.Key.from_openssh`.
 
 Nothing here touches a request. A verifier calls :func:`aid_from` when it loads its registrations,
@@ -22,7 +22,7 @@ import struct
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from .errors import MalformedKey
-from .keys import public_key, to_aid, verifying_key
+from .keys import public_key, to_aid
 
 # Checked before anything is decoded, so nothing below ever sees more than this (input-handling
 # standard: size, then shape, then meaning). An OpenSSH public line's comment is the only part
@@ -35,17 +35,17 @@ _AID_LEN = 44
 _RAW_B64URL_LEN = 43
 _ED25519_PUB = b"\xed\x01"  # multicodec ed25519-pub, 0xed as an unsigned varint
 _SSH_TYPE = b"ssh-ed25519"
-# A multibase value over 34 bytes is at most 47 base58 or 46 base64url characters; anything
-# longer cannot be an Ed25519 did:key, and refusing it first keeps base58's big-integer
-# arithmetic to a fixed size.
+# A base58btc value over 34 bytes is at most 47 characters after the "z"; anything longer cannot
+# be an Ed25519 did:key, and refusing it first keeps base58's big-integer arithmetic to a fixed size.
 _MAX_MULTIBASE = 48
 
 _B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 _B58_INDEX = {c: i for i, c in enumerate(_B58)}
 _B64URL = re.compile(r"[A-Za-z0-9_-]*")
 _B64STD = re.compile(r"[A-Za-z0-9+/]*={0,2}")
-# "ssh-ed25519", one space, the blob, and optionally one space and a printable-ASCII comment.
-_SSH_LINE = re.compile(r"ssh-ed25519 ([A-Za-z0-9+/=]+)(?: ([\x20-\x7e]+))?")
+# "ssh-ed25519", one space, the blob, and optionally one space and a printable-ASCII comment that
+# neither begins nor ends with a space, so that no whitespace around any field is ever ignored.
+_SSH_LINE = re.compile(r"ssh-ed25519 ([A-Za-z0-9+/=]+)(?: ([\x21-\x7e](?:[\x20-\x7e]*[\x21-\x7e])?))?")
 
 _BEGIN = "-----BEGIN OPENSSH PRIVATE KEY-----"
 _END = "-----END OPENSSH PRIVATE KEY-----"
@@ -114,10 +114,15 @@ def _ssh_public_blob(blob: bytes) -> bytes | None:
 
 
 def _multibase_ed25519(value: str) -> bytes | None:
-    """The raw key under a did:key multibase value, base58btc ("z") or base64url ("u")."""
-    if len(value) > _MAX_MULTIBASE:
+    """The raw key under a did:key multibase value, which is base58btc ("z") only.
+
+    The did:key ABNF also admits base64url ("u"), but the spec's resolution algorithm requires
+    the value to "begin with the letter `z`" or raise invalidDid, and the peer DID ABNF has
+    transform = "z". Reading "u" too would give every key two DIDs.
+    """
+    if len(value) > _MAX_MULTIBASE or value[:1] != "z":
         return None
-    decoded = {"z": _b58, "u": _b64url}.get(value[:1], lambda _: None)(value[1:])
+    decoded = _b58(value[1:])
     if decoded is None or len(decoded) != len(_ED25519_PUB) + _RAW_LEN:
         return None
     return decoded[2:] if decoded[:2] == _ED25519_PUB else None
@@ -125,6 +130,11 @@ def _multibase_ed25519(value: str) -> bytes | None:
 
 def _raw_of(text: str) -> bytes | None:
     """The raw key ``text`` spells, by its shape, or None for a shape fiki does not read."""
+    if len(text) == _AID_LEN and text[:1] == "B":
+        # The AID is base64url over a zero pad byte and the key, with the pad's character
+        # replaced by the code; only the spelling to_aid produces is the AID (bakobo/fiki#4).
+        decoded = _b64url("A" + text[1:])
+        return decoded[1:] if decoded is not None and to_aid(decoded[1:]) == text else None
     if len(text) == _RAW_B64URL_LEN:
         return _b64url(text)
     if text.startswith("did:key:"):
@@ -143,12 +153,14 @@ def aid_from(text: str) -> str:
 
     ``text`` is an AID, the raw key as 43 characters of unpadded base64url (a JWK's ``x``), a
     did:key, a did:peer with numalgo 0, or an OpenSSH public line — ``ssh-ed25519``, one space,
-    the blob, and optionally one space and a printable-ASCII comment. Length, not the first
-    character, tells raw from AID: 43 against 44. Nothing around ``text`` is stripped; that is the
-    caller's, so that one input never has two readings.
+    the blob, and optionally one space and a printable-ASCII comment that neither begins nor ends
+    with a space. Length, not the first character, tells raw from AID: 43 against 44. Nothing
+    around ``text`` is stripped; that is the caller's, so that one input never has two readings.
 
     Raises :class:`~fiki.errors.MalformedKey` for anything else, including a transferable or
-    digest AID, whose key is not the identifier's to give.
+    digest AID, whose key is not the identifier's to give. The error never quotes ``text`` and its
+    ``keyid`` is empty, because what is handed here by mistake can be a private key: the ``.key``
+    file instead of the ``.pub``, or a seed, which in base64url is 43 characters like a raw key.
     """
     if len(text) > MAX_PUBLIC_CHARS:
         raise MalformedKey(
@@ -158,21 +170,19 @@ def aid_from(text: str) -> str:
         )
     if len(text) == _AID_LEN and text[:1] in "DE":
         raise MalformedKey(
-            f'"{text}" is a transferable or digest AID, whose current key is not recoverable from '
+            "The text is a transferable or digest AID, whose current key is not recoverable from "
             "the identifier; resolve it to a key first.",
-            keyid=text,
+            keyid="",
         )
-    if len(text) == _AID_LEN and text[:1] == "B":
-        verifying_key(text)
-        return text
     raw = _raw_of(text)
     if raw is None:
         raise MalformedKey(
-            f'"{text}" is not an Ed25519 public key in any spelling fiki reads: an AID, raw '
-            "base64url, a did:key, a did:peer:0, or an ssh-ed25519 line.",
-            keyid=text,
+            f"The text, {len(text)} characters, is not an Ed25519 public key in any spelling fiki "
+            "reads: an AID, raw base64url, a base58btc did:key, a did:peer:0, or an ssh-ed25519 "
+            "line.",
+            keyid="",
         )
-    public_key(raw, text)
+    public_key(raw, "")
     return to_aid(raw)
 
 

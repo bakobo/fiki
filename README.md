@@ -11,7 +11,7 @@ Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standar
 
 The public half of an Ed25519 key is rendered as a non-transferable AID — a 44-character `B…` string in CESR's `Ed25519N` encoding — and that string is both the identifier and the verifying key. A verifier needs no key event log, no directory lookup, and no network call to recover it. A client registers its AID once with whoever it calls, and signs from then on. There is nothing to rotate and nothing to fetch.
 
-The AID is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has an SSH key or a DID needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
+The AID is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has a DID, or is willing to make a dedicated SSH key, needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
 
 fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want [heti](https://github.com/bakobo/heti) instead; fiki is deliberately the floor.
 

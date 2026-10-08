@@ -56,22 +56,10 @@
         "source": "base58btc via the base58 package"
       },
       {
-        "id": "did-key-u",
-        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
-        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
-        "source": "the did:key ABNF's base64url form"
-      },
-      {
         "id": "did-peer-0-z",
         "input": "did:peer:0z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
         "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
         "source": "peer DID numalgo 0"
-      },
-      {
-        "id": "did-peer-0-u",
-        "input": "did:peer:0u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
-        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
-        "source": "peer DID numalgo 0, base64url"
       },
       {
         "id": "did-key-spec-example-1",
@@ -108,12 +96,6 @@
         "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 alice@example.com",
         "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
         "source": "with a comment"
-      },
-      {
-        "id": "ssh-comment-leading-space",
-        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4  x",
-        "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
-        "source": "the comment is everything after the separator"
       },
       {
         "id": "ssh-comment-spaces",
@@ -232,6 +214,18 @@
         "why": "y = p is not a canonical encoding"
       },
       {
+        "id": "raw-astral-at-43",
+        "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb\ud83d\ude00",
+        "error": "MalformedKey",
+        "why": "an emoji where a raw key's last character goes"
+      },
+      {
+        "id": "aid-astral-at-44",
+        "input": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG\ud83d\ude00",
+        "error": "MalformedKey",
+        "why": "an emoji where an AID's last character goes"
+      },
+      {
         "id": "raw-fullwidth",
         "input": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMb\uff21",
         "error": "MalformedKey",
@@ -308,6 +302,36 @@
         "input": "did:key:z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd?x=1",
         "error": "MalformedKey",
         "why": "a DID URL, not a DID"
+      },
+      {
+        "id": "did-key-u",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
+        "error": "MalformedKey",
+        "why": "did:key resolution requires z"
+      },
+      {
+        "id": "did-peer-0-u",
+        "input": "did:peer:0u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxuA",
+        "error": "MalformedKey",
+        "why": "peer DID transform is z only"
+      },
+      {
+        "id": "did-key-u-45",
+        "input": "did:key:u7QEDoQe_884Qvh1w3RjnS8CZZ-TWMJulDV8d3IZkElUxu",
+        "error": "MalformedKey",
+        "why": "a length no base64url has"
+      },
+      {
+        "id": "did-key-header-ed02",
+        "input": "did:key:z6Mkwvk49uiuPjK3Edf42M3cpQBkJ8NLwkmuRTawbks5Csju",
+        "error": "MalformedKey",
+        "why": "the second header byte is wrong"
+      },
+      {
+        "id": "did-peer-1-key",
+        "input": "did:peer:1z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+        "error": "MalformedKey",
+        "why": "numalgo 1 is a document hash, not a key"
       },
       {
         "id": "did-key-u-padded",
@@ -442,6 +466,36 @@
         "why": "a second line smuggled in the comment"
       },
       {
+        "id": "ssh-comment-del",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 a\u007fb",
+        "error": "MalformedKey",
+        "why": "DEL is a control character"
+      },
+      {
+        "id": "ssh-comment-leading-space",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4  x",
+        "error": "MalformedKey",
+        "why": "the comment may not begin with a space"
+      },
+      {
+        "id": "ssh-comment-trailing-space",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 x ",
+        "error": "MalformedKey",
+        "why": "the comment may not end with a space"
+      },
+      {
+        "id": "ssh-two-trailing-spaces",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4  ",
+        "error": "MalformedKey",
+        "why": "surrounding whitespace is the caller's to strip"
+      },
+      {
+        "id": "ssh-blob-then-padding-and-more",
+        "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4=AAAA",
+        "error": "MalformedKey",
+        "why": "base64 that continues after padding"
+      },
+      {
         "id": "ssh-comment-non-ascii",
         "input": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4 caf\u00e9",
         "error": "MalformedKey",
@@ -470,6 +524,18 @@
         "input": "SSH-ED25519 AAAAC3NzaC1lZDI1NTE5AAAAIAOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
         "error": "MalformedKey",
         "why": "key types are case-sensitive"
+      },
+      {
+        "id": "openssh-private-key",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnAAAAKBUgq7+VIKu\n/gAAAAtzc2gtZWQyNTUxOQAAACAEG/BXNKQy1ZlG4WI7zsDdYvN0Vgt94WBdV6yaGsRlnA\nAAAEA2xaRChwLaelALmp0HyZQQ5PSjpNeq4/Yoste82Ea7IgQb8Fc0pDLVmUbhYjvOwN1i\n83RWC33hYF1XrJoaxGWcAAAAGGZpa2kgdGVzdCBrZXksIG5ldmVyIHVzZQECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a private key, the .key file given where the .pub was meant"
+      },
+      {
+        "id": "pkcs8-private-key",
+        "input": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4f\n-----END PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a PKCS #8 private key"
       }
     ]
   },
@@ -525,7 +591,7 @@
       },
       {
         "id": "cryptography",
-        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1yUX0IL+g8+zDdzkPRuwAA\nAIheYQcGXmEHBgAAAAtzc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1y\nUX0IL+g8+zDdzkPRuwAAAECfg2L4ekhKlU5udAxbTA6EIpE5ogqoq1b/Zlhvan0p\nxSa0C4+T//PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1yUX0IL+g8+zDdzkPRuwAA\nAIgUDDOqFAwzqgAAAAtzc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1y\nUX0IL+g8+zDdzkPRuwAAAECfg2L4ekhKlU5udAxbTA6EIpE5ogqoq1b/Zlhvan0p\nxSa0C4+T//PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
         "aid": "BCa0C4-T__PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7",
         "signature": "LmMzwOEkPeXMhwudb6lbWz7n4l7NtyBBGlq2sdGCY7WLYzlQj1Ldn_mLR06x3Gxe2FmLjYHfaeaC78sLMq3OBg",
         "source": "cryptography's OpenSSH writer, RFC 9421 B.1.4's key",
@@ -733,8 +799,15 @@
         "id": "padding-block",
         "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAI5maWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQFBgcICQoL\n-----END OPENSSH PRIVATE KEY-----\n",
         "error": "MalformedKey",
-        "why": "padding past the next eight-byte boundary",
+        "why": "padding that leaves the private section misaligned",
         "ssh_keygen_refuses": true
+      },
+      {
+        "id": "padding-extra-block",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAJBmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQFBgcICQoLDA0=\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a whole extra block of padding, aligned, which ssh-keygen reads",
+        "ssh_keygen_refuses": false
       },
       {
         "id": "unaligned",
@@ -770,6 +843,34 @@
         "error": "MalformedKey",
         "why": "the 64-byte private key's second half is not the seed's public key",
         "ssh_keygen_refuses": false
+      },
+      {
+        "id": "all-publics-another-key",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACB5tVYuj+ZU+UB4sRLoqYunkB+FOuaVvtfg45ELrQSWZA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eH3m1Vi6P5lT5QHixEuipi6eQ\nH4U65pW+1+DjkQutBJZkAAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "every stored public key agrees, and none is the one the seed derives",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "comment-del",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAmF/AQID\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "DEL in the comment",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "tab-in-body",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\n\tQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAIhmaWtpZmlr\naQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuA\nAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln\n5NYwm6UNXx3chmQSVTG4AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "a tab in the body",
+        "ssh_keygen_refuses": false
+      },
+      {
+        "id": "body-spare-bits",
+        "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAJhmaWtpZmlraQAAAAtzc2gtZWQyNTUxOQAAACADoQe/884Qvh1w3RjnS8CZZ+TWMJulDV8d3IZkElUxuAAAAEAAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHwOhB7/zzhC+HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4AAAAEGFhYWFhYWFhYWFhYWFhYWEBAgMEBR==\n-----END OPENSSH PRIVATE KEY-----\n",
+        "error": "MalformedKey",
+        "why": "the base64 body's unused bits are non-zero",
+        "ssh_keygen_refuses": true
       },
       {
         "id": "public-small-order",
