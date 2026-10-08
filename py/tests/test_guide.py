@@ -262,11 +262,37 @@ def _contains(block: list[str], sample: list[str]) -> bool:
     return any(block[i:i + len(sample)] == sample for i in range(len(block) - len(sample) + 1))
 
 
+def test_the_guides_key_spelling_samples_run(tmp_path, monkeypatch):
+    import json
+
+    from fiki import aid_from
+
+    vectors = json.loads((Path(__file__).parents[2] / "vectors" / "keys" / "keys.json").read_text())
+    private = next(c for c in vectors["private"]["accepts"] if c["id"] == "ssh-keygen")
+    public = next(c for c in vectors["public"]["accepts"] if c["id"] == "ssh-keygen-pub")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "alice.pub").write_text(public["input"] + "\n")
+    (tmp_path / "fiki_ed25519").write_text(private["input"])
+
+# guide: registering a key in another spelling
+    registered_aid = aid_from(open("alice.pub").read().rstrip("\n"))
+# end guide
+# guide: signing with an SSH key
+    key = Key.from_openssh(open("fiki_ed25519").read())
+    headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
+# end guide
+    verdict = verify_request(
+        method="GET", url="https://api.example.com/things", headers=headers, max_age=300,
+        expected_aid=registered_aid,
+    )
+    assert verdict.aid == public["aid"]
+
+
 def test_every_marked_sample_is_in_the_guide_line_for_line():
     # The samples above run; this proves the guide shows the code that ran, so a reader's
     # copy-paste is the tested code rather than a paraphrase of it.
     samples = _marked_samples()
-    assert len(samples) == 6
+    assert len(samples) == 8
     blocks = _guide_blocks()
     for sample in samples:
         assert any(_contains(block, sample) for block in blocks), sample[0]
