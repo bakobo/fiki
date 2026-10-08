@@ -149,9 +149,15 @@ export function checkCovered(items, { response }) {
  * percent-encodes characters such as a space, so its pathname is not the path that was sent. The
  * KERI profile requires @path "in its encoded form, percent-encoding included and unnormalized"
  * (section 2), and so does RFC 9421 section 2.2.6, which is what fiki-py's urlsplit gives.
+ *
+ * Cleaned first exactly as urlsplit cleans it, so every port builds one base for the same URL
+ * (@0e832nug): leading C0 controls and spaces are stripped, and TAB, CR and LF are removed
+ * wherever they are. Trailing controls are kept, as urlsplit keeps them, and a covered component
+ * holding one is then refused like any other control character.
  */
 export function splitUrl(url) {
-  const match = /^(?:([A-Za-z][A-Za-z0-9+.-]*):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?/.exec(url);
+  const cleaned = url.replace(/^[\x00-\x20]+/, '').replace(/[\t\r\n]/g, '');
+  const match = /^(?:([A-Za-z][A-Za-z0-9+.-]*):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?/.exec(cleaned);
   const [, scheme = '', netloc, path, query = ''] = match;
   return { scheme: scheme.toLowerCase(), netloc: netloc ?? '', path, query };
 }

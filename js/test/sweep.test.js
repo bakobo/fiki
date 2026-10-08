@@ -595,3 +595,31 @@ describe('B20: input bounds, size before shape', () => {
     assert.equal((await verify(...(await withDigest(DIGEST + params(16))))).aid, KEY.aid);
   });
 });
+
+describe('E, conductor follow-up: a URL is cleaned as urlsplit cleans it, so every port builds one base', () => {
+  // Each expected base is fiki-py's on this branch (Python 3.14 urlsplit): TAB, CR and LF are
+  // removed anywhere in the URL, and leading C0 controls and spaces are stripped. Trailing ones
+  // are not, since urlsplit strips only the leading end.
+  const linesOf = (url) =>
+    new TextDecoder()
+      .decode(signatureBase({ method: 'GET', url, headers: {}, covered: ['@authority', '@path', '@query'], ...BASE_ARGS }))
+      .split('\n')
+      .slice(0, 3);
+
+  it('removes TAB, CR and LF anywhere', () => {
+    assert.deepEqual(linesOf('https://a.example/x\ty?q=1\r\n2'), ['"@authority": a.example', '"@path": /xy', '"@query": ?q=12']);
+    assert.deepEqual(linesOf('https://a.ex\tample:8\n0/p'), ['"@authority": a.example:80', '"@path": /p', '"@query": ?']);
+  });
+
+  it('strips leading C0 controls and spaces, and keeps trailing ones', () => {
+    assert.deepEqual(linesOf(' \x01\x00https://a.example/p '), ['"@authority": a.example', '"@path": /p ', '"@query": ?']);
+    assert.throws(() => linesOf('https://a.example/p\x1f'), errors.SignatureMismatch);
+  });
+
+  it('signs and verifies such a URL', async () => {
+    const url = 'https://a.example/x\ty?q=1\r\n2';
+    const [request, headers] = await sign({ url });
+    assert.equal((await verify(request, headers)).aid, KEY.aid);
+    assert.equal((await verify({ ...request, url: 'https://a.example/xy?q=12' }, headers)).aid, KEY.aid);
+  });
+});
