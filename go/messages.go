@@ -405,7 +405,9 @@ type VerifyOptions struct {
 	ExpectedKeyid string
 	// Authorities is the set of @authority values this verifier serves; a covered @authority
 	// outside it is a SignatureMismatch, because a request signed for one service must not replay
-	// to another. Nil checks nothing; an empty non-nil set serves nothing. Requests only.
+	// to another. Supplying it makes @authority required, so a signature that does not cover it
+	// is InsufficientCoverage (@605z9tnw). Nil checks nothing; an empty non-nil set serves
+	// nothing. Requests only.
 	Authorities []string
 }
 
@@ -475,6 +477,13 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 		// By the request's content alone, as SignResponse decides it (@7p9s3g9k).
 		requestHadBody := request != nil && len(request.Body) > 0
 		if err := checkMinimum(items, opts.Minimum, hasBody, requestHadBody); err != nil {
+			return nil, err
+		}
+	}
+	// Served authorities bind the signature to a host only if it commits to one, so supplying
+	// them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+	if opts.Authorities != nil {
+		if err := checkMinimum(items, []string{"@authority"}, false, false); err != nil {
 			return nil, err
 		}
 	}

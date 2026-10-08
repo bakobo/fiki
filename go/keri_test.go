@@ -449,3 +449,64 @@ func TestStructuredFieldsBeyondTheSubsetFikiActsOn(t *testing.T) {
 	}()
 	serializeBareItem(3.5)
 }
+
+// Supplying Authorities makes @authority required (@605z9tnw, tick 7zde).
+func TestSuppliedAuthoritiesRequireAuthority(t *testing.T) {
+	key := testKey(t)
+	sign := func(url string, covered []string) map[string]string {
+		t.Helper()
+		headers, err := SignRequest(key, "GET", url, nil,
+			SignOptions{Covered: covered, Created: signedAt, Keyid: keriAID, Minimum: RequestMinimum})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return headers
+	}
+	minimumOnly := append([]string(nil), RequestMinimum...)
+	withAuthority := append(append([]string(nil), RequestMinimum...), "@authority")
+
+	t.Run("a request signed for another host without @authority is refused, the cross-host replay", func(t *testing.T) {
+		headers := sign("https://attacker.example/identifiers?type=rot", minimumOnly)
+		_, err := VerifyRequest("GET", "https://victim.example/identifiers?type=rot", headers, VerifyOptions{
+			Resolve: resolverFor(key), Minimum: RequestMinimum, Authorities: []string{"victim.example"},
+		})
+		if kindOf(t, err) != KindInsufficientCoverage {
+			t.Fatal("expected InsufficientCoverage")
+		}
+		var fikiErr *Error
+		if errors.As(err, &fikiErr); fikiErr.Component != "@authority" {
+			t.Errorf("the refusal names %q, not @authority", fikiErr.Component)
+		}
+	})
+
+	t.Run("without Authorities an uncovered @authority still verifies", func(t *testing.T) {
+		headers := sign("https://victim.example/identifiers", minimumOnly)
+		if _, err := VerifyRequest("GET", "https://victim.example/identifiers", headers,
+			VerifyOptions{Resolve: resolverFor(key), Minimum: RequestMinimum}); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("the coverage refusal comes before the key is resolved", func(t *testing.T) {
+		headers := sign("https://victim.example/identifiers", minimumOnly)
+		unknown := func(string) ([]byte, error) { return nil, nil }
+		_, err := VerifyRequest("GET", "https://victim.example/identifiers", headers,
+			VerifyOptions{Resolve: unknown, Authorities: []string{"victim.example"}})
+		if kindOf(t, err) != KindInsufficientCoverage {
+			t.Error("expected InsufficientCoverage")
+		}
+	})
+
+	t.Run("a covered @authority verifies for the right host and not the wrong one", func(t *testing.T) {
+		headers := sign("https://victim.example/identifiers", withAuthority)
+		opts := VerifyOptions{Resolve: resolverFor(key), Authorities: []string{"victim.example"}}
+		if _, err := VerifyRequest("GET", "https://victim.example/identifiers", headers, opts); err != nil {
+			t.Fatal(err)
+		}
+		opts.Authorities = []string{"attacker.example"}
+		_, err := VerifyRequest("GET", "https://victim.example/identifiers", headers, opts)
+		if kindOf(t, err) != KindSignatureMismatch {
+			t.Error("expected SignatureMismatch")
+		}
+	})
+}

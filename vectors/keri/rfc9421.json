@@ -1,6 +1,6 @@
 {
   "about": "RFC 9421's own Ed25519 example, reproduced.",
-  "keri_vectors_format": 2,
+  "keri_vectors_format": 3,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",

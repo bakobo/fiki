@@ -347,7 +347,8 @@ def verify_request(
     :class:`~fiki.errors.UnknownKey`. ``authorities`` is the set of ``@authority`` values this
     verifier serves; a covered ``@authority`` outside it is a
     :class:`~fiki.errors.SignatureMismatch`, because a request signed for one service must not
-    replay to another (@2f227n4r).
+    replay to another (@2f227n4r). Supplying ``authorities`` makes ``@authority`` required, so a
+    signature that does not cover it is :class:`~fiki.errors.InsufficientCoverage` (@605z9tnw).
 
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     """
@@ -422,6 +423,10 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
             # By the request's content alone, as sign_response decides it (@7p9s3g9k).
             request_had_body=request is not None and bool(request.body),
         )
+    # Served authorities bind the signature to a host only if it commits to one, so supplying
+    # them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+    if authorities is not None:
+        _check_minimum(items, ["@authority"], has_body=False, request_had_body=False)
 
     keyid = inner.params.get("keyid")
     if expected_keyid is not None and keyid != expected_keyid:

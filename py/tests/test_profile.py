@@ -655,9 +655,37 @@ def test_a_covered_authority_outside_the_served_set_is_a_signature_mismatch():
         verify(request, headers, authorities={"keria.example.com"})
 
 
-def test_served_authorities_do_not_apply_when_authority_is_not_covered():
+# --- Supplying authorities makes @authority required (@605z9tnw, tick 7zde) ---
+
+def test_a_request_signed_for_another_host_without_authority_is_refused_given_authorities():
+    # The cross-host replay: a GET signed for attacker.example under the request minimum, which
+    # omits @authority, presented to a verifier that serves only victim.example.
+    request, headers = sign(method="GET", url="https://attacker.example/identifiers?type=rot",
+                            body=None, covered=list(REQUEST_MINIMUM), minimum=REQUEST_MINIMUM)
+    request["url"] = "https://victim.example/identifiers?type=rot"
+    with pytest.raises(InsufficientCoverage) as caught:
+        verify(request, headers, minimum=REQUEST_MINIMUM, authorities={"victim.example"})
+    assert caught.value.component == "@authority"
+
+
+def test_without_authorities_an_uncovered_authority_still_verifies():
     request, headers = sign(covered=["@method", "@path", "@query", "content-digest"])
-    assert verify(request, headers, authorities={"elsewhere.example.com"}).aid == KEY.aid
+    assert verify(request, headers).aid == KEY.aid
+
+
+def test_uncovered_authority_under_authorities_is_refused_before_the_key_is_resolved():
+    # Section 9 checks the covered list before the key, so a keyid nobody knows is not reached.
+    request, headers = sign(covered=["@method", "@path", "@query", "content-digest"], keyid=AID)
+    with pytest.raises(InsufficientCoverage):
+        verify(request, headers, resolve=lambda keyid: None, authorities={"keria.example.com"})
+
+
+def test_covered_authority_under_authorities_verifies_for_the_right_host_only():
+    request, headers = sign(method="GET", url="https://victim.example/identifiers", body=None,
+                            covered=list(REQUEST_MINIMUM) + ["@authority"])
+    assert verify(request, headers, authorities={"victim.example"}).aid == KEY.aid
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers, authorities={"attacker.example"})
 
 
 def test_an_unsigned_401_is_unauthenticated_before_anything_else():

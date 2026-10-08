@@ -313,7 +313,9 @@ export async function signResponse({
  * `Content-Length` above zero, any `Transfer-Encoding`, or simply arriving — without a covered
  * `content-digest` (@7f28p7xk). `null` enforces no minimum, body rule included. `expectedKeyid`
  * refuses a signature by any other keyid as UnknownKey. `authorities` is the set of `@authority`
- * values this verifier serves; a covered `@authority` outside it is a SignatureMismatch.
+ * values this verifier serves; a covered `@authority` outside it is a SignatureMismatch, and
+ * supplying it makes `@authority` required, so a signature that does not cover it is
+ * InsufficientCoverage (@605z9tnw).
  */
 export async function verifyRequest({
   method,
@@ -429,6 +431,9 @@ async function verify(message, headers, body, options) {
       requestHadBody: request !== null && hasContent(request.body),
     });
   }
+  // Served authorities bind the signature to a host only if it commits to one, so supplying
+  // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+  if (authorities !== null) checkMinimum(items, ['@authority'], { hasBody: false, requestHadBody: false });
 
   const received = inner.params.get('keyid') ?? null;
   const { raw, aid, keyid } = await resolveKey(expectedAid, received, resolve, expectedKeyid);

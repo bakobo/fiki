@@ -1168,10 +1168,43 @@ class ProfileTest {
             kindOf(() -> verify(s, opts -> opts.withAuthorities(Set.of("keria.example.com")))));
     }
 
+    /* --------- supplying authorities makes @authority required (@605z9tnw, tick 7zde) */
+
     @Test
-    void servedAuthoritiesDoNotApplyWhenAuthorityIsNotCovered() {
+    void aRequestSignedForAnotherHostWithoutAuthorityIsRefusedGivenAuthorities() {
+        // The cross-host replay: a GET signed for attacker.example under the request minimum,
+        // which omits @authority, presented to a verifier that serves only victim.example.
+        Signed signed = sign(KEY, "GET", "https://attacker.example/identifiers?type=rot", Map.of(),
+            Fiki.SignOptions.none().withCovered(Fiki.REQUEST_MINIMUM).withMinimum(Fiki.REQUEST_MINIMUM));
+        Signed replayed = new Signed("GET", "https://victim.example/identifiers?type=rot", null, signed.headers());
+        FikiException e = thrown(() -> verify(replayed,
+            opts -> opts.withMinimum(Fiki.REQUEST_MINIMUM).withAuthorities(Set.of("victim.example"))));
+        assertEquals(FikiException.Kind.InsufficientCoverage, e.kind());
+        assertEquals("@authority", e.detail());
+    }
+
+    @Test
+    void withoutAuthoritiesAnUncoveredAuthorityStillVerifies() {
         Signed s = sign(opts -> opts.withCovered(List.of("@method", "@path", "@query", "content-digest")));
-        assertEquals(KEY.aid(), verify(s, opts -> opts.withAuthorities(Set.of("elsewhere.example.com"))).aid());
+        assertEquals(KEY.aid(), verify(s).aid());
+    }
+
+    @Test
+    void anUncoveredAuthorityUnderAuthoritiesIsRefusedBeforeTheKeyIsResolved() {
+        Signed s = sign(opts -> opts.withKeyid(AID).withCovered(List.of("@method", "@path", "@query", "content-digest")));
+        assertEquals(FikiException.Kind.InsufficientCoverage, kindOf(() -> verify(s,
+            opts -> opts.withResolver(keyid -> null).withAuthorities(Set.of("keria.example.com")))));
+    }
+
+    @Test
+    void aCoveredAuthorityUnderAuthoritiesVerifiesForTheRightHostOnly() {
+        List<String> covered = new ArrayList<>(Fiki.REQUEST_MINIMUM);
+        covered.add("@authority");
+        Signed s = sign(KEY, "GET", "https://victim.example/identifiers", Map.of(),
+            Fiki.SignOptions.none().withCovered(covered));
+        assertEquals(KEY.aid(), verify(s, opts -> opts.withAuthorities(Set.of("victim.example"))).aid());
+        assertEquals(FikiException.Kind.SignatureMismatch,
+            kindOf(() -> verify(s, opts -> opts.withAuthorities(Set.of("attacker.example")))));
     }
 
     @Test

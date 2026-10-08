@@ -45,6 +45,7 @@ namespace Bakobo.Fiki
 
         private static readonly SfItem BodyDigest = Components.Component(Components.ContentDigest);
         private static readonly SfItem RequestDigest = Components.Component(Components.Req(Components.ContentDigest));
+        private static readonly SfItem Authority = Components.Component("@authority");
 
         internal static string ContentDigest(byte[] body) => DigestOut + "=:" + Convert.ToBase64String(Hash(DigestOut, body)) + ":";
 
@@ -300,6 +301,12 @@ namespace Bakobo.Fiki
                     hasBody: response ? HasContent(body) : RequestHasBody(found, body),
                     // By the request's content alone, as SignResponse decides it (@7p9s3g9k).
                     requestHadBody: HasContent(request?.BodyRef));
+            }
+            // Served authorities bind the signature to a host only if it commits to one, so supplying
+            // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
+            if (options.Authorities != null)
+            {
+                CheckMinimum(items, new List<SfItem> { Authority }, hasBody: false, requestHadBody: false);
             }
 
             var keyId = inner.Params.TryGet("keyid", out var keyIdValue) ? keyIdValue!.Text : null;

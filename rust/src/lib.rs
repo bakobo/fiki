@@ -25,7 +25,7 @@ pub const VECTORS_FORMAT: u32 = 1;
 /// A separate number from [`VECTORS_FORMAT`], because the two sets answer to different authorities
 /// and move independently: the shared vectors to fiki's own decisions, these to a profile fiki does
 /// not own.
-pub const KERI_VECTORS_FORMAT: u32 = 2;
+pub const KERI_VECTORS_FORMAT: u32 = 3;
 
 mod base;
 mod errors;

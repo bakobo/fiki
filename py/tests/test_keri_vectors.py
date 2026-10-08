@@ -34,7 +34,7 @@ FILES = ("rfc9421.json", "requests.json", "responses.json", "refusals.json", "le
 
 # The format this port satisfies. A separate number from fiki.VECTORS_FORMAT, because the two sets
 # answer to different authorities and move independently (@8vwrexxc).
-KERI_VECTORS_FORMAT = 2
+KERI_VECTORS_FORMAT = 3
 
 
 def _generator():
