@@ -141,6 +141,8 @@ namespace Bakobo.Fiki.Tests
             var verdict = HttpSignatures.VerifyRequest(
                 c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c));
             Assert.Equal(c.GetProperty("aid").GetString(), verdict.Aid);
+            // Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.
+            Assert.Equal(c.GetProperty("keyid").GetString(), verdict.KeyId);
             Assert.Equal(c.GetProperty("covered").EnumerateArray().Select(x => x.GetString()).ToArray(), verdict.Covered.ToArray());
         }
 
