@@ -73,6 +73,9 @@ struct RequestCase {
     now: Option<i64>,
     #[serde(default)]
     aid: String,
+    /// The keyid as it arrived, which format 2 pins on every accept case (`this.i` @5zrf8gjk).
+    #[serde(default)]
+    keyid: Option<String>,
     #[serde(default)]
     covered: Vec<String>,
     #[serde(default)]
@@ -131,34 +134,38 @@ fn aid_lens() {
 #[test]
 fn signature_bases_and_signatures() {
     let file: File<BaseCase> = load("signature-base.json");
-    for case in file.cases {
-        let params = SignatureParams {
-            created: Some(case.created),
-            keyid: Some(case.keyid.clone()),
-            alg: case.alg.clone(),
-            ..Default::default()
-        };
-        let base = signature_base(
-            &case.method,
-            &case.url,
-            &case.headers,
-            &case.covered,
-            &params,
-        )
-        .unwrap();
-        assert_eq!(
-            String::from_utf8(base.clone()).unwrap(),
-            case.base,
-            "{}",
-            case.id
-        );
-        // Ed25519 is deterministic, so a port that builds the right base produces the right bytes:
-        // byte equality, not a verification round trip.
-        let key = Key::from_seed(&from_hex(&case.seed_hex)).unwrap();
-        let signature = fiki::Key::sign(&key, &base);
-        let encoded = base64_std(&signature);
-        assert_eq!(encoded, case.signature, "{}", case.id);
-    }
+    each(
+        file.cases,
+        |c| c.id.clone(),
+        |case| {
+            let params = SignatureParams {
+                created: Some(case.created),
+                keyid: Some(case.keyid.clone()),
+                alg: case.alg.clone(),
+                ..Default::default()
+            };
+            let base = signature_base(
+                &case.method,
+                &case.url,
+                &case.headers,
+                &case.covered,
+                &params,
+            )
+            .map_err(|e| format!("{}: {e}", e.kind))?;
+            let text = String::from_utf8(base.clone()).unwrap();
+            if text != case.base {
+                return Err(format!("base {text:?}"));
+            }
+            // Ed25519 is deterministic, so a port that builds the right base produces the right bytes:
+            // byte equality, not a verification round trip.
+            let key = Key::from_seed(&from_hex(&case.seed_hex)).unwrap();
+            let encoded = base64_std(&key.sign(&base));
+            if encoded != case.signature {
+                return Err(format!("signature {encoded}"));
+            }
+            Ok(())
+        },
+    );
 }
 
 fn base64_std(raw: &[u8]) -> String {
@@ -187,25 +194,57 @@ fn base64_std(raw: &[u8]) -> String {
     out
 }
 
+/// Runs every case and reports all the failures together, so one red run names every case that is
+/// wrong rather than only the first.
+fn each<T>(cases: Vec<T>, id: impl Fn(&T) -> String, check: impl Fn(&T) -> Result<(), String>) {
+    let failures: Vec<String> = cases
+        .iter()
+        .filter_map(|case| check(case).err().map(|why| format!("{}: {why}", id(case))))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "{} case(s) failed:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 #[test]
 fn accepts() {
     let file: File<RequestCase> = load("accepts.json");
-    for case in file.cases {
-        let verdict = verify_request(&case.method, &case.url, &case.headers, &case.options())
-            .unwrap_or_else(|e| panic!("{} should verify: {e}", case.id));
-        assert_eq!(verdict.aid, case.aid, "{}", case.id);
-        assert_eq!(verdict.covered, case.covered, "{}", case.id);
-    }
+    each(
+        file.cases,
+        |c| c.id.clone(),
+        |case| {
+            let verdict = verify_request(&case.method, &case.url, &case.headers, &case.options())
+                .map_err(|e| format!("should verify: {}: {e}", e.kind))?;
+            if verdict.aid != case.aid {
+                return Err(format!("aid {}", verdict.aid));
+            }
+            // Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.
+            if case.keyid.is_none() || verdict.keyid != case.keyid {
+                return Err(format!("keyid {:?}", verdict.keyid));
+            }
+            if verdict.covered != case.covered {
+                return Err(format!("covered {:?}", verdict.covered));
+            }
+            Ok(())
+        },
+    );
 }
 
 #[test]
 fn refusals() {
     let file: File<RequestCase> = load("refusals.json");
-    for case in file.cases {
-        // Every entry names the kind fiki reports, so this port maps its own onto the same
-        // condition rather than inventing a taxonomy of its own.
-        let err = verify_request(&case.method, &case.url, &case.headers, &case.options())
-            .expect_err(&format!("{} should be refused", case.id));
-        assert_eq!(err.kind.to_string(), case.error, "{}", case.id);
-    }
+    // Every entry names the kind fiki reports, so this port maps its own onto the same condition
+    // rather than inventing a taxonomy of its own.
+    each(
+        file.cases,
+        |c| c.id.clone(),
+        |case| match verify_request(&case.method, &case.url, &case.headers, &case.options()) {
+            Ok(_) => Err(format!("accepted; expected {}", case.error)),
+            Err(e) if e.kind.to_string() == case.error => Ok(()),
+            Err(e) => Err(format!("{}: {e}; expected {}", e.kind, case.error)),
+        },
+    );
 }
