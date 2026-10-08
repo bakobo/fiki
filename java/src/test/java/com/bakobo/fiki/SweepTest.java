@@ -247,6 +247,17 @@ class SweepTest {
         }
     }
 
+    @Test
+    void tabCrAndLfAreRemovedFromAUrlAsPythonsUrlsplitRemovesThem() {
+        // The conductor's ruling of 2026-10-08 for the spec's open item: match py and go.
+        String base = new String(Fiki.signatureBase("GET", "ht\ttps://h.exa\tmple:84\r43/a\r\nb?q=\t1#f\n",
+            Map.of(), List.of("@authority", "@path", "@query"), new Fiki.Params(null, null, null, null, null, null)),
+            StandardCharsets.UTF_8);
+        assertTrue(base.startsWith("\"@authority\": h.example:8443\n\"@path\": /ab\n\"@query\": ?q=1\n"), base);
+        Map<String, String> signed = sign();
+        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", "https://exam\tple.com/p?q=\r\n1", signed, declined()).aid());
+    }
+
     /* ----------------------------------------------- B15 what the signer serializes */
 
     @ParameterizedTest
