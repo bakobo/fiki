@@ -178,6 +178,26 @@ function unreadable(message, reason) {
   return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
 }
 
+// RFC 3986 section 3.2.2's IP-literal, as Python's urlsplit checks it from 3.11.4, so a host fiki-py
+// refuses is refused here too: IPvFuture ("v", hex digits, ".", then anything but a line feed), or
+// an IPv6address with an optional zone after "%". The IPv6 grammar is RFC 3986's own, which accepts
+// exactly what Python's ipaddress.IPv6Address does.
+const H16 = '[0-9A-Fa-f]{1,4}';
+const DEC_OCTET = '(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])';
+const LS32 = `(?:${H16}:${H16}|${DEC_OCTET}(?:\\.${DEC_OCTET}){3})`;
+const IPV6 = [
+  `(?:${H16}:){6}${LS32}`,
+  `::(?:${H16}:){5}${LS32}`,
+  `(?:${H16})?::(?:${H16}:){4}${LS32}`,
+  `(?:(?:${H16}:){0,1}${H16})?::(?:${H16}:){3}${LS32}`,
+  `(?:(?:${H16}:){0,2}${H16})?::(?:${H16}:){2}${LS32}`,
+  `(?:(?:${H16}:){0,3}${H16})?::${H16}:${LS32}`,
+  `(?:(?:${H16}:){0,4}${H16})?::${LS32}`,
+  `(?:(?:${H16}:){0,5}${H16})?::${H16}`,
+  `(?:(?:${H16}:){0,6}${H16})?::`,
+].join('|');
+const IP_LITERAL = new RegExp(`^(?:v[0-9A-Fa-f]+\\.[^\\n]+|(?:${IPV6})(?:%[^%]+)?)$`);
+
 /** Split an authority's host-and-port into the host as written and the port's text.
  *
  * An IP-literal keeps its brackets, which RFC 3986 section 3.2.2 makes part of the host, and only
@@ -189,6 +209,9 @@ function hostAndPort(hostport, message) {
     const rest = close < 0 ? '' : hostport.slice(close + 1);
     if (close < 0 || (rest !== '' && !rest.startsWith(':'))) {
       throw unreadable(message, 'an IP-literal must close with "]", followed by nothing but ":" and a port.');
+    }
+    if (!IP_LITERAL.test(hostport.slice(1, close))) {
+      throw unreadable(message, 'its IP-literal is not an IPv6 address or IPvFuture.');
     }
     return [hostport.slice(0, close + 1), rest.slice(1)];
   }

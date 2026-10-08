@@ -95,6 +95,41 @@ describe('A3: an IP-literal keeps its brackets, and only :port may follow "]"', 
   }
 });
 
+describe('A3: what sits between an IP-literal\'s brackets is an IPv6 address or IPvFuture', () => {
+  // The same lists as fiki-py's tests/test_sweep.py, whose oracle is Python's own ipaddress.
+  const notAddresses = ['not-an-ip', '1.2.3.4', 'vZ.x', 'v1.', 'V1.x', 'v.x', '::1%', 'fe80::1%a%b',
+    '1:2:3:4:5:6:7:8:9', '::01.2.3.4', '::256.1.1.1', '12345::', '', '1::2::3'];
+  for (const inside of notAddresses) {
+    it(`[${inside}] is a caller error when signing`, () =>
+      assert.throws(() => authority(`https://[${inside}]/x`), callerError));
+    it(`[${inside}] is a signature mismatch when verifying`, async () => {
+      const [request, headers] = await sign({ url: 'https://[::1]/x' });
+      await assert.rejects(verify({ ...request, url: `https://[${inside}]/x` }, headers), errors.SignatureMismatch);
+    });
+  }
+  for (const inside of ['::1', '::', '1::', '2001:DB8::1', '1:2:3:4:5:6:7:8', '1:2:3:4:5:6:7::', '::ffff:1.2.3.4',
+    '1:2:3:4:5:6:1.2.3.4', 'fe80::1%25eth0', 'v1.x', 'vF.a:b', 'v12.[']) {
+    it(`[${inside}] is an IP-literal`, () => assert.equal(authority(`https://[${inside}]/x`), `[${inside.toLowerCase()}]`));
+  }
+});
+
+describe('B14: a port of thousands of digits is read without converting them', () => {
+  const zeros = '0'.repeat(5000);
+  it('5,000 leading zeros before 443 are the https default', async () => {
+    assert.equal(authority(`https://a.example:${zeros}443/x`), 'a.example');
+    assert.equal(authority(`https://a.example:${zeros}8443/x`), 'a.example:8443');
+    const [request, headers] = await sign({ url: 'https://a.example:443/x' });
+    assert.equal((await verify({ ...request, url: `https://a.example:${zeros}443/x` }, headers)).aid, KEY.aid);
+  });
+  for (const port of [`${zeros}65536`, `1${zeros}`, '9'.repeat(5000)]) {
+    it(`a port of ${port.length} digits is out of range`, async () => {
+      assert.throws(() => authority(`https://a.example:${port}/x`), callerError);
+      const [request, headers] = await sign({ url: 'https://a.example/x' });
+      await assert.rejects(verify({ ...request, url: `https://a.example:${port}/x` }, headers), errors.SignatureMismatch);
+    });
+  }
+});
+
 describe('A4: header values are strings, and a field is named once', () => {
   for (const headers of [{ 'x-a': null }, { 'x-a': undefined }, { 'x-a': 1 }, { 'x-a': ['1'] }]) {
     it(`${JSON.stringify(headers)} is a caller error on sign and verify`, async () => {
@@ -545,6 +580,25 @@ describe('B20: input bounds, size before shape', () => {
     await assert.rejects(verify(request, { ...headers, 'Signature-Input': '('.repeat(9000) }), refused);
     await assert.rejects(verify(request, { ...headers, 'Signature-Input': 'é'.repeat(4097) }), refused);
   });
+
+  // An unpaired surrogate has no UTF-8 spelling; fiki-py's encode raised on one (PR #14 hostile #3).
+  for (const value of ['\ud800', 'sig=:\udfff:', '\ud800'.repeat(9000)]) {
+    for (const [header, error] of [['Signature', errors.MalformedSignature], ['Signature-Input', errors.MalformedSignatureInput]]) {
+      it(`a ${header} holding an unpaired surrogate (${value.length} units) is malformed`, async () => {
+        const [request, headers] = await sign({ method: 'POST', body: BODY });
+        await assert.rejects(verify(request, { ...headers, [header]: value }), error);
+      });
+    }
+  }
+  for (const value of ['\ud800', 'sha-256=:\udfff:']) {
+    it(`a Content-Digest holding an unpaired surrogate is malformed (${JSON.stringify(value)})`, async () => {
+      const asked = { method: 'POST', url: URL_, headers: { 'Content-Digest': value }, body: BODY };
+      for (const covered of [['@status', req('content-digest')], undefined]) {
+        await assert.rejects(signResponse({ key: KEY, status: 200, request: asked, created: AT, covered }), errors.MalformedDigest);
+      }
+      await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': value } }), callerError);
+    });
+  }
 
   const extraMembers = (n) => Array.from({ length: n }, (_, i) => `, x${i}=:AAAA:`).join('');
 
