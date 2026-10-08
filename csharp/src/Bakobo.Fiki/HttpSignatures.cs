@@ -22,6 +22,22 @@ namespace Bakobo.Fiki
         /// </summary>
         public const int KeriVectorsFormat = 4;
 
+        /// <summary>
+        /// The most bytes, UTF-8 and as received before any trimming, that fiki reads from each of
+        /// Signature, Signature-Input and Content-Digest (this.i @5zrf8gjk). A longer field is that
+        /// header's malformed kind, refused before it is parsed: size before shape.
+        /// </summary>
+        public const int MaxFieldBytes = 8192;
+
+        /// <summary>The most members a Signature, Signature-Input or Content-Digest dictionary may hold.</summary>
+        public const int MaxDictionaryMembers = 16;
+
+        /// <summary>The most items an inner list in any of those headers may hold.</summary>
+        public const int MaxInnerListItems = 64;
+
+        /// <summary>The most parameters any item or inner list in those headers may carry.</summary>
+        public const int MaxParameters = 16;
+
         /// <summary>The derived components fiki builds in a request.</summary>
         public static IReadOnlyList<string> Derived { get; } = Array.AsReadOnly(Components.Derived);
 
