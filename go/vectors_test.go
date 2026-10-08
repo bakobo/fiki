@@ -59,6 +59,7 @@ type requestCase struct {
 	MaxAge  *int64            `json:"max_age"`
 	Now     *int64            `json:"now"`
 	AID     string            `json:"aid"`
+	Keyid   string            `json:"keyid"`
 	Covered []string          `json:"covered"`
 	Error   string            `json:"error"`
 }
@@ -168,6 +169,10 @@ func TestAcceptVectors(t *testing.T) {
 			}
 			if verdict.AID != c.AID {
 				t.Errorf("AID = %q, want %q", verdict.AID, c.AID)
+			}
+			// Every accept case carries the keyid as the signer wrote it (rule B18, E7).
+			if c.Keyid == "" || verdict.Keyid != c.Keyid {
+				t.Errorf("keyid = %q, want %q", verdict.Keyid, c.Keyid)
 			}
 			if !slices.Equal(verdict.Covered, c.Covered) {
 				t.Errorf("covered = %v, want %v", verdict.Covered, c.Covered)

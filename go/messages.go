@@ -20,6 +20,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -97,7 +98,16 @@ type SignOptions struct {
 // headers, and covers it. With a Body and an explicit Covered that omits content-digest, fiki
 // returns UncoveredBody rather than signing a request whose body nothing binds. method is signed
 // exactly as given (@22g0xkr8), so pass it as it will go on the wire.
+//
+// Mistakes in the call are ErrInvalidOptions, never an *Error (this.i @5zrf8gjk): a method that is
+// not an HTTP token, a URL whose authority cannot be read, such as one whose port is not a number
+// from 0 to 65535, a label that is not an RFC 8941 key, a keyid, nonce or tag outside printable
+// ASCII, a component name that is not a field name, a Created or Expires outside 0 to
+// 999999999999999, and a supplied Content-Digest the Body does not match.
 func SignRequest(key *Key, method, rawURL string, headers map[string]string, opts SignOptions) (map[string]string, error) {
+	if err := checkLabel(opts.Label); err != nil {
+		return nil, err
+	}
 	if err := floored(opts.Minimum, RequestMinimum); err != nil {
 		return nil, err
 	}
@@ -124,7 +134,7 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 			return nil, err
 		}
 	}
-	m, err := canonicalMessage(method, rawURL, sending)
+	m, err := canonicalMessage(method, rawURL, sending, false)
 	if err != nil {
 		return nil, err
 	}
@@ -143,8 +153,11 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 // was non-empty, each marked req. That binds the response to what was asked. A request whose body
 // was non-empty and which carries no Content-Digest to bind is refused as UncoveredBody rather than
 // signed into a response every profile client refuses, and a request digest its Body contradicts
-// is refused as the verifier would refuse it.
+// is refused as the verifier would refuse it. The caller's mistakes are SignRequest's.
 func SignResponse(key *Key, status int, request *Request, headers map[string]string, opts SignOptions) (map[string]string, error) {
+	if err := checkLabel(opts.Label); err != nil {
+		return nil, err
+	}
 	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
 		return nil, err
 	}
@@ -200,7 +213,7 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	}
 	m := &message{headers: sending, status: status}
 	if request != nil {
-		if m.request, err = canonicalMessage(request.Method, request.URL, requestHeaders); err != nil {
+		if m.request, err = canonicalMessage(request.Method, request.URL, requestHeaders, false); err != nil {
 			return nil, err
 		}
 	}
@@ -252,8 +265,14 @@ func coverBody(items []componentID, sending map[string]string, body []byte, chos
 	}
 	if supplied, ok := sending[ContentDigestHeader]; ok {
 		// A digest the caller supplied is checked, not trusted: signing one the body contradicts
-		// would vouch for a body nobody sent (bakobo/fiki#6).
-		return items, "", checkDigest(supplied, true, body)
+		// would vouch for a body nobody sent (bakobo/fiki#6). One a verifier would not accept for
+		// this body is the call's mistake, not a message's defect (this.i @5zrf8gjk).
+		if err := checkDigest(supplied, true, body); err != nil {
+			return nil, "", invalidOptions("The Content-Digest supplied with this body is not one a "+
+				"verifier would accept for it: %s Omit it and fiki computes one, or supply the body "+
+				"it describes.", err.Error())
+		}
+		return items, "", nil
 	}
 	sending[ContentDigestHeader] = ContentDigest(body)
 	return items, sending[ContentDigestHeader], nil
@@ -271,11 +290,27 @@ func bindsRequestDigest(items []componentID) bool {
 	})
 }
 
+// labelled is the label a signature goes under: the caller's, or "sig" when none is named.
+func labelled(label string) string {
+	if label == "" {
+		return "sig"
+	}
+	return label
+}
+
+// checkLabel refuses a label that is not an RFC 8941 key (section 3.1.2), as the caller's
+// mistake: it is serialized into both headers as given (this.i @5zrf8gjk).
+func checkLabel(label string) error {
+	if !isSfKey(labelled(label)) {
+		return invalidOptions("The label %q is not an RFC 8941 key: it starts with a lowercase letter "+
+			"or '*' and continues with lowercase letters, digits, '_', '-', '.' and '*'.", label)
+	}
+	return nil
+}
+
 // signed returns the signature headers, plus the Content-Digest fiki generated, if it did.
 func signed(key *Key, base []byte, label, generated string) map[string]string {
-	if label == "" {
-		label = "sig"
-	}
+	label = labelled(label)
 	params := string(base)
 	params = params[strings.LastIndex(params, `"@signature-params": `)+len(`"@signature-params": `):]
 	out := map[string]string{
@@ -333,8 +368,9 @@ func requestHasBody(found map[string]string, body []byte) bool {
 		return false
 	}
 	// Fail closed: a length that is not a plain decimal, negative ones included, is not evidence
-	// that there is no body.
-	length = strings.TrimSpace(length)
+	// that there is no body. Only SP and HTAB are optional whitespace (this.i @5zrf8gjk); a
+	// no-break space or a vertical tab makes the value something other than a decimal.
+	length = strings.Trim(length, " \t")
 	return length == "" || strings.TrimLeft(length, "0123456789") != "" || strings.Trim(length, "0") != ""
 }
 
@@ -367,10 +403,13 @@ func checkMinimum(items []componentID, minimum []string, hasBody, requestHadBody
 // Verdict is the outcome of a successful verification. An error means it did not verify.
 //
 // It carries no timestamp and asserts no freshness beyond what was checked: the caller supplied
-// the message, and `created` is whatever the signer put there. AID is the non-transferable AID of
-// the key that verified, or, when a Resolver supplied that key, the keyid it vouched for. Covered
-// names each component as a caller would spell it: a plain name, or its serialized form when it
-// carries a parameter, such as `"@path";req`. Keyid is the keyid as received.
+// the message, and `created` is whatever the signer put there.
+//
+// AID is the identity that vouched for the key: the non-transferable AID of a raw key, the keyid a
+// Resolver vouched for (@6g9zjsv9), or ExpectedAID. Keyid is the keyid exactly as it appeared on
+// the wire, empty when the signature had none (this.i @5zrf8gjk), so a verifier given ExpectedAID
+// can still see what the signer claimed. Covered names each component as a caller would spell it:
+// a plain name, or its serialized form when it carries a parameter, such as `"@path";req`.
 type Verdict struct {
 	AID     string
 	Covered []string
@@ -412,11 +451,22 @@ type VerifyOptions struct {
 }
 
 // VerifyRequest verifies a signed request.
+//
+// MaxAge and Skew, when given, are positive; zero or less is ErrInvalidOptions, as is a method that
+// is not an HTTP token (this.i @5zrf8gjk). A URL whose authority cannot be read, such as one whose
+// port is not a number from 0 to 65535, is a base that cannot be built, so a covered @authority
+// makes it a SignatureMismatch. Signature, Signature-Input and Content-Digest are bounded before
+// they are parsed, at MaxFieldBytes each, MaxDictionaryMembers members, MaxInnerListItems items in
+// an inner list and MaxParameters parameters on an item, and a header over any of them is
+// malformed.
 func VerifyRequest(method, rawURL string, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if err := checkWindow(opts); err != nil {
+		return nil, err
+	}
 	if err := floored(opts.Minimum, RequestMinimum); err != nil {
 		return nil, err
 	}
-	m, err := requestMessage(method, rawURL, headers)
+	m, err := requestMessage(method, rawURL, headers, true)
 	if err != nil {
 		return nil, err
 	}
@@ -430,8 +480,11 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // response against a Request with no Body is ErrInvalidOptions. A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
 // else in the message, because a server that refuses before it knows the agent cannot sign the
-// refusal (@2f227n4r).
+// refusal (@2f227n4r). The policy's limits and the input bounds are VerifyRequest's.
 func VerifyResponse(status int, request *Request, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if err := checkWindow(opts); err != nil {
+		return nil, err
+	}
 	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
 		return nil, err
 	}
@@ -439,12 +492,12 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 		return nil, invalidOptions("Authorities applies to a request a verifier serves, not to a " +
 			"response; pass nil.")
 	}
-	m, err := responseMessage(status, headers, request)
+	m, err := responseMessage(status, headers, request, true)
 	if err != nil {
 		return nil, err
 	}
 	// Empty counts as absent, as read treats it: an empty Signature header signs nothing.
-	if status == 401 && m.headers["signature"] == "" {
+	if status == 401 && blank(m.headers["signature"]) {
 		return nil, errorf(KindUnauthenticated,
 			"The server answered 401 without signing the answer, so the request was not "+
 				"authenticated and the body of the refusal cannot be trusted.")
@@ -488,8 +541,14 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 		}
 	}
 
+	// Section 9's key steps in order (this.i @5zrf8gjk): what the keyid alone shows, then the
+	// expected keyid, and only then the resolver, which is never asked about a keyid already refused.
 	value, _ := list.param("keyid")
 	keyid, _ := value.(string)
+	public, aid, err := localKey(opts.ExpectedAID, keyid, opts.Resolve)
+	if err != nil {
+		return nil, err
+	}
 	if opts.ExpectedKeyid != "" && keyid != opts.ExpectedKeyid {
 		return nil, &Error{
 			Kind:    KindUnknownKey,
@@ -497,9 +556,10 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 			Keyid:   keyid,
 		}
 	}
-	public, aid, err := resolveKey(opts.ExpectedAID, keyid, opts.Resolve)
-	if err != nil {
-		return nil, err
+	if public == nil {
+		if public, aid, err = resolvedKey(keyid, opts.Resolve); err != nil {
+			return nil, err
+		}
 	}
 	if alg, ok := list.param("alg"); ok && alg != Alg {
 		return nil, &Error{
@@ -589,19 +649,18 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 // Signature-Input, the members' shape before the label count.
 func read(found map[string]string, requireKeyid, requireCreated bool) (innerList, []byte, error) {
 	var empty innerList
-	if found["signature"] == "" {
+	if blank(found["signature"]) {
 		return empty, nil, errorf(KindMissingSignature, "This message has no Signature header, so there is nothing to verify.")
 	}
-	if found["signature-input"] == "" {
+	if blank(found["signature-input"]) {
 		return empty, nil, errorf(KindMissingSignatureInput,
 			"This message has no Signature-Input header, so there is no way to know which "+
 				"components a signature would cover.")
 	}
 
-	_, signatures, err := parseDictionary(found["signature"])
+	_, signatures, err := parseField(found["signature"], "Signature", KindMalformedSignature)
 	if err != nil {
-		return empty, nil, errorf(KindMalformedSignature,
-			"I could not parse the Signature header; RFC 9421 spells it as an RFC 8941 dictionary.")
+		return empty, nil, err
 	}
 	for _, entry := range signatures {
 		if _, ok := entry.Value.([]byte); !ok {
@@ -612,10 +671,9 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 					"Signature header carries something else.")
 		}
 	}
-	inputOrder, inputs, err := parseDictionary(found["signature-input"])
+	inputOrder, inputs, err := parseField(found["signature-input"], "Signature-Input", KindMalformedSignatureInput)
 	if err != nil {
-		return empty, nil, errorf(KindMalformedSignatureInput,
-			"I could not parse the Signature-Input header; RFC 9421 spells it as an RFC 8941 dictionary.")
+		return empty, nil, err
 	}
 	for _, label := range inputOrder {
 		if err := checkInput(inputs[label], requireKeyid, requireCreated); err != nil {
@@ -645,6 +703,24 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 				"colons; this one is %d bytes.", len(raw))
 	}
 	return inputs[label].List, raw, nil
+}
+
+// blank is a field value with nothing in it but optional whitespace, which is no value at all.
+func blank(value string) bool { return strings.Trim(value, " \t") == "" }
+
+// parseField parses one of the three signature-related headers, bounded before it is read (this.i
+// @5zrf8gjk): its size is measured as received, before anything is trimmed or parsed, and the
+// counts are the parser's. Either refusal, like a parse failure, is the header's malformed kind.
+func parseField(raw, name, kind string) ([]string, map[string]member, error) {
+	if len(raw) > MaxFieldBytes {
+		return nil, nil, errorf(kind, "The %s header is %d bytes, and fiki reads one of at most %d.",
+			name, len(raw), MaxFieldBytes)
+	}
+	order, parsed, err := parseDictionary(raw)
+	if err != nil {
+		return nil, nil, errorf(kind, "I could not parse the %s header as an RFC 8941 dictionary: %v.", name, err)
+	}
+	return order, parsed, nil
 }
 
 // checkInput refuses a Signature-Input member fiki would otherwise have to guess about.
@@ -700,17 +776,77 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 	return nil
 }
 
-// resolveKey is the key to verify with and the identity to report, refusing a key that is not a
-// canonical on-curve point, or is of small order, whichever way it arrived (@8krqtpsu).
-func resolveKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
-	public, aid, err := findKey(expectedAID, keyid, resolve)
+// localKey is every key check that needs nothing beyond the keyid itself (profile section 9): the
+// key to verify with and the identity to report when no resolver is needed, or a nil key when the
+// resolver decides. Either way a keyid that is not well formed is refused here, before the expected
+// keyid is compared and before any resolver sees it (this.i @5zrf8gjk).
+func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
+	if expectedAID != "" {
+		public, err := VerifyingKey(expectedAID)
+		if err != nil {
+			return nil, "", err
+		}
+		return usable(public, expectedAID, expectedAID)
+	}
+	if keyid == "" {
+		return nil, "", errorf(KindMissingKey,
+			"This signature carries no keyid and no ExpectedAID was supplied, so there is no key to verify it against.")
+	}
+	if resolve != nil {
+		if misspelledAID(keyid) {
+			return nil, "", &Error{
+				Kind: KindMalformedKey,
+				Message: fmt.Sprintf("The keyid %q is shaped like an AID and is not its canonical "+
+					"spelling, so it is not an AID at all.", keyid),
+				Keyid: keyid,
+			}
+		}
+		return nil, "", nil
+	}
+	// Strictly: a lenient decoder ignores trailing bits and skips line breaks, so a keyid that is
+	// not the key's encoding could verify as whatever key it happened to decode to. Only the one
+	// canonical spelling is a key.
+	raw, err := b64url.Strict().DecodeString(keyid)
+	if !rawKeyidShape.MatchString(keyid) || err != nil {
+		return nil, "", &Error{
+			Kind: KindMalformedKey,
+			Message: fmt.Sprintf("The keyid %q is not the canonical base64url spelling of a 32-byte "+
+				"Ed25519 public key: that is exactly 43 characters from the base64url alphabet, unpadded.", keyid),
+			Keyid: keyid,
+		}
+	}
+	return usable(ed25519.PublicKey(raw), ToAID(raw), keyid)
+}
+
+// resolvedKey is the resolver's key for a keyid already found well formed, and the keyid it
+// vouched for.
+func resolvedKey(keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
+	// The resolver is authoritative: fiki never falls back to decoding the keyid, because a
+	// transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
+	raw, err := resolve(keyid)
 	if err != nil {
 		return nil, "", err
 	}
-	named := keyid
-	if expectedAID != "" {
-		named = expectedAID
+	if raw == nil {
+		return nil, "", &Error{
+			Kind:    KindUnknownKey,
+			Message: fmt.Sprintf("No key is known for the keyid %q, so the signature cannot be checked.", keyid),
+			Keyid:   keyid,
+		}
 	}
+	if len(raw) != keyLength {
+		return nil, "", &Error{
+			Kind:    KindMalformedKey,
+			Message: fmt.Sprintf("The key resolved for %q is not a %d-byte Ed25519 public key.", keyid, keyLength),
+			Keyid:   keyid,
+		}
+	}
+	return usable(ed25519.PublicKey(raw), keyid, keyid)
+}
+
+// usable refuses a key that is not a canonical on-curve point, or is of small order, whichever way
+// it arrived (@8krqtpsu). named is how the refusal names it.
+func usable(public ed25519.PublicKey, aid, named string) (ed25519.PublicKey, string, error) {
 	if !canonicalPoint(public) {
 		return nil, "", &Error{
 			Kind: KindMalformedKey,
@@ -730,62 +866,29 @@ func resolveKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey,
 	return public, aid, nil
 }
 
-func findKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
-	if expectedAID != "" {
-		public, err := VerifyingKey(expectedAID)
-		if err != nil {
-			return nil, "", err
-		}
-		return public, expectedAID, nil
-	}
-	if keyid == "" {
-		return nil, "", errorf(KindMissingKey,
-			"This signature carries no keyid and no ExpectedAID was supplied, so there is no key to verify it against.")
-	}
-	if resolve != nil {
-		if misspelledAID(keyid) {
-			return nil, "", &Error{
-				Kind: KindMalformedKey,
-				Message: fmt.Sprintf("The keyid %q is shaped like an AID and is not its canonical "+
-					"spelling, so it is not an AID at all.", keyid),
-				Keyid: keyid,
-			}
-		}
-		// The resolver is authoritative: fiki never falls back to decoding the keyid, because a
-		// transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
-		raw, err := resolve(keyid)
-		if err != nil {
-			return nil, "", err
-		}
-		if raw == nil {
-			return nil, "", &Error{
-				Kind:    KindUnknownKey,
-				Message: fmt.Sprintf("No key is known for the keyid %q, so the signature cannot be checked.", keyid),
-				Keyid:   keyid,
-			}
-		}
-		if len(raw) != keyLength {
-			return nil, "", &Error{
-				Kind:    KindMalformedKey,
-				Message: fmt.Sprintf("The key resolved for %q is not a %d-byte Ed25519 public key.", keyid, keyLength),
-				Keyid:   keyid,
-			}
-		}
-		return ed25519.PublicKey(raw), keyid, nil
-	}
-	// Strictly: a lenient decoder ignores trailing bits and skips line breaks, so a keyid that is
-	// not the key's encoding could verify as whatever key it happened to decode to. Only the one
-	// canonical spelling is a key.
-	raw, err := b64url.Strict().DecodeString(keyid)
-	if !rawKeyidShape.MatchString(keyid) || err != nil {
-		return nil, "", &Error{
-			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The keyid %q is not the canonical base64url spelling of a 32-byte "+
-				"Ed25519 public key: that is exactly 43 characters from the base64url alphabet, unpadded.", keyid),
-			Keyid: keyid,
+// checkWindow refuses a freshness window that is not a positive number of seconds, as the
+// caller's mistake (profile section 3, this.i @5zrf8gjk): a zero or negative one would refuse
+// every honest message or none. A nil MaxAge still declines the age check, and a nil Skew is
+// DefaultSkew.
+func checkWindow(opts VerifyOptions) error {
+	for _, w := range []struct {
+		name  string
+		value *int64
+	}{{"MaxAge", opts.MaxAge}, {"Skew", opts.Skew}} {
+		if w.value != nil && *w.value <= 0 {
+			return invalidOptions("%s is %d, and a freshness window is a positive number of seconds.", w.name, *w.value)
 		}
 	}
-	return ed25519.PublicKey(raw), ToAID(raw), nil
+	return nil
+}
+
+// later is a+b for a b that is not negative, saturating rather than wrapping, so a generous window
+// can never overflow into a refusal.
+func later(a, b int64) int64 {
+	if a > math.MaxInt64-b {
+		return math.MaxInt64
+	}
+	return a + b
 }
 
 // checkFreshness enforces the verifier's MaxAge, then the signer's expires (profile section 9).
@@ -815,7 +918,9 @@ func checkFreshness(list innerList, opts VerifyOptions) error {
 			}
 		}
 		created := createdValue.(int64)
-		if stamp-created > maxAge+skew {
+		// Compared without subtracting, so no clock and no window can overflow: created is at
+		// most fifteen digits and not negative, and later saturates.
+		if later(created, later(maxAge, skew)) < stamp {
 			return &Error{
 				Kind: KindSignatureTooOld,
 				Message: fmt.Sprintf("This signature was created at %d, which is more than %d seconds "+
@@ -823,7 +928,7 @@ func checkFreshness(list innerList, opts VerifyOptions) error {
 				Created: created, Now: stamp, MaxAge: maxAge,
 			}
 		}
-		if created-stamp > skew {
+		if later(stamp, skew) < created {
 			return &Error{
 				Kind: KindSignatureTooOld,
 				Message: fmt.Sprintf("This signature claims to have been created at %d, which is in the "+
@@ -835,7 +940,7 @@ func checkFreshness(list innerList, opts VerifyOptions) error {
 
 	if hasExpires {
 		expires := expiresValue.(int64)
-		if stamp > expires+skew {
+		if stamp > later(expires, skew) {
 			return &Error{
 				Kind: KindSignatureExpired,
 				Message: fmt.Sprintf("This signature expired at %d and it is now %d, so the signer has "+
@@ -860,10 +965,9 @@ func readDigest(header string, present bool) ([]recognizedDigest, error) {
 		return nil, errorf(KindMalformedDigest,
 			"The signature covers content-digest, and the message carries no Content-Digest header to compare.")
 	}
-	order, parsed, err := parseDictionary(header)
+	order, parsed, err := parseField(header, "Content-Digest", KindMalformedDigest)
 	if err != nil {
-		return nil, errorf(KindMalformedDigest,
-			"I could not parse the Content-Digest header; RFC 9530 spells it as an RFC 8941 dictionary.")
+		return nil, err
 	}
 	var recognized []recognizedDigest
 	for _, name := range order {

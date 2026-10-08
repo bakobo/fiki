@@ -379,9 +379,8 @@ func TestTheWireAndTheURLAsSent(t *testing.T) {
 		})
 	}
 	for _, rawURL := range []string{"https://example.com:http/", "https://example.com:99999/", "https://example.com:-1/", "http://[::1/", "http://::1]/"} {
-		if _, err := line(t, "@authority", rawURL); kindOf(t, err) != KindMissingComponent {
-			t.Errorf("%s has no buildable authority", rawURL)
-		}
+		_, err := line(t, "@authority", rawURL)
+		isInvalidOptions(t, err)
 	}
 	if _, err := line(t, "x-note", "https://example.com/"); kindOf(t, err) != KindMissingComponent {
 		t.Error("an absent field is MissingComponent")

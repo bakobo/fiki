@@ -307,9 +307,8 @@ func TestSignAndVerify(t *testing.T) {
 func TestSignAndVerifyRefusals(t *testing.T) {
 	t.Run("signing against a url with no buildable authority is refused", func(t *testing.T) {
 		key := testKey(t)
-		if _, err := SignRequest(key, "GET", "https://example.com:http/", nil, SignOptions{}); kindOf(t, err) != KindMissingComponent {
-			t.Error("expected MissingComponent")
-		}
+		_, err := SignRequest(key, "GET", "https://example.com:http/", nil, SignOptions{})
+		isInvalidOptions(t, err)
 	})
 
 	t.Run("an unparsable Content-Digest is refused", func(t *testing.T) {
@@ -366,8 +365,9 @@ func TestFreshness(t *testing.T) {
 	if err := inside(signedAt+400, maxAge(300), nil); kindOf(t, err) != KindSignatureTooOld {
 		t.Error("a signature past max age should be refused")
 	}
-	zero := int64(0)
-	if err := inside(signedAt+301, maxAge(300), &zero); kindOf(t, err) != KindSignatureTooOld {
+	// Skew 1, since 0 is refused (this.i @5zrf8gjk).
+	one := int64(1)
+	if err := inside(signedAt+302, maxAge(300), &one); kindOf(t, err) != KindSignatureTooOld {
 		t.Error("the skew allowance should be adjustable")
 	}
 	if err := inside(signedAt-60, maxAge(300), nil); kindOf(t, err) != KindSignatureTooOld {
