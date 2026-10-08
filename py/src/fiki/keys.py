@@ -127,6 +127,18 @@ class Key:
             )
         return cls(Ed25519PrivateKey.from_private_bytes(seed), bytes(seed))
 
+    @classmethod
+    def from_openssh(cls, text: str) -> Key:
+        """Load an unencrypted OpenSSH Ed25519 private key, as ssh-keygen writes it (@0mvgkwnl).
+
+        A key also used for SSH is safe to sign with here: every signature base fiki builds
+        begins with a double quote, while SSH authentication signs data beginning with a zero
+        byte and SSHSIG signs data beginning "SSHSIG", so no signature crosses between them.
+        """
+        from .formats import read_openssh  # formats reads keys' codec, so it imports keys
+
+        return cls.from_seed(read_openssh(text))
+
     @property
     def aid(self) -> str:
         """The non-transferable AID — 44 characters, ``B`` prefixed, also the verifying key."""
