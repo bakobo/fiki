@@ -3,3 +3,4 @@ kind: todo
 tags: keri
 created: 2026-09-24T17:22Z
 
+- 2026-10-08T00:12Z 2026-10-08: keri_vectors_format went to 3 in 0.7.0 (#13) with only the authorities case, so these two candidates now wait for format 4 — fold them into the sweep 6ixo bump.
