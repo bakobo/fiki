@@ -38,7 +38,15 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 })?;
 ```
 
-`max_age` is an `Option<i64>` the caller fills in one way or the other: seconds of tolerance, or an explicit `None`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
+`max_age` is an `Option<i64>` the caller fills in one way or the other: seconds of tolerance, or an explicit `None`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way. A `max_age` or `skew` you do give must be positive; zero or less is `Kind::InvalidArgument`. `skew: None` takes `DEFAULT_SKEW`, five seconds.
+
+`verdict.keyid` is the keyid exactly as it appeared on the wire, or `None` when the signature had none. `verdict.aid` is the identity that vouched for the key: the AID of a raw key, the keyid a resolver vouched for, or the AID of `expected_aid`.
+
+## What fiki refuses before it reads anything
+
+Signature, Signature-Input and Content-Digest are each read only up to `MAX_FIELD_BYTES` (8192 bytes), measured before parsing, and only up to `MAX_DICTIONARY_MEMBERS` (16) members, `MAX_INNER_LIST_ITEMS` (64) items in an inner list, and `MAX_PARAMETERS` (16) parameters on an item. A header over any of them is that header's malformed kind. A URL whose port is not a number from 0 to 65535 is a `SignatureMismatch` when a covered component needs it, because no signature base can be built from it.
+
+Mistakes in a call are `Kind::InvalidArgument` rather than a refusal of the message (`this.i` @5zrf8gjk, @2n99rej7): a method that is not an HTTP token, a bad port when signing, a label that is not an RFC 8941 key, a keyid, nonce or tag outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, and a supplied `Content-Digest` the body does not match.
 
 ## Two things measured rather than assumed
 
