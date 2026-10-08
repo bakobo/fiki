@@ -411,6 +411,22 @@ def refusals():
     add("text-after-an-ip-literal", "SignatureMismatch", method="GET", headers=literal,
         body_text=None, target="https://[2001:db8::1]x/things",
         note="Nothing but :port may follow an IP-literal's closing bracket.")
+    # Signed over the base a lenient port would build, since fiki will not build it, so only the
+    # IP-literal check can refuse it.
+    forged = signature_base(method="GET", url="https://[::1]/things", headers={},
+                            covered=["@method", "@authority", "@path"], created=1700000000,
+                            keyid=keyid_of(key), alg="ed25519")
+    forged = forged.replace(b'"@authority": [::1]', b'"@authority": [not-an-ip]')
+    add("ip-literal-that-is-not-an-address", "SignatureMismatch", method="GET", body_text=None,
+        target="https://[not-an-ip]/things",
+        headers={"Signature-Input": "sig=" + forged.decode().rsplit('"@signature-params": ', 1)[1],
+                 "Signature": f"sig=:{base64.b64encode(key.sign(forged)).decode()}:"},
+        note="An IP-literal holds an IPv6 address or IPvFuture (RFC 3986 section 3.2.2). The "
+             "signature is good over the base a port without that check would build.")
+    add("port-of-thousands-of-digits", "SignatureMismatch", method="GET", headers=get,
+        body_text=None, target="https://api.example.com:" + "0" * 5000 + "65536/things",
+        note="65536 behind 5,000 leading zeros is still out of range, and is refused without "
+             "converting the digits.")
 
     # A covered field value is checked for line breaks and controls as received, and only then
     # trimmed of SP and HTAB, so a line break at its edge is refused like one inside it.
@@ -564,6 +580,10 @@ def accepts():
     add("port-with-leading-zeros", method="GET", url="https://api.example.com:000443/x",
         note=":000443 is 443, the https default.")
     add("ipv6-literal", method="GET", url="https://[2001:db8::1]:8443/x")
+    add("port-of-thousands-of-leading-zeros", method="GET",
+        url="https://api.example.com:" + "0" * 5000 + "443/x",
+        note="Leading zeros are stripped before the port is read, so no run of them overflows "
+             "or exceeds a conversion limit: this is 443, the https default.")
 
     def trailing_ows(sent):
         sent["Signature"] += " \t"
