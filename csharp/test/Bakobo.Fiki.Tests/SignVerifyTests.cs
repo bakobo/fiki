@@ -278,7 +278,10 @@ namespace Bakobo.Fiki.Tests
         public void AContentDigestNamingOnlyAlgorithmsFikiCannotComputeIsRefused()
         {
             // Fail closed: an uncheckable digest is an unchecked body, not a checked one.
-            var message = Signed(headers: new Dictionary<string, string> { { "Content-Digest", "sha-1=:AAAA:" } });
+            // Signed without the body, since a signer refuses a digest it cannot check (@5zrf8gjk).
+            var message = Signed(headers: new Dictionary<string, string> { { "Content-Digest", "sha-1=:AAAA:" } }, noBody: true,
+                covered: HttpSignatures.DefaultCovered.Concat(new[] { "content-digest" }));
+            message.Body = Body;
             var caught = message.Refused();
             Assert.Equal(FikiErrorKind.MalformedDigest, caught.Kind);
             Assert.Equal("The Content-Digest header names no algorithm fiki computes; it computes sha-256 and sha-512.", caught.Message);
@@ -368,7 +371,7 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void TheSkewAllowanceIsAdjustable() =>
             Assert.Equal(FikiErrorKind.SignatureTooOld,
-                Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300).WithSkew(0).WithNow(SignedAt + 301)).Kind);
+                Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300).WithSkew(1).WithNow(SignedAt + 302)).Kind);
 
         [Fact]
         public void ASignatureCreatedInTheFutureBeyondSkewIsRefused() =>

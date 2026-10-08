@@ -18,7 +18,16 @@ namespace Bakobo.Fiki
         }
 
         /// <summary>Refuse a signature whose <c>created</c> is more than <paramref name="seconds"/> old, beyond the skew allowance.</summary>
-        public static VerifyOptions MaxAge(long seconds) => new VerifyOptions(seconds);
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="seconds"/> is not positive (this.i @5zrf8gjk).</exception>
+        public static VerifyOptions MaxAge(long seconds) => new VerifyOptions(Positive(seconds, "maxAge"));
+
+        /// <summary>
+        /// A freshness window is a positive whole number of seconds (the KERI profile's section 3,
+        /// this.i @5zrf8gjk): a zero or negative one would refuse every honest message or none.
+        /// </summary>
+        private static long Positive(long seconds, string name) => seconds > 0
+            ? seconds
+            : throw new ArgumentOutOfRangeException(name, seconds, $"{name} is {seconds}, and a freshness window is a positive number of seconds.");
 
         /// <summary>Decline the age check, because replay protection lives elsewhere. A signer's own <c>expires</c> is enforced regardless.</summary>
         public static VerifyOptions DecliningFreshness() => new VerifyOptions(null);
@@ -68,11 +77,12 @@ namespace Bakobo.Fiki
             return copy;
         }
 
-        /// <summary>Clock skew tolerated, in seconds; <see cref="HttpSignatures.DefaultSkew"/> unless changed.</summary>
+        /// <summary>Clock skew tolerated, in seconds; <see cref="HttpSignatures.DefaultSkew"/> unless changed. There is no way to decline it.</summary>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="seconds"/> is not positive (this.i @5zrf8gjk).</exception>
         public VerifyOptions WithSkew(long seconds)
         {
             var copy = Copy();
-            copy.Skew = seconds;
+            copy.Skew = Positive(seconds, "skew");
             return copy;
         }
 

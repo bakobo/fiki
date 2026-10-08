@@ -88,8 +88,9 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void AnEmptyMethodIsNoConcernWhenMethodIsNotCovered() =>
-            Assert.Equal("\"@path\": /things", Bytes.Text(HttpSignatures.SignatureBase("", Url,
-                new KeyValuePair<string, string>[0], new[] { "@path" }, 1, "k")).Split('\n')[0]);
+        public void AnEmptyMethodIsACallerErrorEvenWhenMethodIsNotCovered() =>
+            // A method is a token wherever a request message is built, covered or not (@5zrf8gjk).
+            Assert.Throws<ArgumentException>(() => HttpSignatures.SignatureBase("", Url,
+                new KeyValuePair<string, string>[0], new[] { "@path" }, 1, "k"));
     }
 }
