@@ -34,7 +34,7 @@ There is no `VerifyOptions` constructor that leaves the freshness policy unstate
 
 ## The KERI profile
 
-The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 3` beside `Fiki.VECTORS_FORMAT`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
+The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 4` beside `Fiki.VECTORS_FORMAT = 2`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
 
 ```java
 Map<String, String> headers = Fiki.signRequest(key, "POST", url, Map.of(),
@@ -51,18 +51,20 @@ Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
 Behaviour is fiki-py's and the surface is Java's (`this.i` @24tvlxgd). Where the two pull apart:
 
 - A refusal is one `FikiException` whose `kind()` is a `FikiException.Kind` named exactly as the Python exception class, rather than a class per refusal, and `detail()` carries the offending value. Its constructor is public so that a `Resolver` can throw `UnsupportedSigner` or `MalformedKey` itself.
-- A mistake in the call rather than the message is an `IllegalArgumentException`, where Python raises `TypeError` for some and `ValueError` for others: an expected AID together with a resolver, a minimum smaller than the profile's, a response binding the request's digest verified without the request body, served authorities passed to `verifyResponse`, an empty method, a port that is not a number from 0 to 65535, and a header map that names one field under two spellings.
+- A mistake in the call rather than the message is an `IllegalArgumentException`, where Python raises `TypeError` for some and `ValueError` for others: an expected AID together with a resolver, a minimum smaller than the profile's, a response binding the request's digest verified without the request body, served authorities passed to `verifyResponse`, a method that is not an HTTP token, a port that is not a number from 0 to 65535 in a URL being signed, a header map that names one field under two spellings or holds a null, a caller-supplied `Content-Digest` that does not parse, names no algorithm fiki computes or contradicts the body, a keyid, nonce or tag outside printable ASCII, a label that is not an RFC 8941 key, a component name that is not a field name, and a `created` or `expires` outside 0 to 999999999999999.
 - The resolver is a synchronous functional interface, the request a response answers is a `Fiki.Request` record, and options are `SignOptions` and `VerifyOptions` records built with `with…` methods. `VerifyOptions` holds a `Fiki.Freshness` value, and its canonical constructor refuses a null one, so no constructor leaves the freshness decision unstated: it is `maxAge(seconds)`, `decliningFreshness()`, or `Freshness.DECLINED` passed explicitly. A maximum age or skew that is not positive is refused.
 
-Some refusals are stricter than fiki-py's today, each in the fail-closed direction and each recorded in `this.i`:
+Since 0.8.0 every port gives the same answer to the same input (@5zrf8gjk), so what used to be listed here as Java being stricter is now the rule everywhere:
 
-- A key that is a small-order Ed25519 point, or not the canonical encoding of a point on the curve, is `MalformedKey` before any signature check, whether it came from a keyid, an expected AID or a resolver (@2kc2c4h5, @3kdzr0zn).
-- A covered field value is checked for control characters on the value as received, and only then are spaces and tabs trimmed, so a value ending in CR LF is refused rather than read as the value without it (@3cceqvg3).
-- Under a minimum covered set, a keyid is required even when the verifier names the key (@6hsuwdh8).
-- A signer refuses a caller-supplied `Content-Digest` that does not hold for the body, and each header map is read once into one canonical form (@0ms4j0ef).
-- A signer refuses a keyid, nonce or tag that is not an RFC 8941 string, a label that is not an RFC 8941 key, and a `created` or `expires` beyond fifteen digits. A received URL whose authority cannot be read is `SignatureMismatch`, where Python raises a bare `ValueError`, and a 401 with an empty `Signature` header is `Unauthenticated` (@2r05k9g0).
+- A key that is a small-order Ed25519 point, or not the canonical encoding of a point on the curve, is `MalformedKey` before any signature check, whether it came from a keyid, an expected AID or a resolver.
+- A keyid's own well-formedness is checked first, then an expected keyid (a mismatch is `UnknownKey`, and the resolver is never asked), and only then the resolver.
+- A covered field value is checked for control characters on the value as received, and only then are spaces and tabs trimmed. `Content-Length` is likewise trimmed of SP and HTAB only, so a vertical tab or a no-break space makes it something other than a decimal, which counts as a body.
+- A received URL whose port is not a number from 0 to 65535 is `SignatureMismatch` when a covered component needs the URL, and is not read otherwise. `:000080` is port 80, and an empty port is no port.
+- The RFC 8941 parser is strict: no integer of more than fifteen digits, no decimal without a fractional digit, and a byte sequence only as canonically padded base64. Parsing is linear.
+- Signature-Input, Signature and Content-Digest are bounded before they are parsed: `Fiki.MAX_FIELD_BYTES` (8192) bytes each, `Fiki.MAX_DICTIONARY_MEMBERS` (16) members, `Fiki.MAX_INNER_LIST_ITEMS` (64) items in an inner list and `Fiki.MAX_PARAMETERS` (16) parameters on an item. Over any of them is that header's malformed kind.
+- `Verdict.keyid()` is the keyid exactly as it appeared on the wire, or null when there was none; `Verdict.aid()` is the identity that vouched for the key.
 
-And a few edges are read as RFC 3986 and RFC 8941 write them (@8yucn7nv): an IPv6 literal in `@authority` keeps its brackets, where Python drops them; the parser reads tokens and decimals and refuses an integer of more than fifteen digits; and parsing is linear in the number of parameters and members.
+An IPv6 or IPvFuture literal in `@authority` keeps its brackets (@8yucn7nv).
 
 ## How a seed becomes a key pair
 
