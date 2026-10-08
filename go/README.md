@@ -31,7 +31,9 @@ verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
     fiki.VerifyOptions{Body: body, MaxAge: &maxAge})
 ```
 
-`MaxAge` is a `*int64` rather than an `int64` because there is no default: seconds of tolerance, or an explicit `nil` to decline the check. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
+`MaxAge` is a `*int64` rather than an `int64` because there is no default: a positive number of seconds of tolerance, or an explicit `nil` to decline the check. Zero or less, for `MaxAge` or `Skew`, is `ErrInvalidOptions`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
+
+Signature, Signature-Input and Content-Digest are bounded before they are parsed: at most `MaxFieldBytes` (8192) each, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) covered components and `MaxParameters` (16) parameters on an item. A header over any of them is refused as malformed.
 
 ## What its coverage gate does and does not say
 
