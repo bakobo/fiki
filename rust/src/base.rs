@@ -300,7 +300,19 @@ pub(crate) struct Target {
     pub query: String,
 }
 
+/// The URL as every port reads it, which is how Python's `urlsplit` reads it (`this.i` @2n99rej7,
+/// ruled by the conductor for the 0.8.0 sweep): leading C0 controls and spaces stripped, trailing
+/// ones kept, and TAB, CR and LF removed wherever they are, as the WHATWG URL parser does.
+fn cleaned(raw: &str) -> String {
+    raw.trim_start_matches(|c: char| c <= ' ')
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\r' | '\n'))
+        .collect()
+}
+
 pub(crate) fn split_target(raw: &str) -> Target {
+    let raw = cleaned(raw);
+    let raw = raw.as_str();
     let (scheme, rest) = match raw.find("://") {
         Some(at)
             if raw[..at]

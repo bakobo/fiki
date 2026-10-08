@@ -1161,3 +1161,59 @@ fn b20_the_bounds_are_exported_constants() {
         [8192, 16, 64, 16]
     );
 }
+
+// --- the spec's open item, ruled by the conductor: a URL is read as Python's urlsplit reads it ---
+
+fn line_of(component: &str, url: &str) -> String {
+    let base = signature_base(
+        "GET",
+        url,
+        &BTreeMap::new(),
+        &strings(&[component]),
+        &params(),
+    )
+    .unwrap();
+    let text = String::from_utf8(base).unwrap();
+    text.lines()
+        .next()
+        .unwrap()
+        .split_once(": ")
+        .unwrap()
+        .1
+        .to_string()
+}
+
+#[test]
+fn e_tab_cr_and_lf_are_removed_from_anywhere_in_a_url() {
+    assert_eq!(
+        authority("https://a.exa\tmple:8\r\n443/x").unwrap(),
+        "a.example:8443"
+    );
+    assert_eq!(line_of("@path", "https://a.example/a\r\nb\tc"), "/abc");
+    assert_eq!(line_of("@query", "https://a.example/x?a=\n1"), "?a=1");
+}
+
+#[test]
+fn e_leading_c0_controls_and_spaces_are_stripped_and_trailing_ones_kept() {
+    assert_eq!(
+        authority("\u{0}\u{1f} https://a.example/x").unwrap(),
+        "a.example"
+    );
+    assert_eq!(line_of("@path", " \u{b}https://a.example/x "), "/x ");
+    // A trailing control is not stripped, so it stays in the value and no base can be built.
+    let err = signature_base(
+        "GET",
+        "https://a.example/x\u{b}",
+        &BTreeMap::new(),
+        &strings(&["@path"]),
+        &params(),
+    );
+    assert_eq!(kind_of(err), Kind::SignatureMismatch);
+}
+
+#[test]
+fn e_a_url_cleaned_of_whitespace_verifies_as_the_url_it_was_signed_as() {
+    let sent = signed();
+    let dirty = format!(" {}", URL.replacen("api", "a\tp\ni", 1));
+    assert_eq!(sent.at(&dirty).aid(), key().aid());
+}
