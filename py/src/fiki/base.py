@@ -15,6 +15,7 @@ not, which is exactly the shape of the gap in heti's KERI dialect (@2hwvpm42).
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -57,6 +58,8 @@ _SF_KEY = re.compile(r"[a-z*][a-z0-9_.*-]*")
 # RFC 8941 section 3.3.1: at most fifteen digits.
 _SF_INTEGER_MAX = 999_999_999_999_999
 _PORT_MAX = 65535
+# RFC 3986 section 3.2.2's IPvFuture, spelled as urlsplit checks it from Python 3.11.4.
+_IPVFUTURE = re.compile(r"v[0-9A-Fa-f]+\..+")
 
 
 @dataclass(frozen=True)
@@ -278,6 +281,21 @@ def _port(text: str, message: _Message) -> int | None:
     return int(digits or "0")
 
 
+def ip_literal(text: str) -> bool:
+    """RFC 3986 section 3.2.2: an IPv6 address, with an optional zone, or IPvFuture (@9g24rdns).
+
+    What may sit between an IP-literal's brackets. urlsplit checks this itself only from Python
+    3.11.4, so fiki checks it on every Python it supports, with the grammar urlsplit uses.
+    """
+    if text.startswith("v"):
+        return _IPVFUTURE.fullmatch(text) is not None
+    try:
+        ipaddress.IPv6Address(text)
+    except ValueError:
+        return False
+    return True
+
+
 def _authority(message: _Message) -> str:
     """The authority, normalized per RFC 9421 section 2.2.3: lowercase host, default port omitted.
 
@@ -296,13 +314,19 @@ def _authority(message: _Message) -> str:
     headers = message.headers
     if parts.netloc:
         hostport = parts.netloc.rpartition("@")[2]
-        # urlsplit has already refused an unbalanced bracket and anything but ":" after "]",
-        # as "Invalid IPv6 URL", on every Python fiki supports; _split made that unreadable.
+        # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
+        # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
+        # every Python it supports alike, so the IP-literal rule does not turn on a patch release.
         if hostport.startswith("["):
-            host, _, rest = hostport.partition("]")
+            host, closed, rest = hostport.partition("]")
+            if not closed or not ip_literal(host[1:]) or rest[:1] not in ("", ":"):
+                raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture "
+                                           "in brackets followed by nothing but a port.")
             host, port_text = host + "]", rest[1:]
         else:
             host, _, port_text = hostport.partition(":")
+            if "[" in host or "]" in host:
+                raise _unreadable(message, "a bracket belongs only around an IP-literal.")
         port = _port(port_text, message)
         host = host.lower()
         if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):

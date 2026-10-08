@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from urllib.parse import SplitResult
 
 import pytest
 
@@ -39,6 +40,7 @@ from fiki.errors import (
     UnknownKey,
     UnsupportedComponent,
 )
+from fiki.base import ip_literal
 from fiki.messages import content_digest
 
 KEY = Key.from_seed(bytes(range(32)))
@@ -124,6 +126,50 @@ def test_text_after_an_ip_literal_is_a_signature_mismatch_when_verifying(url):
     request, headers = sign(url="https://[::1]/things")
     with pytest.raises(SignatureMismatch):
         verify({**request, "url": url}, headers)
+
+
+NOT_ADDRESSES = ["not-an-ip", "1.2.3.4", "vZ.x", "v1.", "V1.x", "v.x", "::1%", "fe80::1%a%b",
+                 "1:2:3:4:5:6:7:8:9", "::01.2.3.4", "::256.1.1.1", "12345::", "", "1::2::3"]
+
+
+@pytest.mark.parametrize("inside", NOT_ADDRESSES)
+def test_a_bracketed_host_that_is_not_an_address_is_a_caller_error_when_signing(inside):
+    with pytest.raises(ValueError):
+        sign(url=f"https://[{inside}]/x")
+
+
+@pytest.mark.parametrize("inside", NOT_ADDRESSES)
+def test_a_bracketed_host_that_is_not_an_address_is_a_signature_mismatch_when_verifying(inside):
+    request, headers = sign(url="https://[::1]/x")
+    with pytest.raises(SignatureMismatch):
+        verify({**request, "url": f"https://[{inside}]/x"}, headers)
+
+
+@pytest.mark.parametrize("inside", NOT_ADDRESSES)
+def test_fiki_checks_an_ip_literal_itself_rather_than_trusting_urlsplit(inside):
+    """urlsplit checks the brackets' contents only from Python 3.11.4, and Debian 12 has 3.11.2."""
+    assert not ip_literal(inside)
+
+
+@pytest.mark.parametrize("netloc", ["[not-an-ip]", "[::1]x", "[::1", "a]b[", "a[::1]"])
+def test_an_authority_urlsplit_does_not_refuse_is_still_unreadable(netloc, monkeypatch):
+    """Before Python 3.11.4, urlsplit refused only an unbalanced bracket."""
+    request, headers = sign(url="https://a.example/x")
+    lenient = SplitResult("https", netloc, "/x", "", "")
+    monkeypatch.setattr("fiki.base.urlsplit", lambda url: lenient)
+    with pytest.raises(ValueError):
+        authority("https://a.example/x")
+    with pytest.raises(SignatureMismatch):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("inside", [
+    "::1", "::", "1::", "2001:DB8::1", "1:2:3:4:5:6:7:8", "1:2:3:4:5:6:7::", "::ffff:1.2.3.4",
+    "1:2:3:4:5:6:1.2.3.4", "fe80::1%25eth0", "v1.x", "vF.a:b", "v12.[",
+])
+def test_an_ipv6_address_or_ipvfuture_is_an_ip_literal(inside):
+    assert ip_literal(inside)
+    assert authority(f"https://[{inside}]/x") == f"[{inside.lower()}]"
 
 
 # --- A4: header names and values are strings ---
