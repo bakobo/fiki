@@ -196,6 +196,7 @@ func TestWhatTheSignerSerializesMustBeSerializable(t *testing.T) {
 // overflow into a refusal.
 func TestAFreshnessWindowIsPositiveAndSaturates(t *testing.T) {
 	headers, _ := sign(t, SignOptions{Expires: signedAt + 1})
+	unexpiring, _ := sign(t, SignOptions{})
 	for name, opts := range map[string]VerifyOptions{
 		"max_age zero":     {MaxAge: maxAge(0)},
 		"max_age negative": {MaxAge: maxAge(-1)},
@@ -211,15 +212,19 @@ func TestAFreshnessWindowIsPositiveAndSaturates(t *testing.T) {
 		})
 	}
 	late := signedAt + 1_000_000
-	for name, opts := range map[string]VerifyOptions{
-		"max_age at the top":  {MaxAge: maxAge(math.MaxInt64), Now: late},
-		"skew at the top":     {MaxAge: maxAge(1), Skew: maxAge(math.MaxInt64), Now: late},
-		"both at the top":     {MaxAge: maxAge(math.MaxInt64), Skew: maxAge(math.MaxInt64), Now: late},
-		"declined, wide skew": {Skew: maxAge(math.MaxInt64), Now: late},
+	for name, c := range map[string]struct {
+		headers map[string]string
+		opts    VerifyOptions
+	}{
+		"max_age at the top":  {unexpiring, VerifyOptions{MaxAge: maxAge(math.MaxInt64), Now: late}},
+		"skew at the top":     {headers, VerifyOptions{MaxAge: maxAge(1), Skew: maxAge(math.MaxInt64), Now: late}},
+		"both at the top":     {headers, VerifyOptions{MaxAge: maxAge(math.MaxInt64), Skew: maxAge(math.MaxInt64), Now: late}},
+		"declined, wide skew": {headers, VerifyOptions{Skew: maxAge(math.MaxInt64), Now: late}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			opts := c.opts
 			opts.Body = testBody
-			if _, err := VerifyRequest("POST", urlQuery, headers, opts); err != nil {
+			if _, err := VerifyRequest("POST", urlQuery, c.headers, opts); err != nil {
 				t.Errorf("expected a verdict, got %v", err)
 			}
 		})

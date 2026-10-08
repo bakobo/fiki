@@ -44,6 +44,50 @@ var paramOrder = []string{"created", "expires", "nonce", "alg", "keyid", "tag"}
 
 var defaultPorts = map[string]int{"http": 80, "https": 443, "ws": 80, "wss": 443}
 
+// RFC 8941 section 3.3.1: an integer has at most fifteen digits.
+const sfIntegerMax = 999_999_999_999_999
+
+const portMax = 65535
+
+// isTchar is RFC 9110 section 5.6.2's tchar. A token, one or more of them, is what a method is
+// (section 9.1) and what a field name is (section 5.1).
+func isTchar(b byte) bool {
+	return isAlpha(b) || isDigit(b) || strings.IndexByte("!#$%&'*+-.^_`|~", b) >= 0
+}
+
+func isToken(text string) bool {
+	for i := 0; i < len(text); i++ {
+		if !isTchar(text[i]) {
+			return false
+		}
+	}
+	return text != ""
+}
+
+// isSfString is true when text is RFC 8941 sf-string content (section 3.3.3): printable ASCII,
+// 0x20 to 0x7E, and nothing else, so a line break can never be serialized into a header.
+func isSfString(text string) bool {
+	for i := 0; i < len(text); i++ {
+		if text[i] < ' ' || text[i] > '~' {
+			return false
+		}
+	}
+	return true
+}
+
+// isSfKey is true when text is an RFC 8941 key (section 3.1.2), which is what a label is.
+func isSfKey(text string) bool {
+	if text == "" || !isKeyStart(text[0]) {
+		return false
+	}
+	for i := 1; i < len(text); i++ {
+		if !isKeyChar(text[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // Request is the request a response answers, which a response's req components are read from.
 //
 // A nil Body means no body was handed over, which is not the same as an empty one: a response
@@ -94,8 +138,19 @@ func (c componentID) isReq() bool {
 // parseComponent reads a caller's spelling of a component: a plain name ("@method",
 // "Content-Digest") or its RFC 8941 serialization with parameters (`"@path";req`). Names are
 // lowercased as a convenience to a local caller; a name parsed from the wire never is, and is
-// refused instead when it is not already lowercase.
+// refused instead when it is not already lowercase. A field name that is not a token is the
+// caller's mistake, because it would be serialized into Signature-Input as given (this.i
+// @5zrf8gjk); a derived name fiki does not build is refused later, as UnsupportedComponent.
 func parseComponent(spec string) (componentID, error) {
+	id, err := readComponent(spec)
+	if err == nil && !strings.HasPrefix(id.Name, "@") && !isToken(id.Name) {
+		return componentID{}, invalidOptions("%q is not a component fiki can name: a field is named "+
+			"by an HTTP field name, one or more token characters, and a derived component by its @ name.", spec)
+	}
+	return id, err
+}
+
+func readComponent(spec string) (componentID, error) {
 	if !strings.HasPrefix(spec, `"`) {
 		return componentID{Name: strings.ToLower(spec)}, nil
 	}
@@ -231,7 +286,13 @@ func isSchemeText(text string) bool {
 // A relative URL falls back to the Host header, which in HTTP/1.1 *is* the authority — the shape a
 // server-side verifier actually holds. Nothing is normalized away there, because without a scheme
 // no port is a default port.
-func authority(t target, headers map[string]string) (string, error) {
+//
+// A URL whose authority cannot be read is the caller's mistake when signing, and a base that cannot
+// be built, so a SignatureMismatch (profile section 9), when the message was received (this.i
+// @5zrf8gjk). A port is any run of ASCII digits read as a number, so :000080 is 80, and an empty
+// port is no port at all (RFC 3986 section 6.2.3).
+func authority(m *message) (string, error) {
+	t, headers := m.target, m.headers
 	if t.netloc == "" {
 		host, ok := headers["host"]
 		if !ok {
@@ -242,17 +303,16 @@ func authority(t target, headers map[string]string) (string, error) {
 				Component: "@authority",
 			}
 		}
-		return strings.ToLower(host), nil
+		return strings.ToLower(strings.Trim(host, " \t")), nil
 	}
 	// Userinfo, if any, ends at the last "@".
 	hostinfo := t.netloc[strings.LastIndexByte(t.netloc, '@')+1:]
 	unbuildable := func(why string) error {
-		return &Error{
-			Kind: KindMissingComponent,
-			Message: "The signature covers \"@authority\", and the URL's authority " +
-				strconv.Quote(hostinfo) + " " + why + ", so there is no authority to build.",
-			Component: "@authority",
+		if m.received {
+			return errorf(KindSignatureMismatch, "The URL's authority %q %s, so there is no "+
+				"@authority to build and no signature base to check the signature against.", hostinfo, why)
 		}
+		return invalidOptions("The URL's authority %q %s, so there is no @authority to sign.", hostinfo, why)
 	}
 	var host, port string
 	if strings.HasPrefix(hostinfo, "[") {
@@ -277,8 +337,8 @@ func authority(t target, headers map[string]string) (string, error) {
 		return host, nil
 	}
 	number, err := strconv.Atoi(port)
-	if strings.TrimLeft(port, "0123456789") != "" || err != nil || number > 65535 {
-		return "", unbuildable("has a port that is not a port number")
+	if strings.TrimLeft(port, "0123456789") != "" || err != nil || number > portMax {
+		return "", unbuildable("has a port that is not a number from 0 to 65535")
 	}
 	if number == defaultPorts[strings.ToLower(t.scheme)] {
 		return host, nil
@@ -294,13 +354,17 @@ type message struct {
 	target  target
 	status  int
 	request *message
+	// received is a message handed to a verifier rather than built by a signer, which decides
+	// what a URL that cannot be read is: a base that cannot be built, or the caller's mistake.
+	received bool
 }
 
 // canonicalHeaders is the one lowercased view of a headers map that every later step reads.
 //
-// Header field names are case-insensitive and appear lowercased in the base (section 2.1); values
-// lose leading and trailing SP and HTAB only (RFC 9110 section 5.5). Trimming CR, LF or NUL as well
-// would let "admin\r\n" verify as "admin"; left in, valueOf refuses it. A map holding two
+// Header field names are case-insensitive and appear lowercased in the base (section 2.1). Values
+// are kept as received: valueOf checks a covered one raw and only then trims SP and HTAB (RFC 9110
+// section 5.5), so "admin\r\n" is refused rather than verified as "admin", and the input bounds
+// measure a field before anything is trimmed from it (this.i @5zrf8gjk). A map holding two
 // spellings of one name is refused rather than collapsed: which one survived would turn on Go's
 // map order, so the signature base and the digest check could read different values for one
 // field (bakobo/fiki#6). net/http never builds such a map, so it is the caller's construction.
@@ -312,37 +376,39 @@ func canonicalHeaders(headers map[string]string) (map[string]string, error) {
 			return nil, invalidOptions("The headers name %q more than once under different "+
 				"capitalizations, so there is no one value to sign or check; merge them first.", lowered)
 		}
-		out[lowered] = strings.Trim(value, " \t")
+		out[lowered] = value
 	}
 	return out, nil
 }
 
-func requestMessage(method, rawURL string, headers map[string]string) (*message, error) {
+func requestMessage(method, rawURL string, headers map[string]string, received bool) (*message, error) {
 	canonical, err := canonicalHeaders(headers)
 	if err != nil {
 		return nil, err
 	}
-	return canonicalMessage(method, rawURL, canonical)
+	return canonicalMessage(method, rawURL, canonical, received)
 }
 
 // canonicalMessage is a request over headers canonicalHeaders has already produced. Every
-// request message is built here, so an empty method is refused on every path, whether or not
-// @method is covered: no request is sent without one (bakobo/fiki#6).
-func canonicalMessage(method, rawURL string, canonical map[string]string) (*message, error) {
-	if method == "" {
-		return nil, invalidOptions("No method was given; pass the request's method as it goes on the wire.")
+// request message is built here, so the method is checked on every path, whether or not @method
+// is covered: it is an RFC 9110 token, one or more tchar, or the call is a mistake (this.i
+// @5zrf8gjk, bakobo/fiki#6). Its case is kept as given (@22g0xkr8).
+func canonicalMessage(method, rawURL string, canonical map[string]string, received bool) (*message, error) {
+	if !isToken(method) {
+		return nil, invalidOptions("The method %q is not an HTTP method: a method is one or more token "+
+			"characters, with no spaces, line breaks or separators; pass it as it goes on the wire.", method)
 	}
-	return &message{headers: canonical, method: method, target: splitURL(rawURL)}, nil
+	return &message{headers: canonical, method: method, target: splitURL(rawURL), received: received}, nil
 }
 
-func responseMessage(status int, headers map[string]string, request *Request) (*message, error) {
+func responseMessage(status int, headers map[string]string, request *Request, received bool) (*message, error) {
 	canonical, err := canonicalHeaders(headers)
 	if err != nil {
 		return nil, err
 	}
-	m := &message{headers: canonical, status: status}
+	m := &message{headers: canonical, status: status, received: received}
 	if request != nil {
-		if m.request, err = requestMessage(request.Method, request.URL, request.Headers); err != nil {
+		if m.request, err = requestMessage(request.Method, request.URL, request.Headers, received); err != nil {
 			return nil, err
 		}
 	}
@@ -378,7 +444,7 @@ func componentValue(item componentID, m *message) (string, error) {
 		// Section 2.2.1: the method as sent, with no case transformation (this.i @22g0xkr8).
 		return m.method, nil
 	case "@authority":
-		return authority(m.target, m.headers)
+		return authority(m)
 	case "@path":
 		// An empty path is the "/" the origin server would have received.
 		if m.target.path == "" {
@@ -405,7 +471,8 @@ func componentValue(item componentID, m *message) (string, error) {
 // valueOf is a component's value, refused when it has no single serialization both sides agree
 // on. A line break inside a value would forge a line of the base, and a byte outside visible
 // ASCII is encoded differently by different stacks, so the KERI profile names such a base
-// unbuildable, and so a signature-mismatch (this.i @2f227n4r).
+// unbuildable, and so a signature-mismatch (this.i @2f227n4r). A field value is checked as
+// received and only then trimmed of SP and HTAB, so a line break at its edge is refused too.
 func valueOf(item componentID, m *message) (string, error) {
 	value, err := componentValue(item, m)
 	if err != nil {
@@ -417,6 +484,9 @@ func valueOf(item componentID, m *message) (string, error) {
 				"The value of %s contains a line break, a control character or a non-ASCII "+
 					"character, so there is no signature base both sides would build from it.", item.spec())
 		}
+	}
+	if !strings.HasPrefix(item.Name, "@") {
+		value = strings.Trim(value, " \t")
 	}
 	return value, nil
 }
@@ -457,7 +527,35 @@ func (p SignatureParams) list() []param {
 	return out
 }
 
+// check refuses what a signer could not serialize faithfully, as the caller's mistake (this.i
+// @5zrf8gjk): created and expires are RFC 8941 integers that are not negative, and the strings
+// are sf-strings, printable ASCII only, so a line break can never forge a header line. A zero
+// created or expires is an absent one.
+func (p SignatureParams) check() error {
+	for _, n := range []struct {
+		name  string
+		value int64
+	}{{"created", p.Created}, {"expires", p.Expires}} {
+		if n.value < 0 || n.value > sfIntegerMax {
+			return invalidOptions("%s is %d, and RFC 8941 carries an integer of at most fifteen digits; "+
+				"fiki signs one from 0 to 999999999999999.", n.name, n.value)
+		}
+	}
+	for _, s := range []struct{ name, value string }{
+		{"keyid", p.Keyid}, {"alg", p.Alg}, {"nonce", p.Nonce}, {"tag", p.Tag},
+	} {
+		if !isSfString(s.value) {
+			return invalidOptions("The %s %q holds a character outside printable ASCII, which an "+
+				"RFC 8941 string cannot carry; a line break there would forge a header line.", s.name, s.value)
+		}
+	}
+	return nil
+}
+
 func buildBase(items []componentID, m *message, response bool, params SignatureParams) ([]byte, error) {
+	if err := params.check(); err != nil {
+		return nil, err
+	}
 	if err := checkCovered(items, response); err != nil {
 		return nil, err
 	}
@@ -484,7 +582,7 @@ func SignatureBase(method, rawURL string, headers map[string]string, covered []s
 	if err != nil {
 		return nil, err
 	}
-	m, err := requestMessage(method, rawURL, headers)
+	m, err := requestMessage(method, rawURL, headers, false)
 	if err != nil {
 		return nil, err
 	}
@@ -501,7 +599,7 @@ func ResponseSignatureBase(status int, request *Request, headers map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	m, err := responseMessage(status, headers, request)
+	m, err := responseMessage(status, headers, request, false)
 	if err != nil {
 		return nil, err
 	}
