@@ -162,6 +162,13 @@ final class Sfv {
             }
             String encoded = text.substring(start, at);
             expect(':');
+            // Section 4.2.7 decodes canonical base64 only: padded to a whole quantum, so a missing
+            // or partial padding is refused here rather than read leniently (@5zrf8gjk). Java's
+            // decoder refuses the rest itself: "=" anywhere but the end, and any character outside
+            // the alphabet, CR and LF included.
+            if (encoded.length() % 4 != 0) {
+                throw new SyntaxException("a byte sequence must be base64 padded to a multiple of four");
+            }
             try {
                 return Base64.getDecoder().decode(encoded);
             } catch (IllegalArgumentException e) {
