@@ -174,12 +174,20 @@ func (c *cursor) parseByteSequence() ([]byte, error) {
 	if err := c.expect(':'); err != nil {
 		return nil, err
 	}
+	// Go's decoder skips CR and LF wherever they are, so the alphabet is checked first: a byte
+	// sequence holds base64 and its padding, and nothing else (this.i @5zrf8gjk). The decoder
+	// itself refuses padding that is missing, incomplete or anywhere but the end.
+	if strings.TrimLeft(encoded, base64Alphabet) != "" {
+		return nil, fmt.Errorf("%w: a byte sequence holds a character outside base64", errSyntax)
+	}
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("%w: a byte sequence must be base64 between colons", errSyntax)
 	}
 	return raw, nil
 }
+
+const base64Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
 
 func isDigit(b byte) bool { return b >= '0' && b <= '9' }
 
@@ -276,6 +284,9 @@ func (c *cursor) parseParameters() ([]param, error) {
 			params[i].Value = value
 			continue
 		}
+		if len(params) == MaxParameters {
+			return nil, fmt.Errorf("%w: an item carries more than %d parameters", errSyntax, MaxParameters)
+		}
 		at[key] = len(params)
 		params = append(params, param{Key: key, Value: value})
 	}
@@ -307,6 +318,9 @@ func (c *cursor) parseInnerList() (innerList, error) {
 		}
 		if !c.done() && c.peek() != ' ' && c.peek() != ')' {
 			return list, fmt.Errorf("%w: expected a space or ) at offset %d", errSyntax, c.at)
+		}
+		if len(list.Items) == MaxInnerListItems {
+			return list, fmt.Errorf("%w: an inner list holds more than %d items", errSyntax, MaxInnerListItems)
 		}
 		list.Items = append(list.Items, item{Value: value, Params: params})
 	}
@@ -358,6 +372,9 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 			m = member{Value: true, List: innerList{Params: params}}
 		}
 		if _, seen := out[key]; !seen {
+			if len(order) == MaxDictionaryMembers {
+				return nil, nil, fmt.Errorf("%w: a dictionary holds more than %d members", errSyntax, MaxDictionaryMembers)
+			}
 			order = append(order, key)
 		}
 		out[key] = m
