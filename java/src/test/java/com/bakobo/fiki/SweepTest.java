@@ -258,6 +258,20 @@ class SweepTest {
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", "https://exam\tple.com/p?q=\r\n1", signed, declined()).aid());
     }
 
+    @Test
+    void leadingC0ControlsAndSpacesAreStrippedFromAUrlAndTrailingOnesAreNot() {
+        // As Python's urlsplit strips them, checked against fiki-py on this branch.
+        Fiki.Params params = new Fiki.Params(null, null, null, null, null, null);
+        List<String> covered = List.of("@authority", "@path", "@query");
+        String clean = new String(Fiki.signatureBase("GET", "https://api.example.com/x?q=1", Map.of(), covered, params),
+            StandardCharsets.UTF_8);
+        for (String url : List.of(" \u0001https://api.example.com/x?q=1", "\u0000\u001f https://api.example.com/x?q=1")) {
+            assertEquals(clean, new String(Fiki.signatureBase("GET", url, Map.of(), covered, params), StandardCharsets.UTF_8));
+        }
+        assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() ->
+            Fiki.signatureBase("GET", "https://api.example.com/x \u0001", Map.of(), covered, params)));
+    }
+
     /* ----------------------------------------------- B15 what the signer serializes */
 
     @ParameterizedTest

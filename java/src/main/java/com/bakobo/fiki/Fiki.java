@@ -713,10 +713,11 @@ public final class Fiki {
      */
     record Target(String scheme, String authority, String path, String query) {
         static Target split(String given) {
-            // TAB, CR and LF anywhere in the URL are removed before it is read, as the WHATWG URL
-            // standard and Python's urlsplit remove them, so every port reads one URL the same way
-            // (@5zrf8gjk, the conductor's ruling on the spec's open item, @420qvvxw).
-            String raw = given.replaceAll("[\t\r\n]", "");
+            // Leading C0 controls and spaces are stripped, and TAB, CR and LF anywhere are removed,
+            // before the URL is read, as the WHATWG URL standard and Python's urlsplit do, so every
+            // port reads one URL the same way (@5zrf8gjk, the conductor's ruling, @420qvvxw).
+            // Trailing ones stay, and a covered component carrying one is refused as ever.
+            String raw = given.replaceFirst("^[\\x00-\\x20]+", "").replaceAll("[\t\r\n]", "");
             String scheme = null;
             String rest = raw;
             int at = raw.indexOf("://");
