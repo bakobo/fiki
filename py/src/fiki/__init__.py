@@ -31,7 +31,7 @@ from .messages import (
 # when their declared vectors format matches, whatever their own version numbers say — so this is
 # the number to compare, not the release. Monotonic, because a conformance contract has no
 # meaningful minor: an implementation either satisfies the vectors or it does not.
-VECTORS_FORMAT = 1
+VECTORS_FORMAT = 2
 
 # The KERI profile's vector set, vectors/keri/, answers to its own number (@8vwrexxc), and every
 # port exports both (@5zrf8gjk).

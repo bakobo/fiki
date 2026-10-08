@@ -1,6 +1,6 @@
 {
   "about": "Signature bases and the signatures over them, byte for byte.",
-  "vectors_format": 1,
+  "vectors_format": 2,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
@@ -145,6 +145,106 @@
       "base": "\"@authority\": api.example.com:8443\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
       "signature": "bjTJMNEfJnpf+CwPwmXTIJdfsO2Ki9AhSh9AFNuMfAU1QLG1I14irZq0jn34T8NliGZLGSP4S3CF4YYfc3syBQ==",
       "alg": "ed25519"
+    },
+    {
+      "id": "port-with-leading-zeros-that-is-the-default",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com:000443/things",
+      "headers": {},
+      "covered": [
+        "@authority"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@authority\": api.example.com\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "UikadH8hlz1vfWVKwxyzBdPhRVyccbMX0i+Wh13+ZGMcO1z29Fg1ZJqmZXGICpMdptaFgqriYfHSP0kTncHUBA==",
+      "alg": "ed25519",
+      "note": "A port is any run of ASCII digits, read as a number: :000443 is 443, the default for https, so it is dropped (@5zrf8gjk)."
+    },
+    {
+      "id": "port-with-leading-zeros-is-read-as-a-number",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com:08443/things",
+      "headers": {},
+      "covered": [
+        "@authority"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@authority\": api.example.com:8443\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "bjTJMNEfJnpf+CwPwmXTIJdfsO2Ki9AhSh9AFNuMfAU1QLG1I14irZq0jn34T8NliGZLGSP4S3CF4YYfc3syBQ==",
+      "alg": "ed25519",
+      "note": "Read as a number, so it is written back without its leading zero."
+    },
+    {
+      "id": "ipv6-literal-keeps-its-brackets",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://[2001:DB8::1]:8443/things",
+      "headers": {},
+      "covered": [
+        "@authority"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@authority\": [2001:db8::1]:8443\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "U793mF+cnR/BVdbSaKcO3yvNKf4LUDkO5z7vAnUlf69g0XttPKGDRCvkYFkq0SSMELQBbTJXJy3mHEhKur8qDQ==",
+      "alg": "ed25519",
+      "note": "RFC 3986 section 3.2.2 makes the brackets part of the host; it is lowercased like any other."
+    },
+    {
+      "id": "ipvfuture-literal-keeps-its-brackets",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://[v1.Example]/things",
+      "headers": {},
+      "covered": [
+        "@authority"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@authority\": [v1.example]\n\"@signature-params\": (\"@authority\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "IksUjvFr+YeK+rI1hgraynJ/Bjq2DLja1Z12Z8QUnrj8ncuTNKauBU6zQlFr76an8/C0MIdJVFHbyFIL3iCbAw==",
+      "alg": "ed25519",
+      "note": "An IPvFuture literal has no colon to tell it by, and keeps its brackets too."
+    },
+    {
+      "id": "method-is-any-token-kept-as-sent",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "M-Search",
+      "url": "https://api.example.com/things",
+      "headers": {},
+      "covered": [
+        "@method",
+        "@path"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": M-Search\n\"@path\": /things\n\"@signature-params\": (\"@method\" \"@path\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "uRbk49VBKrkpzRUVyNeBlCrx7OtPWDr/RriBXlhLQGN67tt1CnzqJyRs9LoBa3qSWLVCojGjhOkRHpeqnKURDg==",
+      "alg": "ed25519",
+      "note": "A method is an RFC 9110 token, and its case is kept as given (@22g0xkr8)."
+    },
+    {
+      "id": "field-value-is-trimmed-of-sp-and-htab",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/things",
+      "headers": {
+        "X-Note": " \t value \t "
+      },
+      "covered": [
+        "@method",
+        "x-note"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"x-note\": value\n\"@signature-params\": (\"@method\" \"x-note\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "Qk9PQRR5r8DVK4AQeofYiAOXgQFo+XLuI9dVOcFMLnhnUFmRXcdJHdT6n1ENUDCbYACECQpnCaerCZS3R9xnAg==",
+      "alg": "ed25519",
+      "note": "RFC 9110 section 5.5: SP and HTAB around a field value are not part of it."
     }
   ]
 }
