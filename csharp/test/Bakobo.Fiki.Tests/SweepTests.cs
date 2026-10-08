@@ -285,9 +285,11 @@ namespace Bakobo.Fiki.Tests
         public void ASignatureHeaderHoldingAnUnpairedSurrogateIsMalformed(string value)
         {
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At);
-            var signature = new Dictionary<string, string>(signed) { ["Signature"] = value };
+            var signature = signed.ToDictionary(h => h.Key, h => h.Value);
+            signature["Signature"] = value;
             Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signature, VerifyOptions.DecliningFreshness())));
-            var input = new Dictionary<string, string>(signed) { ["Signature-Input"] = value };
+            var input = signed.ToDictionary(h => h.Key, h => h.Value);
+            input["Signature-Input"] = value;
             Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, input, VerifyOptions.DecliningFreshness())));
         }
 
