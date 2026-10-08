@@ -35,7 +35,6 @@ from fiki import (  # noqa: E402
     signature_base,
     verify_request,
 )
-from fiki.errors import FikiError  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 RFC_SEED = base64.urlsafe_b64decode("n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU" + "=")

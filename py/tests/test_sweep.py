@@ -14,9 +14,15 @@ from urllib.parse import SplitResult
 
 import pytest
 
-import fiki
 from fiki import (
+    __all__ as EXPORTED,
+    KERI_VECTORS_FORMAT,
+    MAX_DICTIONARY_MEMBERS,
+    MAX_FIELD_BYTES,
+    MAX_INNER_LIST_ITEMS,
+    MAX_PARAMETERS,
     REQUEST_MINIMUM,
+    VECTORS_FORMAT,
     Key,
     Request,
     Verdict,
@@ -548,18 +554,18 @@ def test_the_verdict_documents_both_fields():
 
 def test_both_vectors_formats_are_exported():
     """The drivers compare each file with these, so the export is the number this port claims."""
-    assert type(fiki.VECTORS_FORMAT) is int
-    assert type(getattr(fiki, "KERI_VECTORS_FORMAT", None)) is int
-    assert {"VECTORS_FORMAT", "KERI_VECTORS_FORMAT"} <= set(fiki.__all__)
+    assert type(VECTORS_FORMAT) is int
+    assert type(KERI_VECTORS_FORMAT) is int
+    assert {"VECTORS_FORMAT", "KERI_VECTORS_FORMAT"} <= set(EXPORTED)
 
 
 # --- B20: input bounds, size before shape ---
 
 def test_the_bounds_are_exported_constants():
-    assert (fiki.MAX_FIELD_BYTES, fiki.MAX_DICTIONARY_MEMBERS, fiki.MAX_INNER_LIST_ITEMS,
-            fiki.MAX_PARAMETERS) == (8192, 16, 64, 16)
+    assert (MAX_FIELD_BYTES, MAX_DICTIONARY_MEMBERS, MAX_INNER_LIST_ITEMS,
+            MAX_PARAMETERS) == (8192, 16, 64, 16)
     assert {"MAX_FIELD_BYTES", "MAX_DICTIONARY_MEMBERS", "MAX_INNER_LIST_ITEMS",
-            "MAX_PARAMETERS"} <= set(fiki.__all__)
+            "MAX_PARAMETERS"} <= set(EXPORTED)
 
 
 def pad_to(value: str, size: int) -> str:
