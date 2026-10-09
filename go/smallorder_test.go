@@ -107,18 +107,18 @@ func TestSmallOrderKeysAreMalformedOnEveryPath(t *testing.T) {
 		headers := map[string]string{"Signature-Input": `sig=("@method");keyid="` + raw + `"`, "Signature": forged}
 
 		// A raw keyid.
-		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{}); kindOf(t, err) != KindMalformedKey {
+		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{}); kindOf(t, err) != KindMalformedKey {
 			t.Errorf("raw keyid %s: %v", raw, err)
 		}
 		// An expected AID, where the key's encoding is canonical enough to be one.
 		aid := ToAID(key)
-		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{ExpectedAID: aid}); kindOf(t, err) != KindMalformedKey {
+		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: aid}); kindOf(t, err) != KindMalformedKey {
 			t.Errorf("expected AID %s: %v", aid, err)
 		}
 		// A resolver's answer.
 		headers["Signature-Input"] = `sig=("@method");keyid="` + keriAID + `"`
 		resolve := func(string) ([]byte, error) { return key, nil }
-		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{Resolve: resolve}); kindOf(t, err) != KindMalformedKey {
+		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: resolve}); kindOf(t, err) != KindMalformedKey {
 			t.Errorf("resolved key %x: %v", key, err)
 		}
 	}

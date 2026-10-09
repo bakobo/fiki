@@ -16,7 +16,7 @@ func TestAnEmptyMethodIsTheCallersMistake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = VerifyRequest("", urlQuery, headers, VerifyOptions{})
+	_, err = verifyOptedOut("", urlQuery, headers, VerifyOptions{})
 	isInvalidOptions(t, err)
 	_, err = SignResponse(key, 200, &Request{URL: urlQuery}, nil, SignOptions{})
 	isInvalidOptions(t, err)
@@ -38,7 +38,7 @@ func TestAnEmptyMethodIsRefusedEvenWhenUncovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = VerifyRequest("", urlQuery, headers, VerifyOptions{})
+	_, err = verifyOptedOut("", urlQuery, headers, VerifyOptions{})
 	isInvalidOptions(t, err)
 	methodless := &Request{URL: urlQuery}
 	_, err = SignResponse(key, 200, methodless, nil, SignOptions{Covered: []string{"@status"}})

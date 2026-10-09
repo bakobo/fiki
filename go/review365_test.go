@@ -17,7 +17,7 @@ func TestAHeadersMapWithTwoSpellingsOfOneFieldIsRefused(t *testing.T) {
 	evil := []byte(`{"hello": "mallory"}`)
 	headers := merged(signed, map[string]string{"content-digest": ContentDigest(evil)})
 	for i := 0; i < 200; i++ {
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: evil})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: evil})
 		if err == nil {
 			t.Fatalf("a substituted body verified on attempt %d", i)
 		}

@@ -17,7 +17,7 @@ func TestANonEmptyBodyIsABodyUnderTheMinimum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: []byte("x"), Minimum: RequestMinimum})
+	_, err = verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: []byte("x"), Minimum: RequestMinimum})
 	if kindOf(t, err) != KindInsufficientCoverage {
 		t.Error("an uncovered body should be refused under the minimum")
 	}
@@ -33,7 +33,7 @@ func TestLineBreaksInACoveredFieldAreRefusedOnTheRawValue(t *testing.T) {
 	}
 	for _, value := range []string{"admin\r\n", "\r\nadmin", "admin\x00", "admin\n"} {
 		headers := merged(signed, map[string]string{"X-Role": value})
-		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{})
+		_, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{})
 		if kindOf(t, err) != KindSignatureMismatch {
 			t.Errorf("%q should be refused, got %v", value, err)
 		}
@@ -44,7 +44,7 @@ func TestLineBreaksInACoveredFieldAreRefusedOnTheRawValue(t *testing.T) {
 		}
 	}
 	headers := merged(signed, map[string]string{"X-Role": " \tadmin\t "})
-	if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{}); err != nil {
+	if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{}); err != nil {
 		t.Errorf("SP and HTAB around a value are trimmed: %v", err)
 	}
 }

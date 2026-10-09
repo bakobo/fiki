@@ -39,6 +39,10 @@ const DefaultSkew int64 = 5
 var (
 	RequestMinimum  = []string{"@method", "@path", "@query"}
 	ResponseMinimum = []string{"@status", Req("@method"), Req("@path"), Req("@query")}
+	// DefaultMinimum is what VerifyRequest requires when the caller states no Minimum of its own
+	// (this.i @524c8qgv): fiki's own signing default, so a verifier left at its defaults accepts
+	// what a fiki signer produces and nothing that covers less. Set NoMinimum to opt out.
+	DefaultMinimum = []string{"@method", "@authority", "@path", "@query"}
 )
 
 const (
@@ -347,7 +351,7 @@ func floored(minimum, floor []string) error {
 	}
 	if missing != nil {
 		return invalidOptions("A minimum covered set must include the profile's own, %s; this one "+
-			"leaves out %s. Pass nil to apply no minimum at all.",
+			"leaves out %s.",
 			strings.Join(floor, ", "), strings.Join(missing, ", "))
 	}
 	return nil
@@ -436,18 +440,28 @@ type VerifyOptions struct {
 	Resolve Resolver
 	// Minimum is the verifier's covered-set policy, RequestMinimum or ResponseMinimum or a
 	// superset of it: a signature covering less is refused even though it verifies, and so is a
-	// body without a covered content-digest (@7f28p7xk). Nil enforces no minimum, and that
-	// includes the body rule.
+	// body without a covered content-digest (@7f28p7xk). Any minimum also requires created, and a
+	// keyid even beside ExpectedAID. Left nil, VerifyRequest applies DefaultMinimum (@524c8qgv)
+	// and VerifyResponse applies none.
 	Minimum []string
+	// NoMinimum is the explicit opt-out from any minimum, the body rule included: a body handed
+	// over with no covered content-digest is then accepted, and the verdict's Covered is the only
+	// place that shows it (@2f227n4r). Setting it beside a Minimum is ErrInvalidOptions.
+	NoMinimum bool
 	// ExpectedKeyid refuses a signature by any other keyid as UnknownKey; a client passes the AID
 	// it is talking to (profile R1).
 	ExpectedKeyid string
-	// Authorities is the set of @authority values this verifier serves; a covered @authority
-	// outside it is a SignatureMismatch, because a request signed for one service must not replay
-	// to another. Supplying it makes @authority required, so a signature that does not cover it
-	// is InsufficientCoverage (@605z9tnw). Nil checks nothing; an empty non-nil set serves
-	// nothing. Requests only.
-	Authorities []string
+	// Authorities and AnyAuthority are a decision VerifyRequest requires, like MaxAge, with no
+	// default (@524c8qgv): state exactly one. Authorities is the non-empty set of @authority
+	// values this verifier serves, each compared exactly with the one the request derives, so
+	// "api.example.com:8443" and "api.example.com" are different hosts and an entry is written
+	// lowercase with no default port. A covered @authority outside it is a SignatureMismatch,
+	// because a request signed for one service must not replay to another (@2f227n4r), and
+	// supplying it makes @authority required even under NoMinimum (@605z9tnw). AnyAuthority is
+	// the explicit decision to check no authority. Neither, both, or an empty Authorities is
+	// ErrInvalidOptions when a request is verified. Requests only: a response takes neither.
+	Authorities  []string
+	AnyAuthority bool
 }
 
 // VerifyRequest verifies a signed request.
@@ -462,6 +476,15 @@ type VerifyOptions struct {
 func VerifyRequest(method, rawURL string, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
 	if err := checkWindow(opts); err != nil {
 		return nil, err
+	}
+	if err := checkAuthorities(opts); err != nil {
+		return nil, err
+	}
+	if err := checkNoMinimum(opts); err != nil {
+		return nil, err
+	}
+	if opts.Minimum == nil && !opts.NoMinimum {
+		opts.Minimum = DefaultMinimum
 	}
 	if err := floored(opts.Minimum, RequestMinimum); err != nil {
 		return nil, err
@@ -485,12 +508,15 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	if err := checkWindow(opts); err != nil {
 		return nil, err
 	}
+	if err := checkNoMinimum(opts); err != nil {
+		return nil, err
+	}
 	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
 		return nil, err
 	}
-	if opts.Authorities != nil {
-		return nil, invalidOptions("Authorities applies to a request a verifier serves, not to a " +
-			"response; pass nil.")
+	if opts.Authorities != nil || opts.AnyAuthority {
+		return nil, invalidOptions("Authorities and AnyAuthority apply to a request a verifier " +
+			"serves, not to a response; leave both unset.")
 	}
 	m, err := responseMessage(status, headers, request, true)
 	if err != nil {
@@ -864,6 +890,32 @@ func usable(public ed25519.PublicKey, aid, named string) (ed25519.PublicKey, str
 		}
 	}
 	return public, aid, nil
+}
+
+// checkAuthorities requires the caller's decision about the hosts it serves (@524c8qgv): Go cannot
+// make a field mandatory at compile time, so leaving both Authorities and AnyAuthority unset is
+// refused when the request is verified, as is stating both or an empty set, which serves no host
+// at all.
+func checkAuthorities(opts VerifyOptions) error {
+	switch {
+	case opts.Authorities == nil && !opts.AnyAuthority:
+		return invalidOptions("Authorities is a required decision: pass the hosts this verifier " +
+			`serves, such as []string{"api.example.com"}, or set AnyAuthority to check none.`)
+	case opts.Authorities != nil && opts.AnyAuthority:
+		return invalidOptions("Pass Authorities or set AnyAuthority, not both; they are opposite answers.")
+	case opts.Authorities != nil && len(opts.Authorities) == 0:
+		return invalidOptions("Authorities is empty, which serves no host at all; set " +
+			"AnyAuthority instead to decline the check.")
+	}
+	return nil
+}
+
+// checkNoMinimum refuses a Minimum beside the opt-out from one, which are opposite answers.
+func checkNoMinimum(opts VerifyOptions) error {
+	if opts.NoMinimum && opts.Minimum != nil {
+		return invalidOptions("Pass a Minimum or set NoMinimum, not both; they are opposite answers.")
+	}
+	return nil
 }
 
 // checkWindow refuses a freshness window that is not a positive number of seconds, as the

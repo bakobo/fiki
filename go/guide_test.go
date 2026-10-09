@@ -28,7 +28,7 @@ func TestTheGuidesSamplesRun(t *testing.T) {
 
 	maxAge := int64(300)
 	verdict, err := fiki.VerifyRequest("POST", url, headers,
-		fiki.VerifyOptions{Body: body, MaxAge: &maxAge})
+		fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 
 	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
-		Body: body, Minimum: fiki.RequestMinimum,
+		Body: body, Minimum: fiki.RequestMinimum, Authorities: []string{"keria.example.com"},
 		Resolve: func(string) ([]byte, error) { return nil, nil },
 	})
 	if got := describe(err); got != "no key state for "+aid {
@@ -160,7 +160,8 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 		return nil, &fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid,
 			Message: "The key state of " + keyid + " has no single key that satisfies its threshold."}
 	}
-	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Body: body, Resolve: twoOfThree})
+	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Body: body, Resolve: twoOfThree,
+		Authorities: []string{"keria.example.com"}})
 	if got := describe(err); got != "no single key of "+aid+" signs alone" {
 		t.Errorf("UnsupportedSigner: %s", got)
 	}
@@ -182,7 +183,8 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	if got := describe(err); got != "a mistake in the call, not in the message" {
 		t.Errorf("ErrInvalidOptions: %s", got)
 	}
-	_, err = fiki.VerifyRequest("POST", url, map[string]string{}, fiki.VerifyOptions{})
+	_, err = fiki.VerifyRequest("POST", url, map[string]string{}, fiki.VerifyOptions{
+		Authorities: []string{"keria.example.com"}})
 	if got := describe(err); got != fiki.KindMissingSignature {
 		t.Errorf("other kinds: %s", got)
 	}
