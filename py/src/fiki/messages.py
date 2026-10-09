@@ -546,7 +546,7 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
         for item in items:
             if item.value == "@authority" and value_of(item, message) not in authorities:
                 raise SignatureMismatch(
-                    f'The signature covers the authority "{value_of(item, message)}", which '
+                    f"The signature covers the authority {brief(value_of(item, message))}, which "
                     "this verifier does not serve, so it was signed for somebody else."
                 )
 

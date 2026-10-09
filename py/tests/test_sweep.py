@@ -715,3 +715,54 @@ def test_an_item_with_seventeen_parameters_is_malformed():
 
 def test_an_item_with_sixteen_parameters_is_read():
     assert verify(*with_digest(content_digest(BODY) + params(16))).aid == KEY.aid
+
+
+# --- Every message quotes a value it was handed escaped and cut (@524c8qgv, part two) ---
+
+_LONE = "\ud800"
+_LONG = "a" * 3000
+
+
+def _quotable(message: str) -> None:
+    """Printable as UTF-8, free of C0, DEL, C1, U+2028 and U+2029, and at most 1024 characters."""
+    message.encode("utf-8")
+    assert not any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F or c in "  "
+                   for c in message), ascii(message[:200])
+    assert len(message) <= 1024, len(message)
+
+
+def _long_authority():
+    url = "https://" + "a" * 3000 + ".example/x"
+    request, headers = sign(url=url, covered=["@authority"])
+    return verify(request, headers, authorities={"api.example.com"})
+
+
+@pytest.mark.parametrize("call, error, fragment", [
+    (lambda: sign(covered=['"@pa' + _LONE + 'th"']), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=['"@path";a' + _LONE]), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=['"' + _LONG + '\x85']), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=[_LONG + " x"]), ValueError, "is not a component fiki can name"),
+    (lambda: sign(headers={"X-" + _LONE: "a", "x-" + _LONE: "b"}), ValueError,
+     "more than once"),
+    (lambda: sign(headers={"x-a": 1, "x-" + _LONG: "b"}), TypeError, "both strings"),
+    (lambda: sign(headers={1: _LONG}), TypeError, "both strings"),
+    (lambda: verify(*sign(), url="https://a" + _LONE + "℀/x"), SignatureMismatch,
+     "cannot be read"),
+    (lambda: sign(url="https://a\x85℀/x"), ValueError, "cannot be read"),
+    (lambda: verify(*sign(), expected_aid=_LONE * 44), MalformedKey, "44 characters"),
+    (lambda: verify(*sign(), expected_aid="B" + "A" * 42 + _LONE), MalformedKey,
+     "not valid base64url"),
+    (lambda: verify(*sign(), expected_aid="B" + "A" * 42 + "\x85"), MalformedKey,
+     "not valid base64url"),
+    (_long_authority, SignatureMismatch, "does not serve"),
+    (lambda: sign(method=_LONG + " "), ValueError, "is not an HTTP method"),
+    (lambda: sign(method=_LONE), ValueError, "is not an HTTP method"),
+    (lambda: sign(keyid=_LONG + "\n"), ValueError, "outside printable ASCII"),
+    (lambda: sign(nonce=_LONE), ValueError, "outside printable ASCII"),
+    (lambda: sign(label=_LONG + "A"), ValueError, "is not an RFC 8941 key"),
+    (lambda: sign(label=_LONE), ValueError, "is not an RFC 8941 key"),
+])
+def test_every_message_quotes_what_it_was_handed_escaped_and_cut(call, error, fragment):
+    with pytest.raises(error, match=fragment) as caught:
+        call()
+    _quotable(str(caught.value))
