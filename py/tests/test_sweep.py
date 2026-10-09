@@ -141,7 +141,9 @@ NOT_ADDRESSES = ["not-an-ip", "1.2.3.4", "vZ.x", "v1.", "V1.x", "v.x", "::1%", "
 
 @pytest.mark.parametrize("inside", NOT_ADDRESSES)
 def test_a_bracketed_host_that_is_not_an_address_is_a_caller_error_when_signing(inside):
-    with pytest.raises(ValueError, match="urlsplit refuses it"):
+    # Either refusal is fiki's: urlsplit's own, wrapped, or, on a Python whose urlsplit accepts
+    # the literal (3.13.16 and 3.14.8 accept an uppercase "V" IPvFuture), fiki's ip_literal check.
+    with pytest.raises(ValueError, match="urlsplit refuses it|its IP-literal is not an IPv6"):
         sign(url=f"https://[{inside}]/x")
 
 
