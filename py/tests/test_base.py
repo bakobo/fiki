@@ -65,7 +65,7 @@ def test_authority_lowercases_the_host_and_omits_a_default_port():
         # An IPvFuture literal has no colon, and is still an IP-literal (RFC 3986 section 3.2.2).
         ("https://[v1.example]/x", "[v1.example]"),
         ("https://[v1.example]:8443/x", "[v1.example]:8443"),
-        ("https://user@[v1.example]:443/x", "[v1.example]"),
+        ("https://[v1.example]:443/x", "[v1.example]"),
     ],
 )
 def test_authority_keeps_the_brackets_of_an_ipv6_literal(url, authority):

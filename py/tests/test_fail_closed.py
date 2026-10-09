@@ -13,7 +13,7 @@ from collections.abc import Collection
 import pytest
 
 from fiki import (DEFAULT_COVERED, DEFAULT_MINIMUM, REQUEST_MINIMUM, Key, sign_request,
-                  verify_request)
+                  verify_request, verify_response)
 from fiki.errors import SignatureMismatch
 
 KEY = Key.from_seed(bytes(range(32)))
@@ -92,3 +92,31 @@ def test_served_hosts_are_snapshotted_so_a_collections_own_membership_test_decid
     headers = sign_request(key=KEY, method="GET", url=url)
     with pytest.raises(SignatureMismatch):
         verify_request(method="GET", url=url, headers=headers, max_age=None, authorities=Sly())
+
+
+def test_expected_keyid_has_no_default_and_the_response_minimum_defaults():
+    parameters = inspect.signature(verify_response).parameters
+    assert parameters["expected_keyid"].default is inspect.Parameter.empty
+    assert repr(parameters["minimum"].default) == "DEFAULT_MINIMUM"
+
+
+def test_an_error_quotes_at_most_64_characters_of_an_untrusted_url_and_escapes_controls():
+    # Review A9, B9: a 5 MB URL made a 10 MB error message, and js echoed controls raw.
+    url = "https://api.example.com/" + "p" * 9000
+    headers = sign_request(key=KEY, method="GET", url="https://api.example.com/x")
+    with pytest.raises(SignatureMismatch) as caught:
+        verify_request(method="GET", url=url, headers=headers, max_age=None, authorities=None)
+    assert len(str(caught.value)) < 400
+    assert "cut from 9024 characters" in str(caught.value)
+    with pytest.raises(SignatureMismatch) as caught:
+        verify_request(method="GET", url="https://api.example.com/a\x1bb", headers=headers,
+                       max_age=None, authorities=None)
+    assert "\x1b" not in str(caught.value) and "\\x1b" in str(caught.value)
+
+
+def test_field_names_fold_ascii_only():
+    from fiki.base import ascii_lower, canonical
+
+    assert ascii_lower("X-Note") == "x-note"
+    assert ascii_lower("Key") == "Key"
+    assert set(canonical({"Key-Id": "v", "Key-Id": "w"})) == {"Key-id", "key-id"}

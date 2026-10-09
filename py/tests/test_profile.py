@@ -257,7 +257,10 @@ def respond(**overrides):
 
 
 def check(headers, **overrides):
-    args = dict(status=200, headers=headers, body=RESPONSE_BODY, request=REQUEST, max_age=None)
+    # 0.8's response policy, stated explicitly now that the default is RESPONSE_MINIMUM and
+    # expected_keyid is required (@524c8qgv); the new default has tests of its own.
+    args = dict(status=200, headers=headers, body=RESPONSE_BODY, request=REQUEST, max_age=None,
+                expected_keyid=None, minimum=None)
     args.update(overrides)
     return verify_response(**args)
 

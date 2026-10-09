@@ -105,14 +105,14 @@ def _component_item(spec: str) -> http_sfv.Item:
                 component=spec,
                 supported=", ".join(DERIVED + RESPONSE_DERIVED),
             ) from ex
-        item.value = item.value.lower()
+        item.value = ascii_lower(item.value)
         return item
-    return http_sfv.Item(spec.lower())
+    return http_sfv.Item(ascii_lower(spec))
 
 
 def req(name: str) -> str:
     """The spelling of a request component named from a response: ``req("@path")``."""
-    item = http_sfv.Item(name.lower())
+    item = http_sfv.Item(ascii_lower(name))
     item.params[_REQ] = True
     return str(item)
 
@@ -181,6 +181,30 @@ class _Message:
 _OWS = " \t"
 
 
+# Every untrusted value fiki reads is bounded before it is read (@524c8qgv): the three signature
+# headers by messages, and a target URL and every covered field value here. One bound for all.
+MAX_FIELD_BYTES = 8192
+
+# Longest stretch of an untrusted value an error message quotes.
+_SHOWN = 64
+
+_ASCII_UPPER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def ascii_lower(text: str) -> str:
+    """A-Z folded to a-z and nothing else (@524c8qgv).
+
+    str.lower folds U+212A KELVIN SIGN to an ASCII "k", so a field named with it would become a
+    covered name it is not (review A6, B5). Field names are ASCII tokens; nothing else folds.
+    """
+    return text.translate(_ASCII_UPPER)
+
+
+def shown(text: str) -> str:
+    """An untrusted value as an error message may quote it: escaped, and cut at 64 characters."""
+    return repr(text) if len(text) <= _SHOWN else repr(text[:_SHOWN]) + f" (cut from {len(text)} characters)"
+
+
 def canonical(headers: Mapping[str, str]) -> dict[str, str]:
     """The headers with lowercased names, refusing two names equal case-insensitively.
 
@@ -196,7 +220,7 @@ def canonical(headers: Mapping[str, str]) -> dict[str, str]:
             raise TypeError(
                 f"A header is a name and a value, both strings; this one is {name!r}: {value!r}."
             )
-        lowered = name.lower()
+        lowered = ascii_lower(name)
         if lowered in out:
             raise ValueError(
                 f'The headers name the field "{lowered}" more than once, in different cases, '
@@ -251,10 +275,10 @@ def _unreadable(message: _Message, reason: str) -> Exception:
     """
     if message.received:
         return SignatureMismatch(
-            f"The URL {message.url!r} cannot be read: {reason} So there is no signature base to "
-            "check the signature against."
+            f"The URL {shown(message.url)} cannot be read: {reason} So there is no signature base "
+            "to check the signature against."
         )
-    return ValueError(f"The URL {message.url!r} cannot be read: {reason}")
+    return ValueError(f"The URL {shown(message.url)} cannot be read: {reason}")
 
 
 # A scheme, "://", and at least one character of authority (RFC 3986 section 3).
@@ -272,6 +296,8 @@ def _split(message: _Message):
     rather than stripped, as urlsplit strips a tab, CR or LF, which made "/\nx" verify as "/x".
     """
     url = message.url
+    if len(url.encode("utf-8")) > MAX_FIELD_BYTES:
+        raise _unreadable(message, f"it is over {MAX_FIELD_BYTES} bytes.")
     if any(c <= " " or c == "\x7f" for c in url):
         raise _unreadable(message, "it contains a space or a control character.")
     if "#" in url:
@@ -339,7 +365,11 @@ def _authority(message: _Message) -> str:
     parts = _split(message)
     headers = message.headers
     if parts.netloc:
-        return _hostport(parts.netloc.rpartition("@")[2], parts.scheme, message)
+        if "@" in parts.netloc:
+            # RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure the
+            # authority (@524c8qgv).
+            raise _unreadable(message, "its authority carries user information.")
+        return _hostport(parts.netloc, parts.scheme, message)
     host = headers.get("host")
     if host is None:
         raise MissingComponent(
@@ -426,18 +456,24 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
             component=spec_of(item),
         )
     # Checked as received, before the optional whitespace is trimmed, so a line break at the
-    # edge of a value is refused exactly as one inside it is (tick 4r5h).
-    _check_raw(value, spec_of(item))
+    # edge of a value is refused exactly as one inside it is (tick 4r5h). Content-Digest has its
+    # own bound and its own class, MalformedDigest, checked when it is parsed (@5zrf8gjk).
+    _check_raw(value, spec_of(item), bounded=item.value != CONTENT_DIGEST)
     return value.strip(_OWS)
 
 
-def _check_raw(value: str, spec: str) -> None:
+def _check_raw(value: str, spec: str, *, bounded: bool = True) -> None:
     """Refuse a value with no single serialization both sides agree on.
 
     A line break inside a value would forge a line of the base, and a byte outside visible ASCII
     is encoded differently by different stacks. The KERI profile's draft 6 names such a base
     unbuildable, and so a signature-mismatch (@2f227n4r).
     """
+    if bounded and len(value.encode("utf-8")) > MAX_FIELD_BYTES:
+        raise SignatureMismatch(
+            f"The value of {spec} is over {MAX_FIELD_BYTES} bytes, so no signature base is built "
+            "from it."
+        )
     if any(not (char == "\t" or " " <= char <= "~") for char in value):
         raise SignatureMismatch(
             f"The value of {spec} contains a line break, a control character or a "
@@ -448,7 +484,7 @@ def _check_raw(value: str, spec: str) -> None:
 def value_of(item: http_sfv.Item, message: _Message) -> str:
     """A component's value, refused when it has no single serialization both sides agree on."""
     value = _component_value(item, message)
-    _check_raw(value, spec_of(item))
+    _check_raw(value, spec_of(item), bounded=item.value != CONTENT_DIGEST)
     return value
 
 

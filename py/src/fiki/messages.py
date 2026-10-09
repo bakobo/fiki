@@ -32,6 +32,7 @@ from cryptography.exceptions import InvalidSignature
 from .base import (
     CONTENT_DIGEST,
     DEFAULT_COVERED,
+    MAX_FIELD_BYTES,
     Request,
     canonical,
     check_covered,
@@ -92,7 +93,6 @@ _RAW_KEYID = re.compile(rf"[A-Za-z0-9_-]{{{_RAW_KEYID_LENGTH}}}")
 # Input bounds (@5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends and low
 # enough that no parse is slow. A field is measured in bytes before it is parsed, size before
 # shape; the counts are taken on what parsed. Over any of them is the header's malformed class.
-MAX_FIELD_BYTES = 8192
 MAX_DICTIONARY_MEMBERS = 16
 MAX_INNER_LIST_ITEMS = 64
 MAX_PARAMETERS = 16
@@ -431,8 +431,8 @@ def verify_response(
     skew: int = DEFAULT_SKEW,
     now: int | None = None,
     resolve: Resolver | None = None,
-    minimum: Sequence[str] | None = None,
-    expected_keyid: str | None = None,
+    expected_keyid: str | None,
+    minimum: Sequence[str] | None | _Default = _DEFAULT,
 ) -> Verdict:
     """Verify a signed response to ``request``, returning a :class:`Verdict` or raising.
 
@@ -441,7 +441,10 @@ def verify_response(
     :data:`RESPONSE_MINIMUM`, a request with non-empty content obliges the response to cover
     ``"content-digest";req``. A response's body is its content, never its ``Content-Length``, so
     a HEAD or 304 response is bodiless whatever length it announces. A client should pass
-    ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
+    ``expected_keyid`` has no default and must be given, like ``authorities`` for a request
+    (@524c8qgv): the AID the client is talking to (profile R1), or ``None`` to accept any signer
+    and read it from the verdict. ``minimum`` left out is :data:`RESPONSE_MINIMUM`; ``None`` is
+    the explicit opt-out. An unsigned 401 is
     :class:`~fiki.errors.Unauthenticated`, checked before anything else in the message, because a
     server that refuses before it knows the agent cannot sign the refusal (@2f227n4r). A minimum
     smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
@@ -450,7 +453,7 @@ def verify_response(
     not given.
     """
     _check_window(max_age, skew)
-    minimum = _floored(minimum, RESPONSE_MINIMUM)
+    minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
     # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -784,6 +787,11 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
             raise MalformedSignatureInput(
                 f'The signature parameter "{name}" must be '
                 f"{'an integer' if expected is int else 'a quoted string'}."
+            )
+        if name in ("created", "expires") and value < 0:
+            # A time before 1970 is no time a signer could have meant (@524c8qgv).
+            raise MalformedSignatureInput(
+                f'The signature parameter "{name}" is {value}, and a UNIX time is not negative.'
             )
 
 
