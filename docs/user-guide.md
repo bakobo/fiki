@@ -147,6 +147,7 @@ import { verifyRequest, FikiError } from '@bakobo/fiki';
 
 const verdict = await verifyRequest({
   method, url, headers, body, maxAge: 300,
+  authorities: ['api.example.com'],  // the hosts this verifier serves, or null to decline the check
 });
 ```
 
@@ -392,6 +393,7 @@ const verdict = await verifyRequest({
   method, url, headers, body,
   maxAge: 300,
   minimum: REQUEST_MINIMUM,
+  authorities: ['api.example.com'],  // or null to decline the check
   resolve: async (keyid) => keyState.get(keyid) ?? null,  // 32 raw bytes, or null
 });
 verdict.keyid;  // the AID the resolver vouched for; verdict.aid is the same
