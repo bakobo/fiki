@@ -823,6 +823,79 @@ fn an_empty_expected_keyid_is_a_caller_error_in_both_verifiers() {
 }
 
 #[test]
+fn an_unstated_max_age_is_a_caller_error_for_a_request() {
+    // `..Default::default()` cannot make a field mandatory, so the decision is checked when a
+    // verifier runs; reading a field nobody wrote as the decline is the silent skip @67shl6c5
+    // exists to prevent (`this.i` @65u2932c).
+    let (_, out) = signed(SignOptions::default());
+    let unstated = VerifyOptions {
+        max_age: MaxAge::Unstated,
+        now: Some(SIGNED_AT),
+        ..opted_out()
+    };
+    let refused = verify_request("POST", URL_QUERY, &out, &unstated).unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+    assert!(refused.message.contains("max_age"), "{}", refused.message);
+    assert!(
+        refused.message.contains("MaxAge::Unchecked"),
+        "{}",
+        refused.message
+    );
+    assert_eq!(VerifyOptions::default().max_age, MaxAge::Unstated);
+}
+
+#[test]
+fn an_unstated_max_age_is_a_caller_error_for_a_response() {
+    let unstated = VerifyOptions {
+        max_age: MaxAge::Unstated,
+        ..opted_out()
+    };
+    // Checked with the other options, before the message is read: an unsigned 401 is otherwise
+    // the first thing a response verifier reports.
+    for status in [200, 401] {
+        let refused = verify_response(status, &BTreeMap::new(), None, &unstated).unwrap_err();
+        assert_eq!(refused.kind, Kind::InvalidArgument, "{status}");
+        assert!(refused.message.contains("max_age"), "{}", refused.message);
+    }
+}
+
+#[test]
+fn the_explicit_decline_of_max_age_still_verifies() {
+    let (key, out) = signed(SignOptions::default());
+    let declined = VerifyOptions {
+        max_age: MaxAge::Unchecked,
+        now: Some(SIGNED_AT + 1_000_000),
+        ..opted_out()
+    };
+    let verdict = verify_request("POST", URL_QUERY, &out, &declined).unwrap();
+    assert_eq!(verdict.aid, key.aid());
+    assert_eq!(MaxAge::seconds(300), MaxAge::Seconds(300));
+    let refused = verify_request(
+        "POST",
+        URL_QUERY,
+        &out,
+        &VerifyOptions {
+            max_age: MaxAge::seconds(0),
+            ..declined
+        },
+    )
+    .unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+}
+
+#[test]
+fn minimum_of_takes_the_profile_constants_as_they_are() {
+    assert_eq!(
+        Minimum::of(fiki::REQUEST_MINIMUM),
+        Minimum::Of(vec!["@method".into(), "@path".into(), "@query".into()])
+    );
+    assert_eq!(
+        Minimum::of(vec![String::from("@status")]),
+        Minimum::Of(vec!["@status".into()])
+    );
+}
+
+#[test]
 fn userinfo_is_a_caller_error_when_signing() {
     // RFC 9110 section 4.2.4 (`this.i` @524c8qgv): refused, never stripped. refusals.json pins the
     // verifier's side.
