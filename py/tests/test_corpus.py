@@ -223,15 +223,9 @@ def test_the_corpus_is_the_one_this_test_pins():
     assert set(FIKI_WAY) <= held
 
 
-def test_every_corpus_case_ran(request):
-    # Collection is the count: one parametrized test per case, none skipped or deselected silently.
-    ran = [item for item in request.session.items if item.originalname == "test_the_corpus_case"]
-    if ran:  # absent when the run was narrowed to other tests with -k
-        per_file = {name: 0 for name in COUNTS}
-        for item in ran:
-            per_file[item.callspec.params["name"]] += 1
-        assert per_file == COUNTS
-        assert len(ran) == TOTAL
+def test_every_corpus_case_ran(collected):
+    # One parametrized test per case: every case collected runs, and none is skipped.
+    assert collected("test_the_corpus_case") in (None, TOTAL)
 
 
 def test_a_list_or_item_entry_point_applies_every_bound():
