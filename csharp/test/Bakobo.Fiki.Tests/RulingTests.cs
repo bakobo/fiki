@@ -58,8 +58,8 @@ namespace Bakobo.Fiki.Tests
         public void VerifyingARequestRefusesTwinNames(string first, string second, bool covered)
         {
             var signed = HttpSignatures.SignRequest(Signer, "POST", Url, Given(first), Body, CoversRole(first, covered) ? Covered(true) : null);
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, Given(first).Concat(signed), VerifyOptions.DecliningFreshness().WithBody(Body)).Aid);
-            Refused(() => HttpSignatures.VerifyRequest("POST", Url, Twinned(first, second, signed), VerifyOptions.DecliningFreshness().WithBody(Body)));
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, Given(first).Concat(signed), Verifying.DecliningFreshness().WithBody(Body)).Aid);
+            Refused(() => HttpSignatures.VerifyRequest("POST", Url, Twinned(first, second, signed), Verifying.DecliningFreshness().WithBody(Body)));
         }
 
         [Theory]
@@ -69,13 +69,13 @@ namespace Bakobo.Fiki.Tests
             var coveredList = CoversRole(first, covered) ? new[] { "@status", "x-role", "content-digest" } : null;
             Refused(() => HttpSignatures.SignResponse(Signer, 200, headers: With(new KeyValuePair<string, string>[0], first, second), body: Body, covered: coveredList));
             var signed = HttpSignatures.SignResponse(Signer, 200, headers: Given(first), body: Body, covered: coveredList);
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, Given(first).Concat(signed), VerifyOptions.DecliningFreshness().WithBody(Body)).Aid);
-            Refused(() => HttpSignatures.VerifyResponse(200, Twinned(first, second, signed), VerifyOptions.DecliningFreshness().WithBody(Body)));
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, Given(first).Concat(signed), Verifying.DecliningFreshness().WithBody(Body)).Aid);
+            Refused(() => HttpSignatures.VerifyResponse(200, Twinned(first, second, signed), Verifying.DecliningFreshness().WithBody(Body)));
         }
 
         [Fact]
         public void AnUnsignedUnauthorizedResponseWithTwinNamesIsRefusedForTheTwins() =>
-            Refused(() => HttpSignatures.VerifyResponse(401, new[] { H("X-Role", "a"), H("x-role", "b") }, VerifyOptions.DecliningFreshness()));
+            Refused(() => HttpSignatures.VerifyResponse(401, new[] { H("X-Role", "a"), H("x-role", "b") }, Verifying.DecliningFreshness()));
 
         [Fact]
         public void ThePairedRequestIsHeldToTheSameRule()
@@ -84,7 +84,7 @@ namespace Bakobo.Fiki.Tests
             Refused(() => HttpSignatures.SignResponse(Signer, 200, twins));
             var plain = new Request("POST", Url, new[] { H("X-Role", "member") });
             var signed = HttpSignatures.SignResponse(Signer, 200, plain);
-            Refused(() => HttpSignatures.VerifyResponse(200, signed, VerifyOptions.DecliningFreshness().WithRequest(twins)));
+            Refused(() => HttpSignatures.VerifyResponse(200, signed, Verifying.DecliningFreshness().WithRequest(twins)));
             Refused(() => HttpSignatures.ResponseSignatureBase(200, new KeyValuePair<string, string>[0], new[] { "@status" }, 1, "k", twins));
         }
 
@@ -101,7 +101,7 @@ namespace Bakobo.Fiki.Tests
             var given = new[] { H("X-Role", "member"), H("X-Other", "y") };
             var signed = HttpSignatures.SignRequest(Signer, "POST", Url, given, Body, Covered(true));
             var headers = given.Concat(signed).ToList();
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, headers, VerifyOptions.DecliningFreshness().WithBody(Body)).Aid);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, headers, Verifying.DecliningFreshness().WithBody(Body)).Aid);
         }
     }
 }

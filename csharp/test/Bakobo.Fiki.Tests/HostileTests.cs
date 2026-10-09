@@ -45,7 +45,7 @@ namespace Bakobo.Fiki.Tests
         {
             var headers = new Shifting(HttpSignatures.SignRequest(Signer, "POST", Url, body: Signed), HttpSignatures.ContentDigest(Swapped));
             var caught = Assert.Throws<FikiException>(() =>
-                HttpSignatures.VerifyRequest("POST", Url, headers, VerifyOptions.DecliningFreshness().WithBody(Swapped)));
+                HttpSignatures.VerifyRequest("POST", Url, headers, Verifying.DecliningFreshness().WithBody(Swapped)));
             Assert.Equal(FikiErrorKind.DigestMismatch, caught.Kind);
             Assert.Equal(1, headers.Enumerations);
         }
@@ -55,7 +55,7 @@ namespace Bakobo.Fiki.Tests
         {
             var headers = new Shifting(HttpSignatures.SignResponse(Signer, 200, body: Signed), HttpSignatures.ContentDigest(Swapped));
             var caught = Assert.Throws<FikiException>(() =>
-                HttpSignatures.VerifyResponse(200, headers, VerifyOptions.DecliningFreshness().WithBody(Swapped)));
+                HttpSignatures.VerifyResponse(200, headers, Verifying.DecliningFreshness().WithBody(Swapped)));
             Assert.Equal(FikiErrorKind.DigestMismatch, caught.Kind);
             Assert.Equal(1, headers.Enumerations);
         }
@@ -65,7 +65,7 @@ namespace Bakobo.Fiki.Tests
         {
             var headers = new Shifting(new[] { new KeyValuePair<string, string>("Content-Digest", "x") }, "y");
             Assert.Equal(FikiErrorKind.Unauthenticated, Assert.Throws<FikiException>(() =>
-                HttpSignatures.VerifyResponse(401, headers, VerifyOptions.DecliningFreshness())).Kind);
+                HttpSignatures.VerifyResponse(401, headers, Verifying.DecliningFreshness())).Kind);
             Assert.Equal(1, headers.Enumerations);
         }
 
@@ -111,7 +111,7 @@ namespace Bakobo.Fiki.Tests
             var input = "sig=(" + string.Join(" ", covered.Select(c => "\"" + c + "\"")) + ");created=1;keyid=\"k\"";
             var headers = new Dictionary<string, string> { { "Signature-Input", input }, { "Signature", "sig=:" + Convert.ToBase64String(new byte[64]) + ":" } };
             var verify = Seconds(() => Assert.Equal(FikiErrorKind.MalformedSignatureInput, Assert.Throws<FikiException>(() =>
-                HttpSignatures.VerifyRequest("GET", Url, headers, VerifyOptions.DecliningFreshness().WithExpectedAid(Signer.Aid))).Kind));
+                HttpSignatures.VerifyRequest("GET", Url, headers, Verifying.DecliningFreshness().WithExpectedAid(Signer.Aid))).Kind));
             var sign = Seconds(() => Assert.Equal(FikiErrorKind.MissingComponent, Assert.Throws<FikiException>(() =>
                 HttpSignatures.SignatureBase("GET", Url, new Dictionary<string, string>(), covered, 1, "k")).Kind));
             Assert.True(verify < 1, $"verifying took {verify}s");
@@ -164,9 +164,9 @@ namespace Bakobo.Fiki.Tests
         {
             var request = HttpSignatures.SignRequest(Signer, "POST", Url, body: Signed, label: label);
             Assert.StartsWith(label + "=(", request["Signature-Input"], StringComparison.Ordinal);
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, request, VerifyOptions.MaxAge(60).WithBody(Signed)).Aid);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, request, Verifying.MaxAge(60).WithBody(Signed)).Aid);
             var response = HttpSignatures.SignResponse(Signer, 200, body: Signed, label: label);
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, response, VerifyOptions.MaxAge(60).WithBody(Signed)).Aid);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyResponse(200, response, Verifying.MaxAge(60).WithBody(Signed)).Aid);
         }
 
         // --- a Request's headers cannot change after it is checked ---

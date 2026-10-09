@@ -51,7 +51,8 @@ namespace Bakobo.Fiki.Tests
             try
             {
                 verdict = HttpSignatures.VerifyRequest(method, url, headers,
-                    VerifyOptions.MaxAge(300).WithBody(body));
+                    VerifyOptions.MaxAge(300).WithBody(body)
+                        .WithAuthorities(new[] { "api.example.com" }));   // the hosts this server answers for
             }
             catch (FikiException e)
             {
@@ -68,10 +69,10 @@ namespace Bakobo.Fiki.Tests
 
             // Preregistration, and declining the freshness check, both as the guide spells them.
             Assert.Equal(key.Aid, HttpSignatures.VerifyRequest(method, url, headers,
-                VerifyOptions.DecliningFreshness().WithExpectedAid(key.Aid).WithBody(body)).Aid);
+                VerifyOptions.DecliningFreshness().DecliningAuthorityCheck().WithExpectedAid(key.Aid).WithBody(body)).Aid);
 
             var caught = Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest(method, url, headers,
-                VerifyOptions.DecliningFreshness().WithBody(Encoding.UTF8.GetBytes("tampered"))));
+                VerifyOptions.DecliningFreshness().DecliningAuthorityCheck().WithBody(Encoding.UTF8.GetBytes("tampered"))));
             Assert.Equal(FikiErrorKind.DigestMismatch, caught.Kind);
         }
 
@@ -139,7 +140,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(ControllerAid, verdict.KeyId);
 
             var caught = Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest("POST", url, headers,
-                VerifyOptions.MaxAge(300).WithBody(body).WithResolver(_ => null).WithMinimum(HttpSignatures.RequestMinimum)));
+                VerifyOptions.MaxAge(300).DecliningAuthorityCheck().WithBody(body).WithResolver(_ => null).WithMinimum(HttpSignatures.RequestMinimum)));
             Assert.Equal(FikiErrorKind.UnknownKey, caught.Kind);
             Assert.Equal(ControllerAid, caught.KeyId);
         }
@@ -217,7 +218,7 @@ namespace Bakobo.Fiki.Tests
             Func<string, byte[]?> known = keyid => keyState.TryGetValue(keyid, out var current) ? current : null;
             Action Verify(IEnumerable<KeyValuePair<string, string>> h, Func<string, byte[]?> resolve) =>
                 () => HttpSignatures.VerifyRequest("POST", KeriUrl, h,
-                    VerifyOptions.MaxAge(300).WithBody(KeriBody).WithResolver(resolve).WithMinimum(HttpSignatures.RequestMinimum));
+                    VerifyOptions.MaxAge(300).DecliningAuthorityCheck().WithBody(KeriBody).WithResolver(resolve).WithMinimum(HttpSignatures.RequestMinimum));
 
             Assert.Equal("verified", Refusal(Verify(headers, known)));
             Assert.Equal("no key state for " + ControllerAid, Refusal(Verify(headers, _ => null)));
@@ -237,9 +238,9 @@ namespace Bakobo.Fiki.Tests
 
             // A mistake in the call is not a refusal of the message, so it is never a FikiException.
             Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest("POST", KeriUrl, headers,
-                VerifyOptions.MaxAge(300).WithBody(KeriBody).WithResolver(known).WithMinimum(new[] { "@method" })));
+                VerifyOptions.MaxAge(300).DecliningAuthorityCheck().WithBody(KeriBody).WithResolver(known).WithMinimum(new[] { "@method" })));
             Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest("POST", KeriUrl, headers,
-                VerifyOptions.MaxAge(300).WithBody(KeriBody).WithResolver(known).WithExpectedAid(Controller.Aid)));
+                VerifyOptions.MaxAge(300).DecliningAuthorityCheck().WithBody(KeriBody).WithResolver(known).WithExpectedAid(Controller.Aid)));
         }
 
         private static List<string> Lines(string text) =>

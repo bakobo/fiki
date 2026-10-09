@@ -26,7 +26,7 @@ namespace Bakobo.Fiki.Tests
             public Dictionary<string, string> Headers = new Dictionary<string, string>();
 
             public Verdict Verify(VerifyOptions? options = null) =>
-                HttpSignatures.VerifyRequest(Method, Url, Headers, (options ?? VerifyOptions.DecliningFreshness()).WithBody(Body));
+                HttpSignatures.VerifyRequest(Method, Url, Headers, (options ?? Verifying.DecliningFreshness()).WithBody(Body));
 
             public FikiException Refused(VerifyOptions? options = null) =>
                 Assert.Throws<FikiException>(() => Verify(options));
@@ -179,20 +179,20 @@ namespace Bakobo.Fiki.Tests
 
         [Fact]
         public void AnExpectedAidIsAuthoritativeOverTheInlineKeyid() =>
-            Assert.Equal(TheKey.Aid, Signed().Verify(VerifyOptions.DecliningFreshness().WithExpectedAid(TheKey.Aid)).Aid);
+            Assert.Equal(TheKey.Aid, Signed().Verify(Verifying.DecliningFreshness().WithExpectedAid(TheKey.Aid)).Aid);
 
         [Fact]
         public void ARequestSignedBySomeoneOtherThanTheExpectedAidIsRefused()
         {
             var stranger = Key.FromSeed(Bytes.Range(1, 32)).Aid;
             Assert.Equal(FikiErrorKind.SignatureMismatch,
-                Signed().Refused(VerifyOptions.DecliningFreshness().WithExpectedAid(stranger)).Kind);
+                Signed().Refused(Verifying.DecliningFreshness().WithExpectedAid(stranger)).Kind);
         }
 
         [Fact]
         public void AMalformedExpectedAidIsAMalformedKey() =>
             Assert.Equal(FikiErrorKind.MalformedKey,
-                Signed().Refused(VerifyOptions.DecliningFreshness().WithExpectedAid("not-an-aid")).Kind);
+                Signed().Refused(Verifying.DecliningFreshness().WithExpectedAid("not-an-aid")).Kind);
 
         // --- malformed input ---
 
@@ -342,18 +342,18 @@ namespace Bakobo.Fiki.Tests
             // Both defaults are wrong, so fiki refuses to pick one: no public constructor exists, and
             // the two factories are the only ways to get options.
             Assert.Empty(typeof(VerifyOptions).GetConstructors());
-            Assert.Equal(300, VerifyOptions.MaxAge(300).MaxAgeSeconds);
-            Assert.Null(VerifyOptions.DecliningFreshness().MaxAgeSeconds);
+            Assert.Equal(300, Verifying.MaxAge(300).MaxAgeSeconds);
+            Assert.Null(Verifying.DecliningFreshness().MaxAgeSeconds);
         }
 
         [Fact]
         public void ASignatureWithinMaxAgeVerifies() =>
-            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(VerifyOptions.MaxAge(300).WithNow(SignedAt + 299)).Aid);
+            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(Verifying.MaxAge(300).WithNow(SignedAt + 299)).Aid);
 
         [Fact]
         public void ASignatureOlderThanMaxAgeIsRefused()
         {
-            var caught = Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300).WithNow(SignedAt + 400));
+            var caught = Signed(created: SignedAt).Refused(Verifying.MaxAge(300).WithNow(SignedAt + 400));
             Assert.Equal(FikiErrorKind.SignatureTooOld, caught.Kind);
             Assert.Equal(SignedAt, caught.Created);
             Assert.Equal(SignedAt + 400, caught.Now);
@@ -362,31 +362,31 @@ namespace Bakobo.Fiki.Tests
 
         [Fact]
         public void MaxAgeNoneDeclinesTheCheckExplicitly() =>
-            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(VerifyOptions.DecliningFreshness().WithNow(SignedAt + 1000000)).Aid);
+            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(Verifying.DecliningFreshness().WithNow(SignedAt + 1000000)).Aid);
 
         [Fact]
         public void ClockSkewIsToleratedSoASecondOfDisagreementIsNotAnAttack() =>
-            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(VerifyOptions.MaxAge(300).WithNow(SignedAt + 303)).Aid);
+            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(Verifying.MaxAge(300).WithNow(SignedAt + 303)).Aid);
 
         [Fact]
         public void TheSkewAllowanceIsAdjustable() =>
             Assert.Equal(FikiErrorKind.SignatureTooOld,
-                Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300).WithSkew(1).WithNow(SignedAt + 302)).Kind);
+                Signed(created: SignedAt).Refused(Verifying.MaxAge(300).WithSkew(1).WithNow(SignedAt + 302)).Kind);
 
         [Fact]
         public void ASignatureCreatedInTheFutureBeyondSkewIsRefused() =>
             Assert.Equal(FikiErrorKind.SignatureTooOld,
-                Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300).WithNow(SignedAt - 60)).Kind);
+                Signed(created: SignedAt).Refused(Verifying.MaxAge(300).WithNow(SignedAt - 60)).Kind);
 
         [Fact]
         public void AnEnormousMaxAgeDoesNotOverflow() =>
-            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(VerifyOptions.MaxAge(long.MaxValue).WithSkew(long.MaxValue).WithNow(SignedAt)).Aid);
+            Assert.Equal(TheKey.Aid, Signed(created: SignedAt).Verify(Verifying.MaxAge(long.MaxValue).WithSkew(long.MaxValue).WithNow(SignedAt)).Aid);
 
         [Fact]
         public void WithoutAnInjectedClockTheRealOneIsRead()
         {
-            Assert.Equal(TheKey.Aid, Signed().Verify(VerifyOptions.MaxAge(300)).Aid);
-            Assert.Equal(FikiErrorKind.SignatureTooOld, Signed(created: SignedAt).Refused(VerifyOptions.MaxAge(300)).Kind);
+            Assert.Equal(TheKey.Aid, Signed().Verify(Verifying.MaxAge(300)).Aid);
+            Assert.Equal(FikiErrorKind.SignatureTooOld, Signed(created: SignedAt).Refused(Verifying.MaxAge(300)).Kind);
         }
 
         // --- expires: the signer's own declaration, honoured without being asked ---
@@ -395,7 +395,7 @@ namespace Bakobo.Fiki.Tests
         public void ExpiresIsEnforcedEvenWhenMaxAgeIsDeclined()
         {
             var caught = Signed(created: SignedAt, expires: SignedAt + 60)
-                .Refused(VerifyOptions.DecliningFreshness().WithNow(SignedAt + 61 + 5));
+                .Refused(Verifying.DecliningFreshness().WithNow(SignedAt + 61 + 5));
             Assert.Equal(FikiErrorKind.SignatureExpired, caught.Kind);
             Assert.Equal(SignedAt + 60, caught.Expires);
             Assert.Equal(SignedAt + 66, caught.Now);
@@ -404,7 +404,7 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void ASignatureBeforeItsExpiryVerifies() =>
             Assert.Equal(TheKey.Aid, Signed(created: SignedAt, expires: SignedAt + 60)
-                .Verify(VerifyOptions.DecliningFreshness().WithNow(SignedAt + 30)).Aid);
+                .Verify(Verifying.DecliningFreshness().WithNow(SignedAt + 30)).Aid);
 
         [Fact]
         public void ARequestDeclaringNoFreshnessAtAllVerifiesWithoutReadingAClock() =>
@@ -423,9 +423,9 @@ namespace Bakobo.Fiki.Tests
                 { "Signature-Input", "sig=" + input },
                 { "Signature", "sig=:" + Convert.ToBase64String(TheKey.Sign(Bytes.Utf8(bas))) + ":" },
             };
-            Assert.Equal(TheKey.Aid, HttpSignatures.VerifyRequest("GET", "/a", headers, VerifyOptions.DecliningFreshness()).Aid);
+            Assert.Equal(TheKey.Aid, HttpSignatures.VerifyRequest("GET", "/a", headers, Verifying.DecliningFreshness()).Aid);
             var caught = Assert.Throws<FikiException>(() =>
-                HttpSignatures.VerifyRequest("GET", "/a", headers, VerifyOptions.MaxAge(300).WithNow(SignedAt)));
+                HttpSignatures.VerifyRequest("GET", "/a", headers, Verifying.MaxAge(300).WithNow(SignedAt)));
             Assert.Equal(FikiErrorKind.SignatureTooOld, caught.Kind);
             Assert.Null(caught.Created);
         }

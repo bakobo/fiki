@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Bakobo.Fiki
 {
@@ -285,6 +286,9 @@ namespace Bakobo.Fiki
         /// <summary>A message the base is built from: a request, or a response and what it answers.</summary>
         internal sealed class Message
         {
+            // A scheme, "://", and at least one character of authority (RFC 3986 section 3).
+            private static readonly Regex AbsoluteTarget = new Regex(@"\A[A-Za-z][A-Za-z0-9+.-]*://[^/?#]", RegexOptions.CultureInvariant);
+
             private PyUrl? _parts;
 
             internal Message(Dictionary<string, string> headers, string? method, string? url, int? status, Message? request, bool received)
@@ -314,22 +318,46 @@ namespace Bakobo.Fiki
             /// The URL, split only when a component needs it (@9g24rdns), so a request that covers
             /// neither @authority nor @path nor @query is never refused for a URL it never signed.
             /// </summary>
-            internal PyUrl Parts
+            internal PyUrl Parts => _parts ??= Split();
+
+            /// <summary>
+            /// The target as RFC 9112 section 3.2 reads it (this.i @524c8qgv). A target beginning
+            /// with "/" is origin-form: everything before the first "?" is the path, verbatim, however
+            /// many slashes it starts with, and its authority is the Host header's. urlsplit would read
+            /// "//evil.example/p" as a network-path reference and let the sender choose the authority
+            /// (review B1). Anything else must be a scheme, "://" and a non-empty authority. A space or
+            /// an ASCII control anywhere is refused rather than stripped, since urlsplit's stripping
+            /// made "/\nx" verify as "/x", and so is a fragment, which no request target has.
+            /// </summary>
+            private PyUrl Split()
             {
-                get
+                var url = Url!;
+                foreach (var c in url)
                 {
-                    if (_parts == null)
+                    if (c <= ' ' || c == '\x7f')
                     {
-                        try
-                        {
-                            _parts = PyUrl.Split(Url!);
-                        }
-                        catch (ArgumentException ex)
-                        {
-                            throw Unreadable(ex.Message + ".");
-                        }
+                        throw Unreadable("it contains a space or a control character.");
                     }
-                    return _parts;
+                }
+                if (url.IndexOf('#') >= 0)
+                {
+                    throw Unreadable("it carries a fragment, which no request target has.");
+                }
+                if (url.StartsWith("/", StringComparison.Ordinal))
+                {
+                    return PyUrl.OriginForm(url);
+                }
+                if (!AbsoluteTarget.IsMatch(url))
+                {
+                    throw Unreadable("it is neither origin-form, beginning with a slash, nor an absolute URI with a scheme and an authority.");
+                }
+                try
+                {
+                    return PyUrl.Split(url);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw Unreadable(ex.Message + ".");
                 }
             }
 
@@ -386,42 +414,20 @@ namespace Bakobo.Fiki
 
         /// <summary>
         /// The authority, normalized per section 2.2.3: lowercase host, default port omitted, and an
-        /// IPv6 literal in its brackets. A
-        /// relative URL falls back to the Host header, which in HTTP/1.1 is the authority, and then
-        /// nothing is normalized away, since without a scheme no port is a default port.
+        /// IP-literal in its brackets. An origin-form target's authority is the Host header, which in
+        /// HTTP/1.1 is the authority, and it passes every check an absolute URL's does, holds no
+        /// userinfo and no list of hosts, and keeps its port, since without a scheme no port is a
+        /// default one (this.i, "Host is validated like any authority").
         /// </summary>
         private static string Authority(Message message)
         {
             var parts = message.Parts;
-            var headers = message.Headers;
             if (parts.Netloc.Length > 0)
             {
-                var host = PyText.Lower(parts.Hostname ?? "");
-                // An IPv6 literal keeps its brackets, lowercased inside them, as RFC 9421 section
-                // 2.2.3 and RFC 3986 section 3.2.2 spell it. fiki-py drops them (tick 2h2g); this
-                // port and the js port do not.
-                if (parts.HostIsIPLiteral)
-                {
-                    host = "[" + host + "]";
-                }
-                // A port is any run of ASCII digits read as a number from 0 to 65535, so :000080 is
-                // 80 and :08443 is written back as 8443 (@5zrf8gjk); anything else cannot be read.
-                int? port;
-                try
-                {
-                    port = parts.Port;
-                }
-                catch (ArgumentException ex)
-                {
-                    throw message.Unreadable(ex.Message + ".");
-                }
-                if (port == null || (DefaultPorts.TryGetValue(parts.Scheme, out var standard) && standard == port))
-                {
-                    return host;
-                }
-                return host + ":" + port.Value.ToString(CultureInfo.InvariantCulture);
+                var netloc = parts.Netloc;
+                return HostPort(netloc.Substring(netloc.LastIndexOf('@') + 1), parts.Scheme, message);
             }
-            if (!headers.TryGetValue("host", out var hostHeader))
+            if (!message.Headers.TryGetValue("host", out var host))
             {
                 throw new FikiException(
                     FikiErrorKind.MissingComponent,
@@ -429,7 +435,98 @@ namespace Bakobo.Fiki
                     "header, so there is nothing to derive it from.")
                 { Component = "@authority" };
             }
-            return PyText.Lower(hostHeader);
+            // As any covered value is, and before it is lowercased (review B5).
+            CheckRaw(host, "@authority");
+            if (host.IndexOf('@') >= 0 || host.IndexOf(',') >= 0)
+            {
+                throw message.Unreadable("its Host header is not a single host and optional port.");
+            }
+            return HostPort(host, "", message);
+        }
+
+        /// <summary>
+        /// host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built. It is
+        /// checked to be ASCII before anything is lowercased (review B5): .NET lowercases U+212A
+        /// KELVIN SIGN to "k", which would turn a host no client sent into one this verifier serves.
+        /// </summary>
+        private static string HostPort(string hostport, string scheme, Message message)
+        {
+            foreach (var c in hostport)
+            {
+                if (c > '~')
+                {
+                    throw message.Unreadable("its authority holds a character outside ASCII.");
+                }
+            }
+            string host;
+            string portText;
+            if (hostport.StartsWith("[", StringComparison.Ordinal))
+            {
+                var close = hostport.IndexOf(']');
+                var rest = close < 0 ? "" : hostport.Substring(close + 1);
+                if (close < 0 || !IsIPLiteral(hostport.Substring(1, close - 1)) || (rest.Length > 0 && rest[0] != ':'))
+                {
+                    throw message.Unreadable("its IP-literal is not an IPv6 address or IPvFuture in brackets followed by nothing but a port.");
+                }
+                host = hostport.Substring(0, close + 1);
+                portText = rest.Length > 0 ? rest.Substring(1) : "";
+            }
+            else
+            {
+                var colon = hostport.IndexOf(':');
+                host = colon < 0 ? hostport : hostport.Substring(0, colon);
+                portText = colon < 0 ? "" : hostport.Substring(colon + 1);
+                if (host.IndexOf('[') >= 0 || host.IndexOf(']') >= 0)
+                {
+                    throw message.Unreadable("a bracket belongs only around an IP-literal.");
+                }
+            }
+            var port = Port(portText, message);
+            host = AsciiLower(host);
+            if (port == null || (DefaultPorts.TryGetValue(scheme, out var standard) && standard == port))
+            {
+                return host;
+            }
+            return host + ":" + port.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>RFC 3986 section 3.2.2: an IPv6 address, with an optional zone, or IPvFuture (@9g24rdns).</summary>
+        private static bool IsIPLiteral(string text) =>
+            text.StartsWith("v", StringComparison.Ordinal) ? PyUrl.IpvFuture.IsMatch(text) : PyIp.IsIPv6(text);
+
+        /// <summary>
+        /// RFC 3986 section 3.2.3: any run of ASCII digits, read as a number from 0 to 65535, so
+        /// :000080 is port 80 and :08443 is 8443 (@5zrf8gjk). An empty port is no port at all.
+        /// </summary>
+        private static int? Port(string text, Message message)
+        {
+            if (text.Length == 0)
+            {
+                return null;
+            }
+            var plain = true;
+            foreach (var c in text)
+            {
+                plain &= c >= '0' && c <= '9';
+            }
+            // Leading zeros go first, so no run longer than five digits is ever converted.
+            var digits = text.TrimStart('0');
+            if (!plain || digits.Length > 5 || (digits.Length > 0 && int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture) > 65535))
+            {
+                throw message.Unreadable($"its port \"{text}\" is not a number from 0 to 65535.");
+            }
+            return digits.Length == 0 ? 0 : int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>ASCII letters lowered and nothing else, for text already checked to be visible ASCII.</summary>
+        private static string AsciiLower(string text)
+        {
+            var lowered = new StringBuilder(text.Length);
+            foreach (var c in text)
+            {
+                lowered.Append(c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c);
+            }
+            return lowered.ToString();
         }
 
         private static string ComponentValue(SfItem item, Message message)
@@ -493,17 +590,22 @@ namespace Bakobo.Fiki
         internal static string ValueOf(SfItem item, Message message)
         {
             var value = ComponentValue(item, message);
+            CheckRaw(value, SpecOf(item));
+            return value;
+        }
+
+        private static void CheckRaw(string value, string spec)
+        {
             foreach (var c in value)
             {
                 if (c != '\t' && (c < ' ' || c > '~'))
                 {
                     throw new FikiException(
                         FikiErrorKind.SignatureMismatch,
-                        $"The value of {SpecOf(item)} contains a line break, a control character or a non-ASCII " +
+                        $"The value of {spec} contains a line break, a control character or a non-ASCII " +
                         "character, so there is no signature base both sides would build from it.");
                 }
             }
-            return value;
         }
 
         /// <summary>Every line of the signature base except the trailing @signature-params.</summary>
