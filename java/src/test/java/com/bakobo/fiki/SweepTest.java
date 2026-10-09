@@ -43,7 +43,7 @@ class SweepTest {
     }
 
     private static Fiki.VerifyOptions declined() {
-        return Fiki.VerifyOptions.decliningFreshness();
+        return OptedOut.decliningFreshness();
     }
 
     private static FikiException.Kind kindOf(Runnable body) {
@@ -307,28 +307,27 @@ class SweepTest {
     }
 
     @Test
-    void tabCrAndLfAreRemovedFromAUrlAsPythonsUrlsplitRemovesThem() {
-        // The conductor's ruling of 2026-10-08 for the spec's open item: match py and go.
-        String base = new String(Fiki.signatureBase("GET", "ht\ttps://h.exa\tmple:84\r43/a\r\nb?q=\t1#f\n",
-            Map.of(), List.of("@authority", "@path", "@query"), new Fiki.Params(null, null, null, null, null, null)),
-            StandardCharsets.UTF_8);
-        assertTrue(base.startsWith("\"@authority\": h.example:8443\n\"@path\": /ab\n\"@query\": ?q=1\n"), base);
+    void tabCrAndLfInAUrlAreRefusedRatherThanRemoved() {
+        // Format 3 (@524c8qgv) reverses the 2026-10-08 ruling that stripped them as urlsplit does:
+        // stripping made "/\nx" verify as "/x". A caller's URL is the caller's mistake; a received
+        // one is a base that cannot be built.
+        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https://h.exa\tmple/a",
+            Map.of(), List.of("@authority", "@path", "@query"), new Fiki.Params(null, null, null, null, null, null)));
         Map<String, String> signed = sign();
-        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", "https://exam\tple.com/p?q=\r\n1", signed, declined()).aid());
+        for (String url : List.of("https://exam\tple.com/p?q=1", "https://example.com/p?q=\r\n1", "/p\n?q=1")) {
+            assertEquals(FikiException.Kind.SignatureMismatch,
+                kindOf(() -> Fiki.verifyRequest("GET", url, signed, declined())), url);
+        }
     }
 
     @Test
-    void leadingC0ControlsAndSpacesAreStrippedFromAUrlAndTrailingOnesAreNot() {
-        // As Python's urlsplit strips them, checked against fiki-py on this branch.
+    void aSpaceOrControlAnywhereInAUrlIsRefusedRatherThanStripped() {
         Fiki.Params params = new Fiki.Params(null, null, null, null, null, null);
         List<String> covered = List.of("@authority", "@path", "@query");
-        String clean = new String(Fiki.signatureBase("GET", "https://api.example.com/x?q=1", Map.of(), covered, params),
-            StandardCharsets.UTF_8);
-        for (String url : List.of(" \u0001https://api.example.com/x?q=1", "\u0000\u001f https://api.example.com/x?q=1")) {
-            assertEquals(clean, new String(Fiki.signatureBase("GET", url, Map.of(), covered, params), StandardCharsets.UTF_8));
+        for (String url : List.of(" \u0001https://api.example.com/x?q=1", "\u0000\u001f https://api.example.com/x?q=1",
+                "https://api.example.com/x \u0001", "https://api.example.com/x\u007f", "/x y")) {
+            assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", url, Map.of(), covered, params), url);
         }
-        assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() ->
-            Fiki.signatureBase("GET", "https://api.example.com/x \u0001", Map.of(), covered, params)));
     }
 
     /* ----------------------------------------------- B15 what the signer serializes */
@@ -391,7 +390,7 @@ class SweepTest {
     @Test
     void b17EnormousWindowsNeitherOverflowNorRefuse() {
         Map<String, String> signed = sign();
-        Fiki.VerifyOptions huge = Fiki.VerifyOptions.maxAge(Long.MAX_VALUE).withSkew(Long.MAX_VALUE);
+        Fiki.VerifyOptions huge = OptedOut.maxAge(Long.MAX_VALUE).withSkew(Long.MAX_VALUE);
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, signed, huge.withNow(Long.MAX_VALUE)).aid());
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, signed, huge.withNow(Long.MIN_VALUE)).aid());
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, signed, declined()).aid());
@@ -440,7 +439,7 @@ class SweepTest {
 
     @Test
     void b19BothVectorsFormatsAreExported() {
-        assertEquals(2, Fiki.VECTORS_FORMAT);
+        assertEquals(3, Fiki.VECTORS_FORMAT);
         assertEquals(4, Fiki.KERI_VECTORS_FORMAT);
     }
 

@@ -40,7 +40,7 @@ class CopilotReviewTest {
         Map<String, String> headers = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(AT));
         FikiException e = assertThrows(FikiException.class, () ->
-            Fiki.verifyRequest("GET", url, headers, Fiki.VerifyOptions.decliningFreshness()));
+            Fiki.verifyRequest("GET", url, headers, OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.SignatureMismatch, e.kind());
     }
 
@@ -87,21 +87,21 @@ class CopilotReviewTest {
                 KEY.sign(base.getBytes(java.nio.charset.StandardCharsets.UTF_8))) + ":");
         // maxAge + skew would wrap past Long.MAX_VALUE; it means no limit instead.
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", "https://example.com/p", old,
-            Fiki.VerifyOptions.maxAge(Long.MAX_VALUE).withNow(Long.MAX_VALUE).withSkew(Long.MAX_VALUE)).aid());
+            OptedOut.maxAge(Long.MAX_VALUE).withNow(Long.MAX_VALUE).withSkew(Long.MAX_VALUE)).aid());
         // now - created would wrap below Long.MIN_VALUE's mirror; it is simply very old.
         assertEquals(FikiException.Kind.SignatureTooOld, assertThrows(FikiException.class, () ->
             Fiki.verifyRequest("GET", "https://example.com/p", old,
-                Fiki.VerifyOptions.maxAge(300).withNow(Long.MAX_VALUE))).kind());
+                OptedOut.maxAge(300).withNow(Long.MAX_VALUE))).kind());
         Map<String, String> future = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(999_999_999_999_999L));
         assertEquals(FikiException.Kind.SignatureTooOld, assertThrows(FikiException.class, () ->
             Fiki.verifyRequest("GET", "https://example.com/p", future,
-                Fiki.VerifyOptions.maxAge(300).withNow(Long.MIN_VALUE))).kind());
+                OptedOut.maxAge(300).withNow(Long.MIN_VALUE))).kind());
         Map<String, String> expiring = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(AT).withExpires(AT));
         assertEquals(FikiException.Kind.SignatureExpired, assertThrows(FikiException.class, () ->
             Fiki.verifyRequest("GET", "https://example.com/p", expiring,
-                Fiki.VerifyOptions.decliningFreshness().withNow(Long.MAX_VALUE))).kind());
+                OptedOut.decliningFreshness().withNow(Long.MAX_VALUE))).kind());
     }
 
     /* --------------------------------------------------------- component names */
@@ -114,7 +114,7 @@ class CopilotReviewTest {
         Map<String, String> headers = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(AT));
         assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", "https://example.com/p", headers,
-            Fiki.VerifyOptions.decliningFreshness().withMinimum(List.of("@method", "@path", "@query", spec))));
+            OptedOut.decliningFreshness().withMinimum(List.of("@method", "@path", "@query", spec))));
     }
 
     @Test

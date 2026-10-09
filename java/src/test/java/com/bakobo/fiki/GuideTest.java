@@ -8,6 +8,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,7 +29,7 @@ class GuideTest {
             Fiki.SignOptions.none().withBody(body));
 
         Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
-            Fiki.VerifyOptions.maxAge(300).withBody(body));
+            Fiki.VerifyOptions.maxAge(300).withBody(body).withAuthorities(Set.of("api.example.com")));
         assertEquals(key.aid(), verdict.aid());
     }
 
@@ -68,7 +69,7 @@ class GuideTest {
         Fiki.Resolver resolver = keyid -> keyState.get(keyid);   // 32 raw bytes, or null if unknown
         Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
             Fiki.VerifyOptions.maxAge(300).withBody(body).withResolver(resolver)
-                .withMinimum(Fiki.REQUEST_MINIMUM));
+                .withMinimum(Fiki.REQUEST_MINIMUM).withAuthorities(Set.of("keria.example.com")));
         String signer = verdict.keyid();   // the AID the resolver vouched for
 
         assertEquals("ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx", signer);
@@ -124,7 +125,8 @@ class GuideTest {
         String url = "https://keria.example.com/identifiers";
         byte[] body = "{\"name\": \"alice\"}".getBytes(UTF_8);
         Map<String, String> headers = snippetA(url, body);
-        Fiki.VerifyOptions policy = Fiki.VerifyOptions.maxAge(300).withBody(body).withMinimum(Fiki.REQUEST_MINIMUM);
+        Fiki.VerifyOptions policy = Fiki.VerifyOptions.maxAge(300).withBody(body).withMinimum(Fiki.REQUEST_MINIMUM)
+            .withAuthorities(Set.of("keria.example.com"));
 
         assertEquals("no key state for ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx", snippetE(() ->
             Fiki.verifyRequest("POST", url, headers, policy.withResolver(keyid -> null))));

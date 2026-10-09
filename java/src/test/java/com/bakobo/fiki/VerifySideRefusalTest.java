@@ -22,7 +22,7 @@ class VerifySideRefusalTest {
         Map<String, String> headers = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(1));
         FikiException e = assertThrows(FikiException.class, () ->
-            Fiki.verifyRequest("GET", received, headers, Fiki.VerifyOptions.decliningFreshness()));
+            Fiki.verifyRequest("GET", received, headers, OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.SignatureMismatch, e.kind());
         // The same URL handed to a signer is still the caller's own mistake.
         assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", received, Map.of(),
@@ -36,7 +36,7 @@ class VerifySideRefusalTest {
             Fiki.SignOptions.none().withCreated(1).withCovered(List.of("@status", Fiki.req("@authority"))));
         Fiki.Request bad = new Fiki.Request("GET", "https://example.com:bogus/p", Map.of(), null);
         FikiException e = assertThrows(FikiException.class, () ->
-            Fiki.verifyResponse(200, headers, bad, Fiki.VerifyOptions.decliningFreshness()));
+            Fiki.verifyResponse(200, headers, bad, OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.SignatureMismatch, e.kind());
     }
 
@@ -46,11 +46,11 @@ class VerifySideRefusalTest {
         headers.put("Signature", "");
         headers.put("Signature-Input", "sig=(\"@status\");created=1;keyid=\"k\"");
         FikiException e = assertThrows(FikiException.class, () -> Fiki.verifyResponse(401, headers, null,
-            Fiki.VerifyOptions.decliningFreshness()));
+            OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.Unauthenticated, e.kind());
         // Any other status with an empty Signature header is still missing its signature.
         FikiException other = assertThrows(FikiException.class, () -> Fiki.verifyResponse(200, headers, null,
-            Fiki.VerifyOptions.decliningFreshness()));
+            OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.MissingSignature, other.kind());
     }
 }
