@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-09T04:51Z
 
+- 2026-10-09T20:40Z Ruled 2026-10-09: such a Request is a caller error (ErrInvalidOptions and equivalents), superseding @7p9s3g9k by a new this.i node. Format 4.
