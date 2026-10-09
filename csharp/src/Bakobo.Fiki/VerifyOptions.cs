@@ -55,6 +55,9 @@ namespace Bakobo.Fiki
 
         internal string? ExpectedKeyId { get; private set; }
 
+        /// <summary>True once <see cref="WithExpectedKeyId"/> or <see cref="DecliningKeyidCheck"/> has been called.</summary>
+        internal bool ExpectedKeyIdStated { get; private set; }
+
         internal ICollection<string>? Authorities { get; private set; }
 
         internal Request? Request { get; private set; }
@@ -119,7 +122,8 @@ namespace Bakobo.Fiki
         /// ArgumentException). A signature covering less is refused even though it verifies, and so
         /// is a body without a covered content-digest. A minimum also makes <c>created</c> required,
         /// and a keyid even beside <see cref="WithExpectedAid"/>. Unstated, a request is held to
-        /// <see cref="HttpSignatures.DefaultMinimum"/> (this.i @524c8qgv) and a response to none;
+        /// <see cref="HttpSignatures.DefaultMinimum"/> and a response to
+        /// <see cref="HttpSignatures.ResponseMinimum"/> (this.i @524c8qgv);
         /// <see cref="WithoutMinimum"/> opts out.
         /// </summary>
         public VerifyOptions WithMinimum(IEnumerable<string> minimum)
@@ -144,11 +148,38 @@ namespace Bakobo.Fiki
             return copy;
         }
 
-        /// <summary>The keyid the signature must carry, such as the AID a client is talking to; any other is an UnknownKey.</summary>
+        /// <summary>
+        /// The keyid the signature must carry, such as the AID a client is talking to (profile R1);
+        /// any other is an UnknownKey. Verifying a response needs this or
+        /// <see cref="DecliningKeyidCheck"/>: the decision has no default (this.i @524c8qgv).
+        /// </summary>
+        /// <exception cref="ArgumentException">The keyid is null or empty, which names no AID; it is never the decline.</exception>
         public VerifyOptions WithExpectedKeyId(string keyId)
         {
+            if (keyId == null)
+            {
+                throw new ArgumentNullException(nameof(keyId), "expectedKeyId is an AID; call DecliningKeyidCheck to accept any signer and read it from the verdict.");
+            }
+            if (keyId.Length == 0)
+            {
+                throw new ArgumentException("expectedKeyId is empty, which names no AID; call DecliningKeyidCheck to accept any signer and read it from the verdict.", nameof(keyId));
+            }
             var copy = Copy();
             copy.ExpectedKeyId = keyId;
+            copy.ExpectedKeyIdStated = true;
+            return copy;
+        }
+
+        /// <summary>
+        /// Decline the expected-keyid check: any signer whose key verifies is accepted, and the
+        /// verdict's <see cref="Verdict.KeyId"/> says who it was. The explicit alternative to
+        /// <see cref="WithExpectedKeyId"/> (this.i @524c8qgv).
+        /// </summary>
+        public VerifyOptions DecliningKeyidCheck()
+        {
+            var copy = Copy();
+            copy.ExpectedKeyId = null;
+            copy.ExpectedKeyIdStated = true;
             return copy;
         }
 
