@@ -718,6 +718,34 @@ describe('format 3 part two', () => {
     assert.equal(quoted('a\x85b'), '"a\\u0085b"');
   });
 
+  it('quotes at most 64 characters of a label or a covered name from Signature-Input (#18)', async () => {
+    // Copilot on bakobo/fiki#18: labels and component names reached messages unbounded.
+    const [request, headers] = await sign();
+    const refusal = async (input, Class) => {
+      try {
+        await verify(request, { ...headers, 'Signature-Input': input });
+      } catch (err) {
+        assert.ok(err instanceof Class, String(err));
+        return err.message;
+      }
+      throw new Error('accepted');
+    };
+    const params = headers['Signature-Input'].slice(headers['Signature-Input'].indexOf(')') + 1);
+    const label = `l${'x'.repeat(3000)}`;
+    const cases = [
+      [`${label}=("@method")${params}`, errors.MissingSignatureLabel],
+      [`sig=("X-${'Y'.repeat(3000)}")${params}`, errors.MalformedSignatureInput],
+      [`sig=("x-${'y'.repeat(3000)}")${params}`, errors.MissingComponent],
+    ];
+    for (const [input, Class] of cases) {
+      const message = await refusal(input, Class);
+      assert.ok(message.length <= 1024 && message.includes('(cut from 30'), message);
+    }
+    // A non-string is bounded too, unquoted: String() of an array can be as long as any string.
+    const { quoted } = await import('../src/base.js');
+    assert.equal(quoted(['a'.repeat(70)]), `${'a'.repeat(64)} (cut from 70 characters)`);
+  });
+
   it('names a null keyid plainly when it is not the one expected', async () => {
     // Without a minimum, expectedAid alone decides the key, so a signature may carry no keyid.
     const [request, headers] = await sign({ keyid: null });

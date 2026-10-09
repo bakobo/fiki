@@ -25,6 +25,7 @@ import {
   finishBase,
   identity,
   linesFor,
+  named,
   quoted,
   req,
   requestMessage,
@@ -412,7 +413,7 @@ function checkAuthorities(authorities) {
   if (text || typeof authorities[Symbol.iterator] !== 'function') {
     throw new TypeError(
       "authorities is a collection of the hosts this verifier serves, such as ['api.example.com'], " +
-        `or null; this one is ${shown(authorities)}.`,
+        `or null; this one is ${quoted(authorities)}.`,
     );
   }
   const served = new Set(authorities);
@@ -420,13 +421,11 @@ function checkAuthorities(authorities) {
     throw new TypeError('authorities is empty, which serves no host at all; pass null to decline the check.');
   }
   for (const host of served) {
-    if (typeof host !== 'string') throw new TypeError(`Every authority is a string; ${shown(host)} is not.`);
+    if (typeof host !== 'string') throw new TypeError(`Every authority is a string; ${quoted(host)} is not.`);
   }
   return served;
 }
 
-// A caller's value in a message about it: quoted when it is a string, so a control character shows.
-const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
 
 /** Verify a signed response to `request`, returning a verdict or throwing.
  *
@@ -500,7 +499,7 @@ export async function verifyResponse({
 function checkExpectedKeyid(expectedKeyid, name) {
   if (expectedKeyid === null || expectedKeyid === undefined) return;
   if (typeof expectedKeyid !== 'string') {
-    throw new TypeError(`${name}'s expectedKeyid is an AID or null; this one is ${shown(expectedKeyid)}.`);
+    throw new TypeError(`${name}'s expectedKeyid is an AID or null; this one is ${quoted(expectedKeyid)}.`);
   }
   if (expectedKeyid === '') {
     throw new TypeError(
@@ -526,7 +525,7 @@ function checkWindow(maxAge, skew, name) {
   for (const [field, value] of [['maxAge', maxAge], ['skew', skew]]) {
     if (value === null && field === 'maxAge') continue;
     if (!Number.isInteger(value) || value <= 0) {
-      throw new TypeError(`${field} is ${String(value)}, and a freshness window is a positive whole number of seconds.`);
+      throw new TypeError(`${field} is ${quoted(value)}, and a freshness window is a positive whole number of seconds.`);
     }
   }
 }
@@ -641,7 +640,7 @@ function checkMinimum(items, minimum, { hasBody, requestHadBody }) {
   for (const item of required) {
     if (!have.has(identity(item))) {
       throw new InsufficientCoverage(
-        `The signature does not cover ${specOf(item)}, which this verifier requires, so it is ` +
+        `The signature does not cover ${named(item)}, which this verifier requires, so it is ` +
           'refused even though it may be valid: a signature over too little is a signature over ' +
           'what an intermediary is free to change.',
         { component: specOf(item) },
@@ -731,7 +730,7 @@ function read(found, { requireKeyid, requireCreated }) {
   const [label] = inputs.keys();
   if (!signatures.has(label)) {
     throw new MissingSignatureLabel(
-      `The Signature header carries no entry labelled "${label}", so the covered components ` +
+      `The Signature header carries no entry labelled ${quoted(label)}, so the covered components ` +
         'describe a signature that is not here.',
       { label },
     );
@@ -761,7 +760,7 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     }
     if (!item.value.startsWith('@') && item.value !== asciiLower(item.value)) {
       throw new MalformedSignatureInput(
-        `The covered field "${item.value}" is not lowercase, and RFC 9421 section 2.1 requires ` +
+        `The covered field ${quoted(item.value)} is not lowercase, and RFC 9421 section 2.1 requires ` +
           'field names in the covered list to be lowercased by the signer.',
       );
     }
@@ -791,12 +790,12 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     }
     if (typeof value !== expected) {
       throw new MalformedSignatureInput(
-        `The signature parameter "${name}" must be ${expected === 'number' ? 'an integer' : 'a quoted string'}.`,
+        `The signature parameter ${quoted(name)} must be ${expected === 'number' ? 'an integer' : 'a quoted string'}.`,
       );
     }
     if ((name === 'created' || name === 'expires') && value < 0) {
       // A time before 1970 is no time a signer could have meant (@524c8qgv). Zero is a time.
-      throw new MalformedSignatureInput(`The signature parameter "${name}" is ${value}, and a UNIX time is not negative.`);
+      throw new MalformedSignatureInput(`The signature parameter ${quoted(name)} is ${value}, and a UNIX time is not negative.`);
     }
   }
 }
@@ -900,7 +899,7 @@ function readDigest(header) {
     if (algorithm === undefined) continue;
     if (!(member.value instanceof Uint8Array)) {
       throw new MalformedDigest(
-        `The ${name} Content-Digest is not an RFC 8941 byte sequence, so it cannot be compared with anything.`,
+        `The ${quoted(name)} Content-Digest is not an RFC 8941 byte sequence, so it cannot be compared with anything.`,
       );
     }
     recognized.push([name, algorithm, member.value]);
