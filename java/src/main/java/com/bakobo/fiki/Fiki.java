@@ -790,9 +790,46 @@ public final class Fiki {
     /** The UTF-8 length of a value, past {@link #MAX_FIELD_BYTES} or not. */
     private static boolean overBound(String value) {
         // No value of at most MAX_FIELD_BYTES / 3 characters can exceed the bound, so the common
-        // case never encodes anything.
-        return value.length() > MAX_FIELD_BYTES / 3
-            && value.getBytes(StandardCharsets.UTF_8).length > MAX_FIELD_BYTES;
+        // case never measures anything.
+        return value.length() > MAX_FIELD_BYTES / 3 && utf8Length(value) > MAX_FIELD_BYTES;
+    }
+
+    /**
+     * The UTF-8 length of a value as fiki-py measures it, {@code len(value.encode("utf-8",
+     * "surrogatepass"))} (tick 7us4): a lone surrogate is the three bytes its code point would take,
+     * where {@code getBytes(UTF_8)} replaces it with a one-byte "?" and so undercounts.
+     */
+    static int utf8Length(String value) {
+        int bytes = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch < 0x80) {
+                bytes += 1;
+            } else if (ch < 0x800) {
+                bytes += 2;
+            } else if (Character.isHighSurrogate(ch) && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                bytes += 4;
+                i++;
+            } else {
+                bytes += 3;
+            }
+        }
+        return bytes;
+    }
+
+    /** Whether a value holds a surrogate that is not half of a pair, which has no UTF-8 spelling. */
+    private static boolean loneSurrogate(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (Character.isHighSurrogate(ch) && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                i++;
+            } else if (Character.isSurrogate(ch)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String checked(String value, String spec, boolean bounded) {
@@ -1014,8 +1051,14 @@ public final class Fiki {
 
     /** host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built. */
     private static String hostport(String raw, String scheme, boolean received) {
-        // lower() touches ASCII only, so U+212A KELVIN SIGN stays what it is rather than becoming
-        // a "k", and the value check refuses it as it refuses any non-ASCII host (review B5).
+        // Checked as written, before lower() or anything else, as fiki-py checks it: U+212A KELVIN
+        // SIGN is not a "k" (review B5), and a host that is not ASCII is an unreadable target, the
+        // caller's mistake when signing (tick 7us4).
+        for (int i = 0; i < raw.length(); i++) {
+            if (raw.charAt(i) > 0x7f) {
+                throw unreadable("The authority " + shown(raw) + " cannot be read: its host is not ASCII.", received);
+            }
+        }
         String host;
         String port;
         if (raw.startsWith("[")) {
@@ -1695,8 +1738,15 @@ public final class Fiki {
      * the header's malformed class, never a crash or a slow parse.
      */
     private static List<Sfv.Member> parse(String raw, String name, FikiException.Kind kind) {
-        // Never null: a covered digest header that is absent is already a MissingComponent.
-        int bytes = raw.getBytes(StandardCharsets.UTF_8).length;
+        // Never null: a covered digest header that is absent is already a MissingComponent. A lone
+        // surrogate has no UTF-8 spelling, so no peer sent it, and it is refused before the size is
+        // measured, as fiki-py refuses it (tick 7us4).
+        if (loneSurrogate(raw)) {
+            throw new FikiException(kind,
+                "The " + name + " header holds a character that has no UTF-8 encoding, so it cannot be "
+                    + "read as an RFC 8941 dictionary.");
+        }
+        int bytes = utf8Length(raw);
         if (bytes > MAX_FIELD_BYTES) {
             throw new FikiException(kind,
                 "The " + name + " header is " + bytes + " bytes, and fiki reads one of at most "
