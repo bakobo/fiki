@@ -194,7 +194,7 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
         raise MalformedKey(
             f"A non-transferable AID is {_QB64_LEN} characters beginning with "
             f'"{_CODE}"; this one is {len(aid)} characters and begins with '
-            f'"{aid[:1]}".',
+            f"{shown(aid[:1])}.",
             keyid=aid,
         )
     # validate=True rather than the default: without it, characters outside the alphabet are
@@ -207,14 +207,14 @@ def verifying_key(aid: str) -> Ed25519PublicKey:
     try:
         decoded = base64.b64decode("A" + aid[1:], altchars=b"-_", validate=True)
     except ValueError as ex:
-        raise MalformedKey(f'The AID "{aid}" is not valid base64url.', keyid=aid) from ex
+        raise MalformedKey(f"The AID {shown(aid)} is not valid base64url.", keyid=aid) from ex
     if len(decoded) != len(_PAD) + _RAW_LEN:
         raise MalformedKey(
-            f'The AID "{aid}" does not decode to a {_RAW_LEN}-byte key.', keyid=aid
+            f"The AID {shown(aid)} does not decode to a {_RAW_LEN}-byte key.", keyid=aid
         )
     # validate=True does not check the bits the code character overwrote: the second
     # character's top two bits land in the pad byte, so a non-zero pad would give one key two
     # spellings. Only the canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
     if to_aid(decoded[len(_PAD):]) != aid:
-        raise MalformedKey(f'The AID "{aid}" is not the canonical spelling of its key.', keyid=aid)
+        raise MalformedKey(f"The AID {shown(aid)} is not the canonical spelling of its key.", keyid=aid)
     return public_key(decoded[len(_PAD):], aid)
