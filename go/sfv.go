@@ -343,6 +343,38 @@ func (c *cursor) parseInnerList() (innerList, error) {
 	return list, nil
 }
 
+// parseMember reads what a list member or a dictionary member's value is: an inner list, or a bare
+// item, each with its parameters.
+func (c *cursor) parseMember() (member, error) {
+	if c.peek() == '(' {
+		list, err := c.parseInnerList()
+		return member{IsList: true, List: list}, err
+	}
+	value, err := c.parseBareItem()
+	if err != nil {
+		return member{}, err
+	}
+	params, err := c.parseParameters()
+	return member{Value: value, List: innerList{Params: params}}, err
+}
+
+// nextMember steps over the comma between two members of a list or a dictionary, with the OWS
+// around it, and reports whether the field has ended instead (RFC 8941 sections 4.2.1 and 4.2.2).
+func (c *cursor) nextMember(what string) (bool, error) {
+	c.skipOWS()
+	if c.done() {
+		return true, nil
+	}
+	if err := c.expect(','); err != nil {
+		return false, err
+	}
+	c.skipOWS()
+	if c.done() {
+		return false, fmt.Errorf("%w: a %s ended with a trailing comma", errSyntax, what)
+	}
+	return false, nil
+}
+
 // parseDictionary reads an RFC 8941 dictionary whose members are inner lists or bare items.
 // Order is preserved because RFC 9421's verify side depends on it.
 func parseDictionary(text string) ([]string, map[string]member, error) {
@@ -355,32 +387,15 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		var m member
+		m := member{Value: true}
 		if !c.done() && c.peek() == '=' {
 			c.at++
-			if c.peek() == '(' {
-				list, err := c.parseInnerList()
-				if err != nil {
-					return nil, nil, err
-				}
-				m = member{IsList: true, List: list}
-			} else {
-				value, err := c.parseBareItem()
-				if err != nil {
-					return nil, nil, err
-				}
-				params, err := c.parseParameters()
-				if err != nil {
-					return nil, nil, err
-				}
-				m = member{Value: value, List: innerList{Params: params}}
-			}
+			m, err = c.parseMember()
 		} else {
-			params, err := c.parseParameters()
-			if err != nil {
-				return nil, nil, err
-			}
-			m = member{Value: true, List: innerList{Params: params}}
+			m.List.Params, err = c.parseParameters()
+		}
+		if err != nil {
+			return nil, nil, err
 		}
 		if _, seen := out[key]; !seen {
 			if len(order) == MaxDictionaryMembers {
@@ -389,19 +404,51 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 			order = append(order, key)
 		}
 		out[key] = m
-		c.skipOWS()
-		if c.done() {
-			break
-		}
-		if err := c.expect(','); err != nil {
-			return nil, nil, err
-		}
-		c.skipOWS()
-		if c.done() {
-			return nil, nil, fmt.Errorf("%w: a dictionary ended with a trailing comma", errSyntax)
+		if end, err := c.nextMember("dictionary"); end || err != nil {
+			return order, out, err
 		}
 	}
 	return order, out, nil
+}
+
+// parseList reads an RFC 8941 list (section 4.2.1). No header fiki reads is a list; it is here so
+// that the httpwg corpus (this.i @7fexwu3s) can hold the parser's every piece to the grammar, and
+// so that the fuzz target reaches every piece.
+func parseList(text string) ([]member, error) {
+	c := &cursor{text: text}
+	members := []member{}
+	c.skipSP()
+	for !c.done() {
+		m, err := c.parseMember()
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, m)
+		if end, err := c.nextMember("list"); end || err != nil {
+			return members, err
+		}
+	}
+	return members, nil
+}
+
+// parseItem reads an RFC 8941 item (section 4.2.3), for the same reason parseList exists. Only SP
+// may surround it.
+func parseItem(text string) (item, error) {
+	c := &cursor{text: text}
+	c.skipSP()
+	value, err := c.parseBareItem()
+	if err != nil {
+		return item{}, err
+	}
+	params, err := c.parseParameters()
+	if err != nil {
+		return item{}, err
+	}
+	c.skipSP()
+	if !c.done() {
+		return item{}, fmt.Errorf("%w: unexpected text after an item at offset %d", errSyntax, c.at)
+	}
+	return item{Value: value, Params: params}, nil
 }
 
 func serializeBareItem(value any) string {
