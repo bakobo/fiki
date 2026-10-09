@@ -120,11 +120,43 @@ fn max_age(seconds: Option<i64>) -> MaxAge {
     seconds.map_or(MaxAge::Unchecked, MaxAge::Seconds)
 }
 
-/// The raw cases of a file, which must hold at least five.
+/// How many cases each shared vector file holds, read from the files once at hardening-a (tick
+/// 7xbw, T8) and never at test time: an emptied or shortened cases array fails here rather than
+/// passing a driver that loops over nothing.
+const CASE_COUNTS: [(&str, usize); 7] = [
+    ("aid-lens.json", 3),
+    ("signature-base.json", 14),
+    ("accepts.json", 44),
+    ("refusals.json", 144),
+    ("misuse.json", 10),
+    ("signs.json", 16),
+    ("responses.json", 13),
+];
+
+fn pinned(name: &str) -> usize {
+    CASE_COUNTS
+        .iter()
+        .find(|(file, _)| *file == name)
+        .unwrap_or_else(|| panic!("{name} has no pinned case count"))
+        .1
+}
+
+/// A file's cases, which must be exactly as many as are pinned.
+fn held<T>(name: &str, cases: Vec<T>) -> Vec<T> {
+    assert_eq!(
+        cases.len(),
+        pinned(name),
+        "{name} holds {} cases, and {} are pinned",
+        cases.len(),
+        pinned(name)
+    );
+    cases
+}
+
+/// The raw cases of a file, exactly as many as are pinned.
 fn raw_cases(name: &str) -> Vec<Value> {
     let file: File<Value> = load(name);
-    assert!(file.cases.len() >= 5, "{name} has almost no cases");
-    file.cases
+    held(name, file.cases)
 }
 
 /// One case read into `T`, once every field in `required` is present: a vector that drops one
@@ -443,7 +475,9 @@ fn this_port_satisfies_the_vectors_format_it_is_running() {
 #[test]
 fn aid_lens() {
     let file: File<AidCase> = load("aid-lens.json");
-    for case in file.cases {
+    let mut ran = 0;
+    for case in held("aid-lens.json", file.cases) {
+        ran += 1;
         let key = Key::from_seed(&from_hex(&case.seed_hex)).unwrap();
         assert_eq!(key.aid(), case.aid, "{}", case.id);
         assert_eq!(key.keyid(), case.keyid, "{}", case.id);
@@ -455,13 +489,14 @@ fn aid_lens() {
             case.id
         );
     }
+    all_ran("aid-lens.json", ran);
 }
 
 #[test]
 fn signature_bases_and_signatures() {
     let file: File<BaseCase> = load("signature-base.json");
-    each(
-        file.cases,
+    let ran = each(
+        held("signature-base.json", file.cases),
         |c| c.id.clone(),
         |case| {
             let params = SignatureParams {
@@ -492,6 +527,7 @@ fn signature_bases_and_signatures() {
             Ok(())
         },
     );
+    all_ran("signature-base.json", ran);
 }
 
 fn base64_std(raw: &[u8]) -> String {
@@ -521,11 +557,19 @@ fn base64_std(raw: &[u8]) -> String {
 }
 
 /// Runs every case and reports all the failures together, so one red run names every case that is
-/// wrong rather than only the first.
-fn each<T>(cases: Vec<T>, id: impl Fn(&T) -> String, check: impl Fn(&T) -> Result<(), String>) {
+/// wrong rather than only the first. Returns how many cases it checked.
+fn each<T>(
+    cases: Vec<T>,
+    id: impl Fn(&T) -> String,
+    check: impl Fn(&T) -> Result<(), String>,
+) -> usize {
+    let mut ran = 0;
     let failures: Vec<String> = cases
         .iter()
-        .filter_map(|case| check(case).err().map(|why| format!("{}: {why}", id(case))))
+        .filter_map(|case| {
+            ran += 1;
+            check(case).err().map(|why| format!("{}: {why}", id(case)))
+        })
         .collect();
     assert!(
         failures.is_empty(),
@@ -533,11 +577,22 @@ fn each<T>(cases: Vec<T>, id: impl Fn(&T) -> String, check: impl Fn(&T) -> Resul
         failures.len(),
         failures.join("\n")
     );
+    ran
+}
+
+/// Asserts that every one of a file's pinned cases ran.
+fn all_ran(name: &str, ran: usize) {
+    assert_eq!(
+        ran,
+        pinned(name),
+        "{name}: {ran} of its {} cases ran",
+        pinned(name)
+    );
 }
 
 #[test]
 fn accepts() {
-    each(
+    let ran = each(
         verify_cases("accepts.json"),
         |c| c.id.clone(),
         |case| {
@@ -557,13 +612,14 @@ fn accepts() {
             Ok(())
         },
     );
+    all_ran("accepts.json", ran);
 }
 
 #[test]
 fn refusals() {
     // Every entry names the kind fiki reports, so this port maps its own onto the same condition
     // rather than inventing a taxonomy of its own.
-    each(
+    let ran = each(
         verify_cases("refusals.json"),
         |c| c.id.clone(),
         |case| match case.verify()? {
@@ -572,6 +628,7 @@ fn refusals() {
             Err(e) => Err(format!("{}: {e}; expected {}", e.kind, case.error)),
         },
     );
+    all_ran("refusals.json", ran);
 }
 
 #[test]
@@ -582,7 +639,7 @@ fn responses() {
         .iter()
         .map(|raw| typed_case("responses.json", raw, &RESPONSE_REQUIRED))
         .collect();
-    each(
+    let ran = each(
         cases,
         |c| c.id.clone(),
         |case| match (case.verify()?, case.error.as_str()) {
@@ -601,6 +658,7 @@ fn responses() {
             (Err(e), error) => Err(format!("{}: {e}; expected {error}", e.kind)),
         },
     );
+    all_ran("responses.json", ran);
 }
 
 #[test]
@@ -611,7 +669,7 @@ fn signs() {
         .iter()
         .map(|raw| typed_case("signs.json", raw, &SIGN_REQUIRED))
         .collect();
-    each(
+    let ran = each(
         cases,
         |c| c.id.clone(),
         |case| match (case.sign()?, case.error.as_deref()) {
@@ -628,6 +686,7 @@ fn signs() {
             (Err(e), Some(error)) => Err(format!("{}: {e}; expected {error}", e.kind)),
         },
     );
+    all_ran("signs.json", ran);
 }
 
 #[test]
@@ -646,7 +705,7 @@ fn misuse() {
         .map(|raw| typed_case("misuse.json", raw, &RESPONSE_REQUIRED))
         .collect();
     assert!(!responses.is_empty(), "misuse.json has no response case");
-    each(
+    let mut ran = each(
         responses,
         |c| c.id.clone(),
         |case| {
@@ -660,7 +719,7 @@ fn misuse() {
             }
         },
     );
-    each(
+    ran += each(
         requests
             .into_iter()
             .map(|raw| typed_case::<RequestCase>("misuse.json", raw, &REQUIRED))
@@ -682,4 +741,5 @@ fn misuse() {
             }
         },
     );
+    all_ran("misuse.json", ran);
 }
