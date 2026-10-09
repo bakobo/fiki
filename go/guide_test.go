@@ -114,7 +114,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 		Body:          responseBody,
 		Resolve:       resolve,
 		Minimum:       fiki.ResponseMinimum,
-		ExpectedKeyid: agentAID, // the AID you meant to talk to (profile R1)
+		ExpectedKeyid: fiki.String(agentAID), // the AID you meant to talk to (profile R1)
 		MaxAge:        &maxAge,
 		Skew:          &skew,
 	})
@@ -167,7 +167,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 	_, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
 		Body: responseBody, Resolve: resolve, Minimum: append(fiki.ResponseMinimum[:4:4], "content-type"),
-		ExpectedKeyid: agentAID,
+		ExpectedKeyid: fiki.String(agentAID),
 	})
 	if got := describe(err); got != "the signature does not cover content-type" {
 		t.Errorf("InsufficientCoverage: %s", got)

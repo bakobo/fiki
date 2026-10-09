@@ -112,7 +112,7 @@ func TestSmallOrderKeysAreMalformedOnEveryPath(t *testing.T) {
 		}
 		// An expected AID, where the key's encoding is canonical enough to be one.
 		aid := ToAID(key)
-		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: aid}); kindOf(t, err) != KindMalformedKey {
+		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String(aid)}); kindOf(t, err) != KindMalformedKey {
 			t.Errorf("expected AID %s: %v", aid, err)
 		}
 		// A resolver's answer.

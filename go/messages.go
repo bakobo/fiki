@@ -438,12 +438,13 @@ type Verdict struct {
 // field exists to prevent — so the caller states one either way.
 type VerifyOptions struct {
 	MaxAge *int64
+	AnyAge bool
 	// Body is the content received. Nil is none handed over.
 	Body []byte
 	// ExpectedAID is authoritative when given: the preregistration case, where the verifier
 	// already knows whose message this should be and the inline key is only a claim. Resolve is
 	// the other way to be authoritative. Give one or neither.
-	ExpectedAID string
+	ExpectedAID *string
 	Skew        *int64
 	// Now pins the clock, in seconds since the epoch; zero reads the wall clock.
 	Now     int64
@@ -463,7 +464,7 @@ type VerifyOptions struct {
 	// request (this.i @524c8qgv): an ExpectedKeyid, or AnyKeyid to accept any signer and read it
 	// from the verdict. Neither, both, or an empty ExpectedKeyid is ErrInvalidOptions there.
 	// VerifyRequest checks no keyid unless given one, and refuses both.
-	ExpectedKeyid string
+	ExpectedKeyid *string
 	AnyKeyid      bool
 	// Authorities and AnyAuthority are a decision VerifyRequest requires, like MaxAge, with no
 	// default (@524c8qgv): state exactly one. Authorities is the non-empty set of @authority
@@ -494,7 +495,7 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 	if err := checkAuthorities(opts); err != nil {
 		return nil, err
 	}
-	if opts.AnyKeyid && opts.ExpectedKeyid != "" {
+	if opts.AnyKeyid && orEmpty(opts.ExpectedKeyid) != "" {
 		return nil, errBothKeyids
 	}
 	if err := checkNoMinimum(opts); err != nil {
@@ -560,11 +561,11 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 
 // verify runs the KERI profile's section 9 order, so a message has exactly one correct refusal.
 func verify(m *message, response bool, request *Request, opts VerifyOptions) (*Verdict, error) {
-	if opts.ExpectedAID != "" && opts.Resolve != nil {
+	if orEmpty(opts.ExpectedAID) != "" && opts.Resolve != nil {
 		return nil, invalidOptions("Pass ExpectedAID or Resolve, not both; each decides the key alone.")
 	}
 	found := m.headers
-	list, signature, err := read(found, opts.ExpectedAID == "" || opts.Minimum != nil, opts.Minimum != nil)
+	list, signature, err := read(found, orEmpty(opts.ExpectedAID) == "" || opts.Minimum != nil, opts.Minimum != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -598,14 +599,14 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	// expected keyid, and only then the resolver, which is never asked about a keyid already refused.
 	value, _ := list.param("keyid")
 	keyid, _ := value.(string)
-	public, aid, err := localKey(opts.ExpectedAID, keyid, opts.Resolve)
+	public, aid, err := localKey(orEmpty(opts.ExpectedAID), keyid, opts.Resolve)
 	if err != nil {
 		return nil, err
 	}
-	if opts.ExpectedKeyid != "" && keyid != opts.ExpectedKeyid {
+	if orEmpty(opts.ExpectedKeyid) != "" && keyid != *opts.ExpectedKeyid {
 		return nil, &Error{
 			Kind:    KindUnknownKey,
-			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(opts.ExpectedKeyid)),
+			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(*opts.ExpectedKeyid)),
 			Keyid:   keyid,
 		}
 	}
@@ -955,13 +956,25 @@ var errBothKeyids = invalidOptions("Pass ExpectedKeyid or set AnyKeyid, not both
 // missing value into "accept any signer"; in Go it is the same mistake as stating nothing.
 func checkExpectedKeyid(opts VerifyOptions) error {
 	switch {
-	case opts.AnyKeyid && opts.ExpectedKeyid != "":
+	case opts.AnyKeyid && orEmpty(opts.ExpectedKeyid) != "":
 		return errBothKeyids
-	case !opts.AnyKeyid && opts.ExpectedKeyid == "":
+	case !opts.AnyKeyid && orEmpty(opts.ExpectedKeyid) == "":
 		return invalidOptions("ExpectedKeyid is a required decision for a response: pass the AID " +
 			"you are talking to, or set AnyKeyid to accept any signer and read it from the verdict.")
 	}
 	return nil
+}
+
+// String returns a pointer to s, so a struct literal can state an optional string:
+// ExpectedAID: fiki.String(aid).
+func String(s string) *string { return &s }
+
+// orEmpty is the string p points to, or "" when it is nil.
+func orEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // checkNoMinimum refuses a Minimum beside the opt-out from one, which are opposite answers.

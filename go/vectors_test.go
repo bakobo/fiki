@@ -169,9 +169,7 @@ func (c requestCase) body() []byte {
 func (c requestCase) options(t *testing.T) (VerifyOptions, error) {
 	t.Helper()
 	opts := c.common(t)
-	if c.ExpectedAID != nil {
-		opts.ExpectedAID = *c.ExpectedAID
-	}
+	opts.ExpectedAID = c.ExpectedAID
 	if slices.Contains(c.Omit, "authorities") {
 		return opts, nil
 	}

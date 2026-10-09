@@ -241,11 +241,11 @@ func TestSignAndVerify(t *testing.T) {
 
 	t.Run("an expected AID is authoritative over the inline keyid", func(t *testing.T) {
 		headers, key := sign(t, SignOptions{})
-		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String(key.AID())}); err != nil {
 			t.Fatal(err)
 		}
 		other := Generate()
-		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: other.AID()})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String(other.AID())})
 		if kindOf(t, err) != KindSignatureMismatch {
 			t.Error("a stranger's AID should not verify")
 		}
@@ -253,7 +253,7 @@ func TestSignAndVerify(t *testing.T) {
 
 	t.Run("a malformed expected AID is refused", func(t *testing.T) {
 		headers, _ := sign(t, SignOptions{})
-		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: "nope"})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String("nope")})
 		if kindOf(t, err) != KindMalformedKey {
 			t.Error("expected MalformedKey")
 		}
@@ -497,7 +497,7 @@ func verifyResponseOptedOut(status int, request *Request, headers map[string]str
 	if opts.Minimum == nil {
 		opts.NoMinimum = true
 	}
-	if opts.ExpectedKeyid == "" {
+	if opts.ExpectedKeyid == nil {
 		opts.AnyKeyid = true
 	}
 	return VerifyResponse(status, request, headers, opts)

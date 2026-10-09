@@ -42,7 +42,7 @@ func TestTheFormat3Policy(t *testing.T) {
 	}
 
 	t.Run("an ExpectedKeyid beside AnyKeyid is the caller's mistake", func(t *testing.T) {
-		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true, AnyKeyid: true, ExpectedKeyid: "k"})
+		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true, AnyKeyid: true, ExpectedKeyid: String("k")})
 		isInvalidOptions(t, err)
 	})
 
@@ -51,7 +51,7 @@ func TestTheFormat3Policy(t *testing.T) {
 		"AnyAuthority":                    {AnyAuthority: true, AnyKeyid: true},
 		"both Minimum and NoMinimum":      {Minimum: ResponseMinimum, NoMinimum: true, AnyKeyid: true},
 		"no decision about the keyid":     {},
-		"both ExpectedKeyid and AnyKeyid": {ExpectedKeyid: "k", AnyKeyid: true},
+		"both ExpectedKeyid and AnyKeyid": {ExpectedKeyid: String("k"), AnyKeyid: true},
 	} {
 		t.Run(name+" on a response is the caller's mistake", func(t *testing.T) {
 			_, err := VerifyResponse(200, request, map[string]string{}, opts)
@@ -179,7 +179,7 @@ func TestTheFormat3ResponsePolicy(t *testing.T) {
 		}
 	})
 	t.Run("an ExpectedKeyid refuses any other signer", func(t *testing.T) {
-		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, ExpectedKeyid: keriAID})
+		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, ExpectedKeyid: String(keriAID)})
 		if kindOf(t, err) != KindUnknownKey {
 			t.Errorf("expected UnknownKey, got %v", err)
 		}
