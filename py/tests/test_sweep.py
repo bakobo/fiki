@@ -301,6 +301,39 @@ def test_long_integers_and_badly_padded_byte_sequences_are_malformed(member):
         verify(request, headers)
 
 
+_RFC_9651 = [("x=@1659578233", "Date"), ("x=-@1", None), ("x=2;a=@0", "Date"),
+             ("x=(@1)", "Date"), ("x=(1 2;a=@1)", "Date"), ("x=(1);a=@-5", "Date"),
+             ('x=%"a"', "Display String"), ('x=%"%c3%a9"', "Display String"),
+             ('x=2;a=%"b"', "Display String"), ('x=(%"c")', "Display String"),
+             ('x=();a=%""', "Display String")]
+
+
+@pytest.mark.parametrize("member, kind", _RFC_9651)
+def test_a_date_or_display_string_is_malformed_in_a_content_digest(member, kind):
+    # RFC 9421 references RFC 8941, which has neither type; http_sfv parses both (@7vdhfv3q).
+    request, headers = with_digest(f"{content_digest(BODY)}, {member}")
+    with pytest.raises(MalformedDigest, match=kind or "could not parse"):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("member, kind", [(m, k) for m, k in _RFC_9651 if k])
+def test_a_date_or_display_string_is_malformed_in_the_other_two_headers(member, kind):
+    request, headers = sign()
+    params = member.removeprefix("x=")
+    bad = dict(headers, Signature=f"{headers['Signature']}, x={params}")
+    with pytest.raises(MalformedSignature, match=kind):
+        verify(request, bad)
+    bad = dict(headers, **{"Signature-Input": f"{headers['Signature-Input']}, x={params}"})
+    with pytest.raises(MalformedSignatureInput, match=kind):
+        verify(request, bad)
+
+
+@pytest.mark.parametrize("member", ['x="@1"', 'x="%\\"a\\""', 'x=a;b="@1"'])
+def test_what_only_looks_like_a_date_or_display_string_is_still_accepted(member):
+    request, headers = with_digest(f"{content_digest(BODY)}, {member}")
+    assert verify(request, headers).aid == KEY.aid
+
+
 def test_trailing_ows_after_a_dictionary_member_is_accepted():
     request, headers = sign()
     headers["Signature"] += " \t"

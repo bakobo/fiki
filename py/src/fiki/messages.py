@@ -25,6 +25,7 @@ import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 import http_sfv
 from cryptography.exceptions import InvalidSignature
@@ -871,6 +872,7 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
             f"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary."
         ) from ex
     _check_counts(parsed, name, error)
+    _check_rfc_8941(parsed, name, error)
     # http_sfv decodes with Python's lenient base64, which reads data after the padding
     # differently before and after Python 3.13, so fiki checks the spelling itself (@2g4xxev9).
     # It also reads "1." as a decimal, which RFC 8941 section 4.2.4 refuses (@5zrf8gjk).
@@ -887,6 +889,25 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
                 "digit, and RFC 8941 requires at least one."
             )
     return parsed
+
+
+def _check_rfc_8941(parsed: http_sfv.Dictionary, name: str, error: type[Exception]) -> None:
+    """Refuse the two bare types RFC 9651 added, which http_sfv parses (@7vdhfv3q).
+
+    RFC 9421 references RFC 8941, which has neither a Date nor a Display String, so either one is
+    text the grammar does not allow, and gets the header's malformed class as any other does.
+    """
+    for member in parsed.values():
+        items = list(member) if isinstance(member, http_sfv.InnerList) else []
+        for item in [member, *items]:
+            for value in [getattr(item, "value", None), *item.params.values()]:
+                kind = ("Date" if isinstance(value, datetime) else
+                        "Display String" if isinstance(value, http_sfv.DisplayString) else None)
+                if kind is not None:
+                    raise error(
+                        f"The {name} header carries a {kind}, which RFC 9651 added to structured "
+                        "fields and RFC 8941, the version RFC 9421 references, does not have."
+                    )
 
 
 def _check_counts(parsed: http_sfv.Dictionary, name: str, error: type[Exception]) -> None:
