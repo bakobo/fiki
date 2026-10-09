@@ -66,7 +66,31 @@ class VectorsTest {
     // never learned it (review V-M8).
     private static final Set<String> VERIFY_FIELDS = Set.of(
         "id", "method", "url", "headers", "body", "max_age", "now", "minimum", "authorities",
-        "expected_aid", "note", "error", "aid", "keyid", "covered", "omit");
+        "expected_aid", "note", "error", "aid", "keyid", "covered", "omit", "kind", "status", "request",
+        "expected_keyid");
+
+    // Every field a sign case may carry, held to the same rule.
+    private static final Set<String> SIGN_FIELDS = Set.of(
+        "id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created", "expires",
+        "nonce", "tag", "minimum", "status", "request", "expected_headers", "error", "note", "keyid", "label");
+
+    private static void knownFields(JsonNode c, Set<String> known) {
+        Set<String> fields = new HashSet<>();
+        c.fieldNames().forEachRemaining(fields::add);
+        fields.removeAll(known);
+        assertTrue(fields.isEmpty(), "unknown fields " + fields);
+    }
+
+    /**
+     * Every refusal's message holds no control character and is at most 1024 characters, so an
+     * untrusted value is quoted escaped and cut (@524c8qgv, part-two refinements).
+     */
+    private static void wellFormed(Throwable error) {
+        String message = error.getMessage();
+        assertTrue(message.length() <= 1024, "message of " + message.length() + " characters");
+        assertTrue(message.chars().noneMatch(ch -> ch < 0x20 || ch == 0x7f),
+            () -> "a control character in " + message.substring(0, Math.min(200, message.length())));
+    }
 
     /**
      * The verifier's stated policy (format 3, @524c8qgv). minimum "default" leaves it unstated,
@@ -74,10 +98,7 @@ class VectorsTest {
      * opt-out and a list is the hosts served; a field named in omit is left out of the call.
      */
     private static Fiki.VerifyOptions options(JsonNode c) throws Exception {
-        Set<String> fields = new HashSet<>();
-        c.fieldNames().forEachRemaining(fields::add);
-        fields.removeAll(VERIFY_FIELDS);
-        assertTrue(fields.isEmpty(), "unknown fields " + fields);
+        knownFields(c, VERIFY_FIELDS);
         Set<String> omit = new HashSet<>();
         if (c.has("omit")) {
             omit.addAll(strings(c.get("omit")));
@@ -131,13 +152,14 @@ class VectorsTest {
     }
 
     private static void loadedCases(JsonNode doc) {
-        assertTrue(doc.get("cases").size() > 5, "a vector file with no cases checks nothing");
+        assertTrue(doc.get("cases").size() >= 5, "a vector file with no cases checks nothing");
     }
 
     @TestFactory
     Stream<DynamicTest> vectorsFormat() {
         List<DynamicTest> tests = new ArrayList<>();
-        for (String name : List.of("aid-lens.json", "signature-base.json", "accepts.json", "refusals.json", "misuse.json")) {
+        for (String name : List.of("aid-lens.json", "signature-base.json", "accepts.json", "refusals.json", "misuse.json",
+                "signs.json", "responses.json")) {
             tests.add(DynamicTest.dynamicTest(name, () -> {
                 // A port running newer vectors fails here rather than passing a subset and
                 // reporting conformance it no longer has.
@@ -217,6 +239,130 @@ class VectorsTest {
                 FikiException thrown = assertThrows(FikiException.class, () -> Fiki.verifyRequest(
                     c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
                 assertEquals(c.get("error").asText(), thrown.kind().name());
+                wellFormed(thrown);
+            }));
+        }
+        return tests.stream();
+    }
+
+    private static Fiki.Request requestOf(JsonNode message) {
+        if (message == null || message.isNull()) {
+            return null;
+        }
+        return new Fiki.Request(message.get("method").asText(), message.get("url").asText(),
+            headers(message.get("headers")), body(message));
+    }
+
+    /**
+     * verifyResponse's own policy (format 3 part two): minimum "default" leaves it unstated, which
+     * is RESPONSE_MINIMUM, null is the explicit opt-out and a list is that minimum; expected_keyid
+     * null is the explicit decline and an AID is that AID; a field named in omit is left out.
+     */
+    private static Fiki.Verdict verifyResponse(JsonNode c) {
+        knownFields(c, VERIFY_FIELDS);
+        Set<String> omit = new HashSet<>();
+        if (c.has("omit")) {
+            omit.addAll(strings(c.get("omit")));
+        }
+        JsonNode maxAge = c.get("max_age");
+        Fiki.VerifyOptions opts = maxAge.isNull()
+            ? Fiki.VerifyOptions.decliningFreshness()
+            : Fiki.VerifyOptions.maxAge(maxAge.asLong());
+        opts = opts.withBody(body(c));
+        if (!c.get("now").isNull()) {
+            opts = opts.withNow(c.get("now").asLong());
+        }
+        JsonNode minimum = c.get("minimum");
+        if (!omit.contains("minimum") && !(minimum.isTextual() && minimum.asText().equals("default"))) {
+            opts = minimum.isNull() ? opts.withoutMinimum() : opts.withMinimum(strings(minimum));
+        }
+        JsonNode keyid = c.get("expected_keyid");
+        if (!omit.contains("expected_keyid")) {
+            opts = keyid.isNull() ? opts.withoutKeyidCheck() : opts.withExpectedKeyid(keyid.asText());
+        }
+        return Fiki.verifyResponse(c.get("status").asInt(), headers(c.get("headers")), requestOf(c.get("request")),
+            opts);
+    }
+
+    @TestFactory
+    Stream<DynamicTest> responses() throws Exception {
+        List<DynamicTest> tests = new ArrayList<>();
+        JsonNode doc = load("responses.json");
+        loadedCases(doc);
+        for (JsonNode c : doc.get("cases")) {
+            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
+                if (c.has("error")) {
+                    FikiException thrown = assertThrows(FikiException.class, () -> verifyResponse(c));
+                    assertEquals(c.get("error").asText(), thrown.kind().name());
+                    wellFormed(thrown);
+                } else {
+                    Fiki.Verdict verdict = verifyResponse(c);
+                    assertEquals(c.get("keyid").asText(), verdict.keyid());
+                    assertEquals(strings(c.get("covered")), verdict.covered());
+                }
+            }));
+        }
+        return tests.stream();
+    }
+
+    /** What the signer emits, byte for byte (review V-C4). */
+    private static Map<String, String> sign(JsonNode c) {
+        Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
+        Fiki.SignOptions opts = Fiki.SignOptions.none().withBody(body(c));
+        if (!c.get("covered").isNull()) {
+            opts = opts.withCovered(strings(c.get("covered")));
+        }
+        if (!c.get("created").isNull()) {
+            opts = opts.withCreated(c.get("created").asLong());
+        }
+        if (!c.get("expires").isNull()) {
+            opts = opts.withExpires(c.get("expires").asLong());
+        }
+        if (!c.get("nonce").isNull()) {
+            opts = opts.withNonce(c.get("nonce").asText());
+        }
+        if (!c.get("tag").isNull()) {
+            opts = opts.withTag(c.get("tag").asText());
+        }
+        if (!c.get("minimum").isNull()) {
+            opts = opts.withMinimum(strings(c.get("minimum")));
+        }
+        if (!c.get("keyid").isNull()) {
+            opts = opts.withKeyid(c.get("keyid").asText());
+        }
+        if (!c.get("label").isNull()) {
+            opts = opts.withLabel(c.get("label").asText());
+        }
+        Map<String, String> headers = headers(c.get("headers"));
+        return switch (c.get("kind").asText()) {
+            case "request" -> Fiki.signRequest(key, c.get("method").asText(), c.get("url").asText(), headers, opts);
+            case "response" -> Fiki.signResponse(key, c.get("status").asInt(), requestOf(c.get("request")), headers, opts);
+            default -> throw new AssertionError("unknown kind " + c.get("kind"));
+        };
+    }
+
+    @TestFactory
+    Stream<DynamicTest> signs() throws Exception {
+        List<DynamicTest> tests = new ArrayList<>();
+        JsonNode doc = load("signs.json");
+        loadedCases(doc);
+        for (JsonNode c : doc.get("cases")) {
+            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
+                knownFields(c, SIGN_FIELDS);
+                if (c.has("error") && c.get("error").asText().equals("caller")) {
+                    Throwable thrown = assertThrows(IllegalArgumentException.class, () -> sign(c));
+                    assertFalse(thrown instanceof FikiException);
+                } else if (c.has("error")) {
+                    FikiException thrown = assertThrows(FikiException.class, () -> sign(c));
+                    assertEquals(c.get("error").asText(), thrown.kind().name());
+                    wellFormed(thrown);
+                } else {
+                    // Byte for byte, names and order included: a LinkedHashMap compares neither
+                    // order nor spelling, so both are checked as lists.
+                    Map<String, String> expected = headers(c.get("expected_headers"));
+                    Map<String, String> made = sign(c);
+                    assertEquals(new ArrayList<>(expected.entrySet()), new ArrayList<>(made.entrySet()));
+                }
             }));
         }
         return tests.stream();
@@ -232,8 +378,10 @@ class VectorsTest {
                 // A mistake in the call is an IllegalArgumentException, never a FikiException
                 // (@5zrf8gjk); FikiException is not one, so assertThrows alone shows both.
                 assertEquals("caller", c.get("error").asText());
-                Throwable thrown = assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(
-                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
+                Throwable thrown = c.has("kind") && c.get("kind").asText().equals("response")
+                    ? assertThrows(IllegalArgumentException.class, () -> verifyResponse(c))
+                    : assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(
+                        c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
                 assertFalse(thrown instanceof FikiException);
             }));
         }

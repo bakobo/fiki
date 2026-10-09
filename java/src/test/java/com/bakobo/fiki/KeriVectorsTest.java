@@ -163,8 +163,10 @@ class KeriVectorsTest {
         Fiki.VerifyOptions common = Fiki.VerifyOptions.maxAge(policy.get("max_age").asLong())
             .withSkew(policy.get("skew").asLong())
             .withNow(c.get("now").asLong())
-            .withResolver(resolver(data.get("keys")))
-            .withExpectedKeyid(expectedKeyid == null ? null : expectedKeyid.asText());
+            .withResolver(resolver(data.get("keys")));
+        // A policy naming no expected keyid is the KERI generator's expected_keyid=None: the check
+        // declined, stated explicitly as format 3 part two requires (@524c8qgv).
+        common = expectedKeyid == null ? common.withoutKeyidCheck() : common.withExpectedKeyid(expectedKeyid.asText());
         JsonNode request = c.get("request");
         if (response != null) {
             return Fiki.verifyResponse(response.get("status").asInt(), headers(response.get("headers")),

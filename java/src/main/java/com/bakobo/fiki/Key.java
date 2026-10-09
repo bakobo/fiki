@@ -146,8 +146,16 @@ public final class Key {
         }
     }
 
-    /** Render a raw 32-byte Ed25519 public key as a non-transferable AID. */
+    /**
+     * Render a raw 32-byte Ed25519 public key as a non-transferable AID. Any other length is the
+     * caller's mistake, refused rather than truncated or padded into some other key's AID (review B8).
+     */
     public static String toAid(byte[] raw) {
+        if (raw == null || raw.length != RAW_LEN) {
+            throw new IllegalArgumentException(
+                "An Ed25519 public key is " + RAW_LEN + " bytes; this one is "
+                    + (raw == null ? "null" : raw.length + " bytes") + ".");
+        }
         byte[] padded = new byte[RAW_LEN + 1];
         System.arraycopy(raw, 0, padded, 1, RAW_LEN);
         return CODE + URL.encodeToString(padded).substring(1);

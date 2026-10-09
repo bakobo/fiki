@@ -151,7 +151,7 @@ class GuideTest {
 
         Fiki.Request asked = new Fiki.Request("POST", url, headers, body);
         assertEquals("refused before the agent was known", snippetE(() ->
-            Fiki.verifyResponse(401, Map.of(), asked, Fiki.VerifyOptions.maxAge(300))));
+            Fiki.verifyResponse(401, Map.of(), asked, Fiki.VerifyOptions.maxAge(300).withoutKeyidCheck())));
 
         assertTrue(snippetE(() -> Fiki.verifyRequest("POST", url, headers,
             policy.withResolver(keyState()::get))).equals("verified"));
