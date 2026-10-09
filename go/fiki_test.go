@@ -475,10 +475,14 @@ func TestStructuredFieldSubset(t *testing.T) {
 
 // verifyOptedOut is VerifyRequest with 0.8's policy stated explicitly. These tests predate vectors
 // format 3, under which VerifyRequest applies DefaultMinimum unless told otherwise and requires a
-// decision about Authorities (@524c8qgv). A test that names its own Minimum or Authorities keeps
-// it; the rest opt out of both on purpose, because their subject is something else, and the
-// format-3 defaults are held by the shared vectors and by TestTheFormat3Policy.
+// decision about Authorities (@524c8qgv), and 0.9.0, which requires one about age (@65u2932c). A
+// test that names its own Minimum, Authorities or MaxAge keeps it; the rest opt out on purpose,
+// because their subject is something else, and the defaults are held by the shared vectors,
+// TestTheFormat3Policy and TestFreshnessIsARequiredDecision.
 func verifyOptedOut(method, rawURL string, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.MaxAge == nil {
+		opts.AnyAge = true
+	}
 	if opts.Minimum == nil {
 		opts.NoMinimum = true
 	}
@@ -489,11 +493,14 @@ func verifyOptedOut(method, rawURL string, headers map[string]string, opts Verif
 }
 
 // verifyResponseOptedOut is VerifyResponse with 0.8's response policy stated explicitly: no
-// minimum unless the test names one, and no expected keyid unless the test names one. Format 3
+// minimum, no expected keyid and no age check unless the test names one. Format 3
 // part two makes ResponseMinimum the default and ExpectedKeyid a required decision (@524c8qgv);
 // these tests' subject is something else, and the new defaults are held by responses.json and
 // TestTheFormat3ResponsePolicy.
 func verifyResponseOptedOut(status int, request *Request, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.MaxAge == nil {
+		opts.AnyAge = true
+	}
 	if opts.Minimum == nil {
 		opts.NoMinimum = true
 	}

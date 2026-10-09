@@ -150,7 +150,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 
 	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
-		Body: body, Minimum: fiki.RequestMinimum, Authorities: []string{"keria.example.com"},
+		Body: body, Minimum: fiki.RequestMinimum, Authorities: []string{"keria.example.com"}, MaxAge: &maxAge,
 		Resolve: func(string) ([]byte, error) { return nil, nil },
 	})
 	if got := describe(err); got != "no key state for "+aid {
@@ -161,13 +161,13 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 			Message: "The key state of " + keyid + " has no single key that satisfies its threshold."}
 	}
 	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Body: body, Resolve: twoOfThree,
-		Authorities: []string{"keria.example.com"}})
+		Authorities: []string{"keria.example.com"}, MaxAge: &maxAge})
 	if got := describe(err); got != "no single key of "+aid+" signs alone" {
 		t.Errorf("UnsupportedSigner: %s", got)
 	}
 	_, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
 		Body: responseBody, Resolve: resolve, Minimum: append(fiki.ResponseMinimum[:4:4], "content-type"),
-		ExpectedKeyid: fiki.String(agentAID),
+		ExpectedKeyid: fiki.String(agentAID), MaxAge: &maxAge,
 	})
 	if got := describe(err); got != "the signature does not cover content-type" {
 		t.Errorf("InsufficientCoverage: %s", got)
@@ -176,16 +176,16 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	if got := describe(err); got != "the covered list names @path twice" {
 		t.Errorf("DuplicateComponent: %s", got)
 	}
-	_, err = fiki.VerifyResponse(401, request, map[string]string{}, fiki.VerifyOptions{AnyKeyid: true})
+	_, err = fiki.VerifyResponse(401, request, map[string]string{}, fiki.VerifyOptions{AnyKeyid: true, MaxAge: &maxAge})
 	if got := describe(err); got != "an unsigned 401; its body is not to be trusted" {
 		t.Errorf("Unauthenticated: %s", got)
 	}
-	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Minimum: []string{"@method"}})
+	_, err = fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{Minimum: []string{"@method"}, MaxAge: &maxAge})
 	if got := describe(err); got != "a mistake in the call, not in the message" {
 		t.Errorf("ErrInvalidOptions: %s", got)
 	}
 	_, err = fiki.VerifyRequest("POST", url, map[string]string{}, fiki.VerifyOptions{
-		Authorities: []string{"keria.example.com"}})
+		Authorities: []string{"keria.example.com"}, MaxAge: &maxAge})
 	if got := describe(err); got != fiki.KindMissingSignature {
 		t.Errorf("other kinds: %s", got)
 	}

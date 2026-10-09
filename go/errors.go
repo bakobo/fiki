@@ -25,12 +25,12 @@ const VectorsFormat = 3
 const KeriVectorsFormat = 5
 
 // ErrInvalidOptions marks a mistake in the call rather than a defect in the message: a minimum
-// covered set smaller than the profile's, ExpectedAID together with Resolve, a request verified
-// with no decision about Authorities, a response verified with no decision about ExpectedKeyid,
-// Authorities on a response, or a response binding
-// "content-digest";req verified against a Request with no Body.
-// Such an error wraps this one and is never an *Error, so a caller matching on Kind cannot take
-// its own bug for a bad message (this.i @9z57sejw).
+// covered set smaller than the profile's, ExpectedAID together with Resolve, a message verified
+// with no decision about MaxAge, a stated but empty ExpectedAID or ExpectedKeyid, a request
+// verified with no decision about Authorities, a response verified with no decision about
+// ExpectedKeyid, Authorities on a response, or a response binding "content-digest";req verified
+// against a Request with no Body. Such an error wraps this one and is never an *Error, so a caller
+// matching on Kind cannot take its own bug for a bad message (this.i @9z57sejw).
 var ErrInvalidOptions = errors.New("fiki: invalid options")
 
 func invalidOptions(format string, args ...any) error {

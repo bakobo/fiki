@@ -19,21 +19,21 @@ func TestTheFormat3Policy(t *testing.T) {
 	served := []string{"api.example.com"}
 
 	t.Run("left unstated, the minimum is DefaultMinimum", func(t *testing.T) {
-		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{Authorities: served})
+		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAge: true, Authorities: served})
 		if kindOf(t, err) != KindInsufficientCoverage {
 			t.Errorf("expected InsufficientCoverage, got %v", err)
 		}
 	})
 	t.Run("NoMinimum and AnyAuthority opt out of both", func(t *testing.T) {
-		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{NoMinimum: true, AnyAuthority: true}); err != nil {
+		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAge: true, NoMinimum: true, AnyAuthority: true}); err != nil {
 			t.Error(err)
 		}
 	})
 	for name, opts := range map[string]VerifyOptions{
-		"no decision about authorities":     {},
-		"both Authorities and AnyAuthority": {Authorities: served, AnyAuthority: true},
-		"an empty Authorities":              {Authorities: []string{}},
-		"both Minimum and NoMinimum":        {AnyAuthority: true, Minimum: RequestMinimum, NoMinimum: true},
+		"no decision about authorities":     {AnyAge: true},
+		"both Authorities and AnyAuthority": {AnyAge: true, Authorities: served, AnyAuthority: true},
+		"an empty Authorities":              {AnyAge: true, Authorities: []string{}},
+		"both Minimum and NoMinimum":        {AnyAge: true, AnyAuthority: true, Minimum: RequestMinimum, NoMinimum: true},
 	} {
 		t.Run(name+" is the caller's mistake", func(t *testing.T) {
 			_, err := VerifyRequest("GET", urlQuery, headers, opts)
@@ -42,16 +42,16 @@ func TestTheFormat3Policy(t *testing.T) {
 	}
 
 	t.Run("an ExpectedKeyid beside AnyKeyid is the caller's mistake", func(t *testing.T) {
-		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true, AnyKeyid: true, ExpectedKeyid: String("k")})
+		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAge: true, AnyAuthority: true, AnyKeyid: true, ExpectedKeyid: String("k")})
 		isInvalidOptions(t, err)
 	})
 
 	request := &Request{Method: "GET", URL: urlQuery, Headers: headers}
 	for name, opts := range map[string]VerifyOptions{
-		"AnyAuthority":                    {AnyAuthority: true, AnyKeyid: true},
-		"both Minimum and NoMinimum":      {Minimum: ResponseMinimum, NoMinimum: true, AnyKeyid: true},
-		"no decision about the keyid":     {},
-		"both ExpectedKeyid and AnyKeyid": {ExpectedKeyid: String("k"), AnyKeyid: true},
+		"AnyAuthority":                    {AnyAge: true, AnyAuthority: true, AnyKeyid: true},
+		"both Minimum and NoMinimum":      {AnyAge: true, Minimum: ResponseMinimum, NoMinimum: true, AnyKeyid: true},
+		"no decision about the keyid":     {AnyAge: true},
+		"both ExpectedKeyid and AnyKeyid": {AnyAge: true, ExpectedKeyid: String("k"), AnyKeyid: true},
 	} {
 		t.Run(name+" on a response is the caller's mistake", func(t *testing.T) {
 			_, err := VerifyResponse(200, request, map[string]string{}, opts)
@@ -80,11 +80,11 @@ func TestAnAuthorityIsCheckedAsASCIIBeforeItIsLowercased(t *testing.T) {
 		t.Fatal(err)
 	}
 	headers["Host"] = kelvin
-	_, err = VerifyRequest("GET", "/x", headers, VerifyOptions{Authorities: []string{"kapi.example.com"}})
+	_, err = VerifyRequest("GET", "/x", headers, VerifyOptions{AnyAge: true, Authorities: []string{"kapi.example.com"}})
 	if kindOf(t, err) != KindSignatureMismatch {
 		t.Errorf("verifying under a Host holding U+212A: %v", err)
 	}
-	_, err = VerifyRequest("GET", "https://"+kelvin+"/x", headers, VerifyOptions{AnyAuthority: true})
+	_, err = VerifyRequest("GET", "https://"+kelvin+"/x", headers, VerifyOptions{AnyAge: true, AnyAuthority: true})
 	if kindOf(t, err) != KindSignatureMismatch {
 		t.Errorf("verifying a URL whose host holds U+212A: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestChangingTheExportedDefaultMinimumChangesNoVerifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true})
+	_, err = VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAge: true, AnyAuthority: true})
 	if kindOf(t, err) != KindInsufficientCoverage {
 		t.Fatalf("want InsufficientCoverage for a signature without @authority, got %v", err)
 	}
@@ -167,19 +167,19 @@ func TestTheFormat3ResponsePolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Run("left unstated, the minimum is ResponseMinimum", func(t *testing.T) {
-		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{AnyKeyid: true})
+		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{AnyAge: true, AnyKeyid: true})
 		if kindOf(t, err) != KindInsufficientCoverage {
 			t.Errorf("expected InsufficientCoverage, got %v", err)
 		}
 	})
 	t.Run("NoMinimum and AnyKeyid opt out of both", func(t *testing.T) {
-		verdict, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, AnyKeyid: true})
+		verdict, err := VerifyResponse(200, request, statusOnly, VerifyOptions{AnyAge: true, NoMinimum: true, AnyKeyid: true})
 		if err != nil || verdict.Keyid != key.Keyid() {
 			t.Errorf("verdict %+v, err %v", verdict, err)
 		}
 	})
 	t.Run("an ExpectedKeyid refuses any other signer", func(t *testing.T) {
-		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, ExpectedKeyid: String(keriAID)})
+		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{AnyAge: true, NoMinimum: true, ExpectedKeyid: String(keriAID)})
 		if kindOf(t, err) != KindUnknownKey {
 			t.Errorf("expected UnknownKey, got %v", err)
 		}
