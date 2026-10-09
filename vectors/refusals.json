@@ -2211,6 +2211,22 @@
       "note": "Present but empty after OWS: malformed, as every port must say alike (review B7)."
     },
     {
+      "id": "signature-of-spaces-and-no-signature-input",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature": " \t "
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingSignatureInput",
+      "note": "Profile section 9 order: a missing Signature-Input is found before the Signature is parsed, so whitespace there is never reached (pinned after fiki-go diverged)."
+    },
+    {
       "id": "two-members-in-signature-one-in-signature-input",
       "method": "GET",
       "url": "https://api.example.com/things?limit=1&sort=name",
