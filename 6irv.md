@@ -1,0 +1,4 @@
+# release-js.yml's 'Wait for npm to serve the version' step (.github/workflows/release-js.yml:130) polls 'npm view @bakobo/fiki@X version', which answers from the packument before the tarball is servable. In the 0.9.0 release (run 37993193890, 2026-10-09) verify's npm install then got 404 for https://registry.npmjs.org/@bakobo/fiki/-/fiki-0.9.0.tgz, and the CDN kept serving that 404 for several minutes after, so the attempt itself may have poisoned the cache; re-running only the verify job passed once the tarball returned 200. Make the wait loop also require a 200 from the dist.tarball URL (curl -fsI) before exiting, so a verify failure means a bad release rather than propagation lag. Check the other five release workflows' wait steps for the same metadata-before-artifact gap.
+kind: todo
+created: 2026-10-09T21:31Z
+
