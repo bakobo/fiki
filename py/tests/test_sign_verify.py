@@ -306,7 +306,7 @@ def test_max_age_is_a_required_decision_rather_than_a_default():
     None, and either way the choice is visible at the call site.
     """
     request, headers = fresh()
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="missing 1 required keyword-only argument: 'max_age'"):
         verify_request(authorities=None, headers=headers, **request)
 
 
@@ -458,16 +458,16 @@ def test_spaces_and_tabs_at_the_edge_of_a_covered_field_still_verify():
 
 
 def test_an_empty_method_is_never_signed():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         sign_request(key=KEY, method="", url=URL)
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="method is a string"):
         sign_request(key=KEY, method=None, url=URL)
 
 
 def test_an_empty_method_is_a_caller_error_when_verifying():
     request, headers = signed()
     request["method"] = ""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         verify_request(authorities=None, headers=headers, max_age=None, **request)
 
 
