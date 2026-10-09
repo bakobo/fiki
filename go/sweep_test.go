@@ -137,7 +137,7 @@ func TestAnUnreadableAuthorityIsTheSignersMistake(t *testing.T) {
 	// And a received one is a base that cannot be built.
 	_, err = verifyResponseOptedOut(200, &Request{Method: "GET", URL: "https://example.com:65536/"},
 		map[string]string{"Signature-Input": `sig=("@authority";req);keyid="k"`, "Signature": zeroSignature},
-		VerifyOptions{ExpectedAID: seedAID})
+		VerifyOptions{ExpectedAID: String(seedAID)})
 	if kindOf(t, err) != KindSignatureMismatch {
 		t.Errorf("expected SignatureMismatch, got %v", err)
 	}
@@ -243,7 +243,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verdict, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()})
+	verdict, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String(key.AID())})
 	if err != nil || verdict.Keyid != "claimed" || verdict.AID != key.AID() {
 		t.Errorf("verdict %+v, %v", verdict, err)
 	}
@@ -253,7 +253,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 	}
 	params := string(base)[strings.LastIndex(string(base), `"@signature-params": `)+len(`"@signature-params": `):]
 	unnamed := map[string]string{"Signature-Input": "sig=" + params, "Signature": "sig=:" + b64std(key.Sign(base)) + ":"}
-	verdict, err = verifyOptedOut("GET", urlQuery, unnamed, VerifyOptions{ExpectedAID: key.AID()})
+	verdict, err = verifyOptedOut("GET", urlQuery, unnamed, VerifyOptions{ExpectedAID: String(key.AID())})
 	if err != nil || verdict.Keyid != "" || verdict.AID != key.AID() {
 		t.Errorf("verdict %+v, %v", verdict, err)
 	}
@@ -302,7 +302,7 @@ func TestAnUnexpectedKeyidNeverReachesTheResolver(t *testing.T) {
 	}
 	asked := 0
 	resolve := func(string) ([]byte, error) { asked++; return nil, nil }
-	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: resolve, ExpectedKeyid: "E" + strings.Repeat("A", 43)})
+	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: resolve, ExpectedKeyid: String("E" + strings.Repeat("A", 43))})
 	if kindOf(t, err) != KindUnknownKey || asked != 0 {
 		t.Errorf("expected UnknownKey without a resolution, got %v after %d", err, asked)
 	}

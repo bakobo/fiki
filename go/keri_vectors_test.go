@@ -221,11 +221,13 @@ func keriResolver(keys []keriKey) Resolver {
 // keriVerify verifies a case's message as a KERI verifier would, under the given policy.
 func keriVerify(request keriMessage, response *keriMessage, now int64, policy keriPolicy, keys []keriKey) (*Verdict, error) {
 	opts := VerifyOptions{
-		MaxAge:        &policy.MaxAge,
-		Skew:          &policy.Skew,
-		Now:           now,
-		Resolve:       keriResolver(keys),
-		ExpectedKeyid: policy.ExpectedKeyid,
+		MaxAge:  &policy.MaxAge,
+		Skew:    &policy.Skew,
+		Now:     now,
+		Resolve: keriResolver(keys),
+	}
+	if policy.ExpectedKeyid != "" {
+		opts.ExpectedKeyid = String(policy.ExpectedKeyid)
 	}
 	if response != nil {
 		opts.Body = response.body()

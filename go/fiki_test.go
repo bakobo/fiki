@@ -241,11 +241,11 @@ func TestSignAndVerify(t *testing.T) {
 
 	t.Run("an expected AID is authoritative over the inline keyid", func(t *testing.T) {
 		headers, key := sign(t, SignOptions{})
-		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String(key.AID())}); err != nil {
 			t.Fatal(err)
 		}
 		other := Generate()
-		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: other.AID()})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String(other.AID())})
 		if kindOf(t, err) != KindSignatureMismatch {
 			t.Error("a stranger's AID should not verify")
 		}
@@ -253,7 +253,7 @@ func TestSignAndVerify(t *testing.T) {
 
 	t.Run("a malformed expected AID is refused", func(t *testing.T) {
 		headers, _ := sign(t, SignOptions{})
-		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: "nope"})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: String("nope")})
 		if kindOf(t, err) != KindMalformedKey {
 			t.Error("expected MalformedKey")
 		}
@@ -475,10 +475,14 @@ func TestStructuredFieldSubset(t *testing.T) {
 
 // verifyOptedOut is VerifyRequest with 0.8's policy stated explicitly. These tests predate vectors
 // format 3, under which VerifyRequest applies DefaultMinimum unless told otherwise and requires a
-// decision about Authorities (@524c8qgv). A test that names its own Minimum or Authorities keeps
-// it; the rest opt out of both on purpose, because their subject is something else, and the
-// format-3 defaults are held by the shared vectors and by TestTheFormat3Policy.
+// decision about Authorities (@524c8qgv), and 0.9.0, which requires one about age (@65u2932c). A
+// test that names its own Minimum, Authorities or MaxAge keeps it; the rest opt out on purpose,
+// because their subject is something else, and the defaults are held by the shared vectors,
+// TestTheFormat3Policy and TestFreshnessIsARequiredDecision.
 func verifyOptedOut(method, rawURL string, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.MaxAge == nil {
+		opts.AnyAge = true
+	}
 	if opts.Minimum == nil {
 		opts.NoMinimum = true
 	}
@@ -489,15 +493,18 @@ func verifyOptedOut(method, rawURL string, headers map[string]string, opts Verif
 }
 
 // verifyResponseOptedOut is VerifyResponse with 0.8's response policy stated explicitly: no
-// minimum unless the test names one, and no expected keyid unless the test names one. Format 3
+// minimum, no expected keyid and no age check unless the test names one. Format 3
 // part two makes ResponseMinimum the default and ExpectedKeyid a required decision (@524c8qgv);
 // these tests' subject is something else, and the new defaults are held by responses.json and
 // TestTheFormat3ResponsePolicy.
 func verifyResponseOptedOut(status int, request *Request, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.MaxAge == nil {
+		opts.AnyAge = true
+	}
 	if opts.Minimum == nil {
 		opts.NoMinimum = true
 	}
-	if opts.ExpectedKeyid == "" {
+	if opts.ExpectedKeyid == nil {
 		opts.AnyKeyid = true
 	}
 	return VerifyResponse(status, request, headers, opts)

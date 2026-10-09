@@ -169,9 +169,7 @@ func (c requestCase) body() []byte {
 func (c requestCase) options(t *testing.T) (VerifyOptions, error) {
 	t.Helper()
 	opts := c.common(t)
-	if c.ExpectedAID != nil {
-		opts.ExpectedAID = *c.ExpectedAID
-	}
+	opts.ExpectedAID = c.ExpectedAID
 	if slices.Contains(c.Omit, "authorities") {
 		return opts, nil
 	}
@@ -186,7 +184,8 @@ func (c requestCase) options(t *testing.T) (VerifyOptions, error) {
 func (c requestCase) common(t *testing.T) VerifyOptions {
 	t.Helper()
 	checkFields(t, c.ID, c.fields, verifyFields)
-	opts := VerifyOptions{MaxAge: c.MaxAge, Body: c.body()}
+	// A null max_age is the explicit decline, which Go spells AnyAge (this.i @65u2932c).
+	opts := VerifyOptions{MaxAge: c.MaxAge, AnyAge: c.MaxAge == nil, Body: c.body()}
 	if c.Now != nil {
 		opts.Now = *c.Now
 	}
