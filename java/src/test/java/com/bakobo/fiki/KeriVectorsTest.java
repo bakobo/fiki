@@ -58,6 +58,16 @@ class KeriVectorsTest {
     private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
     private static final Map<String, String> CODES = codes();
 
+    /*
+     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * were written and never at test time (tick 7xbw, T8); rfc9421.json's one case is asserted where
+     * it is read.
+     */
+    private static final int REQUESTS_CASES = 21;
+    private static final int RESPONSES_CASES = 4;
+    private static final int REFUSALS_CASES = 64;
+    private static final int LEGACY_CASES = 4;
+
     private static JsonNode load(String name) throws Exception {
         File file = new File(KERI, name);
         assertTrue(file.isFile(), "the KERI vectors are not where every port reaches them: " + file);
@@ -351,36 +361,28 @@ class KeriVectorsTest {
     @TestFactory
     Stream<DynamicTest> requestAcceptVectors() throws Exception {
         JsonNode data = load("requests.json");
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : data.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                Fiki.Verdict verdict = run(c, data);
-                JsonNode expected = c.get("expected");
-                assertEquals(expected.get("keyid").asText(), verdict.keyid());
-                assertEquals(strings(expected.get("covered")), serialized(verdict.covered()));
-                assertBase(c, data);
-            }));
-        }
-        return tests.stream();
+        return Counted.each("requests.json", data.get("cases"), REQUESTS_CASES, c -> {
+            Fiki.Verdict verdict = run(c, data);
+            JsonNode expected = c.get("expected");
+            assertEquals(expected.get("keyid").asText(), verdict.keyid());
+            assertEquals(strings(expected.get("covered")), serialized(verdict.covered()));
+            assertBase(c, data);
+        });
     }
 
     @TestFactory
     Stream<DynamicTest> responseAcceptVectors() throws Exception {
         JsonNode data = load("responses.json");
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : data.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                // The request the response answers is itself a valid canonical request, under the
-                // file's policy alone: the case's policy is the client's, for the response.
-                assertNotNull(run(c, data, null, null));
-                Fiki.Verdict verdict = run(c, data);
-                JsonNode expected = c.get("expected");
-                assertEquals(expected.get("keyid").asText(), verdict.keyid());
-                assertEquals(strings(expected.get("covered")), serialized(verdict.covered()));
-                assertBase(c, data);
-            }));
-        }
-        return tests.stream();
+        return Counted.each("responses.json", data.get("cases"), RESPONSES_CASES, c -> {
+            // The request the response answers is itself a valid canonical request, under the
+            // file's policy alone: the case's policy is the client's, for the response.
+            assertNotNull(run(c, data, null, null));
+            Fiki.Verdict verdict = run(c, data);
+            JsonNode expected = c.get("expected");
+            assertEquals(expected.get("keyid").asText(), verdict.keyid());
+            assertEquals(strings(expected.get("covered")), serialized(verdict.covered()));
+            assertBase(c, data);
+        });
     }
 
     @Test
@@ -405,39 +407,37 @@ class KeriVectorsTest {
     Stream<DynamicTest> refusalVectors() throws Exception {
         // Each case has one defect and so one correct code under the profile's section 9 order.
         JsonNode data = load("refusals.json");
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : data.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                JsonNode verified = c.get("verified_by_fiki");
-                if (verified != null && !verified.asBoolean()) {
-                    // Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
-                    assertEquals("mode-mismatch", c.get("error").asText());
-                    assertFalse(c.get("why").asText().isEmpty());
-                    return;
+        return Counted.each("refusals.json", data.get("cases"), REFUSALS_CASES, c -> {
+            JsonNode verified = c.get("verified_by_fiki");
+            if (verified != null && !verified.asBoolean()) {
+                // Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
+                assertEquals("mode-mismatch", c.get("error").asText());
+                assertFalse(c.get("why").asText().isEmpty());
+                return;
+            }
+            FikiException thrown = assertThrows(FikiException.class, () -> {
+                if (c.get("kind").asText().equals("sign-request")) {
+                    JsonNode request = c.get("request");
+                    Fiki.signRequest(Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText())),
+                        request.get("method").asText(), request.get("url").asText(), headers(request.get("headers")),
+                        Fiki.SignOptions.none().withBody(body(request)).withCovered(strings(c.get("covered")))
+                            .withKeyid(c.get("keyid").asText())
+                            .withMinimum(strings(data.get("policy").get("request_minimum"))));
+                } else {
+                    run(c, data);
                 }
-                FikiException thrown = assertThrows(FikiException.class, () -> {
-                    if (c.get("kind").asText().equals("sign-request")) {
-                        JsonNode request = c.get("request");
-                        Fiki.signRequest(Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText())),
-                            request.get("method").asText(), request.get("url").asText(), headers(request.get("headers")),
-                            Fiki.SignOptions.none().withBody(body(request)).withCovered(strings(c.get("covered")))
-                                .withKeyid(c.get("keyid").asText())
-                                .withMinimum(strings(data.get("policy").get("request_minimum"))));
-                    } else {
-                        run(c, data);
-                    }
-                });
-                assertEquals(c.get("error").asText(), CODES.get(thrown.kind().name()), thrown.getMessage());
-            }));
-        }
-        return tests.stream();
+            });
+            assertEquals(c.get("error").asText(), CODES.get(thrown.kind().name()), thrown.getMessage());
+        });
     }
 
     /* ---------------------------------- legacy material, which fiki carries and never verifies */
 
     @Test
     void legacyVectorsCarryWhatALegacyVerifierNeedsAndTheirProvenance() throws Exception {
-        for (JsonNode c : load("legacy.json").get("cases")) {
+        JsonNode cases = load("legacy.json").get("cases");
+        assertEquals(LEGACY_CASES, cases.size());
+        for (JsonNode c : cases) {
             JsonNode source = c.get("source");
             assertTrue(Set.of("WebOfTrust/keria", "WebOfTrust/signify-ts").contains(source.get("repo").asText()));
             assertEquals(40, source.get("commit").asText().length());
@@ -454,20 +454,16 @@ class KeriVectorsTest {
     @TestFactory
     Stream<DynamicTest> eachLegacySignatureVerifiesOverItsStatedBase() throws Exception {
         // Transcription check only: pure Ed25519 over the base the file states, no legacy logic.
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : load("legacy.json").get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                String signature = c.get("headers").get("Signature").asText().split("signify=\"", 2)[1];
-                signature = signature.substring(0, signature.length() - 1);
-                byte[] rawSignature = Arrays.copyOfRange(URL_DECODER.decode("AA" + signature.substring(2)), 2, 66);
-                String key = c.get("key").asText();
-                byte[] rawKey = Arrays.copyOfRange(URL_DECODER.decode("A" + key.substring(1)), 1, 33);
-                Signature verifier = Signature.getInstance("Ed25519");
-                verifier.initVerify(Key.decodePublic(rawKey));
-                verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
-                assertTrue(verifier.verify(rawSignature));
-            }));
-        }
-        return tests.stream();
+        return Counted.each("legacy.json", load("legacy.json").get("cases"), LEGACY_CASES, c -> {
+            String signature = c.get("headers").get("Signature").asText().split("signify=\"", 2)[1];
+            signature = signature.substring(0, signature.length() - 1);
+            byte[] rawSignature = Arrays.copyOfRange(URL_DECODER.decode("AA" + signature.substring(2)), 2, 66);
+            String key = c.get("key").asText();
+            byte[] rawKey = Arrays.copyOfRange(URL_DECODER.decode("A" + key.substring(1)), 1, 33);
+            Signature verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(Key.decodePublic(rawKey));
+            verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
+            assertTrue(verifier.verify(rawSignature));
+        });
     }
 }
