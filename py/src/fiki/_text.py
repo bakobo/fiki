@@ -13,7 +13,11 @@ _SHOWN = 64
 def shown(text: str) -> str:
     """An untrusted value as an error message may quote it: escaped, and cut at 64 characters.
 
-    Total over any value, so that building a message never raises before the refusal it carries.
+    Never raises for a value that arrived in a message, which is always a plain str, nor for a
+    plain non-string fiki itself passes, which is quoted by its type name without calling the
+    value's own methods. An object a caller builds to be hostile -- a metaclass whose __name__
+    raises, a str subclass whose __len__ does -- runs the caller's own code, and no message helper
+    can be total against that (#18 hostile fix pass, and a GLM reading of it).
     """
     if not isinstance(text, str):
         # Never the value's own __repr__, which an object can make raise (#18 hostile fix pass).
