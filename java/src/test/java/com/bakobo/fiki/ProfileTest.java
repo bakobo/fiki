@@ -672,20 +672,28 @@ class ProfileTest {
 
     @Test
     void parsingIsLinearInRepeatedAndDistinctParametersAndMembers() {
-        int n = 200_000;
-        StringBuilder repeated = new StringBuilder("a=1");
-        StringBuilder distinct = new StringBuilder("a=1");
-        StringBuilder members = new StringBuilder("m0=1");
-        for (int i = 0; i < n; i++) {
-            repeated.append(";p=").append(i % 10);
-            distinct.append(";p").append(i).append("=1");
-            members.append(", m").append(i % 1000).append("=").append(i % 10);
-        }
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
-            assertEquals(1, Sfv.parseDictionary(repeated.toString()).get(0).params().size());
-            assertEquals(n, Sfv.parseDictionary(distinct.toString()).get(0).params().size());
-            assertEquals(1000, Sfv.parseDictionary(members.toString()).size());
-        });
+        // Growth, not a time limit, so a loaded machine cannot fail it (tick 7xbw).
+        Linear.assertLinear("repeated parameters", 2_000, n -> {
+            StringBuilder repeated = new StringBuilder("a=1");
+            for (int i = 0; i < n; i++) {
+                repeated.append(";p=").append(i % 10);
+            }
+            return repeated.toString();
+        }, text -> assertEquals(1, Sfv.parseDictionary(text).get(0).params().size()));
+        Linear.assertLinear("distinct parameters", 2_000, n -> {
+            StringBuilder distinct = new StringBuilder("a=1");
+            for (int i = 0; i < n; i++) {
+                distinct.append(";p").append(i).append("=1");
+            }
+            return distinct.toString();
+        }, text -> assertTrue(Sfv.parseDictionary(text).get(0).params().size() >= 2_000));
+        Linear.assertLinear("repeated members", 2_000, n -> {
+            StringBuilder members = new StringBuilder("m0=1");
+            for (int i = 0; i < n; i++) {
+                members.append(", m").append(i % 1000).append("=").append(i % 10);
+            }
+            return members.toString();
+        }, text -> assertEquals(1000, Sfv.parseDictionary(text).size()));
     }
 
     @Test
@@ -744,14 +752,14 @@ class ProfileTest {
         }
         Signed s = sign().mangle("\"@method\"", "\"@method\"" + covered + " \"x0\"");
         assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s)));
-        int n = 100_000;
-        StringBuilder huge = new StringBuilder("sig=(");
-        for (int i = 0; i < n; i++) {
-            huge.append(" \"x").append(i).append('"');
-        }
-        huge.append(')');
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () ->
-            assertEquals(n, ((Sfv.InnerList) Sfv.parseDictionary(huge.toString()).get(0).value()).items().size()));
+        // Growth, not a time limit, so a loaded machine cannot fail it (tick 7xbw).
+        Linear.assertLinear("inner-list items", 2_000, n -> {
+            StringBuilder huge = new StringBuilder("sig=(");
+            for (int i = 0; i < n; i++) {
+                huge.append(" \"x").append(i).append('"');
+            }
+            return huge.append(')').toString();
+        }, text -> assertTrue(((Sfv.InnerList) Sfv.parseDictionary(text).get(0).value()).items().size() >= 2_000));
     }
 
     /* ------------------------------------------------ the remaining edges of the new surface */
