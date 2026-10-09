@@ -52,8 +52,41 @@ def load(name: str) -> dict:
     return json.loads((KERI / name).read_text(encoding="utf-8"))
 
 
+# Every file's case count, read once from the files at hardening-a and never at test time, so a
+# file emptied or cut short fails at collection rather than passing on the cases it still holds.
+COUNTS = {
+    "rfc9421.json": 1,
+    "requests.json": 21,
+    "responses.json": 4,
+    "refusals.json": 64,
+    "legacy.json": 4,
+}
+
+# Each test that runs one file's cases, and the file. rfc9421.json's one case is unpacked by its
+# test, which fails on any other count.
+DRIVERS = {
+    "test_request_accept_vectors": "requests.json",
+    "test_response_accept_vectors": "responses.json",
+    "test_refusal_vectors": "refusals.json",
+    "test_each_legacy_signature_verifies_over_its_stated_base": "legacy.json",
+}
+
+
 def cases(name: str):
-    return [pytest.param(case, id=case["id"]) for case in load(name)["cases"]]
+    held = load(name)["cases"]
+    assert len(held) == COUNTS[name], f"{name} holds {len(held)} cases"
+    return [pytest.param(case, id=case["id"]) for case in held]
+
+
+def test_every_file_holds_the_cases_pinned_for_it():
+    for name in FILES:
+        assert len(load(name)["cases"]) == COUNTS[name], name
+
+
+def test_every_keri_vector_case_ran(collected):
+    for test, name in DRIVERS.items():
+        ran = collected(test)
+        assert ran is None or ran == COUNTS[name], f"{test} ran {ran} of {name}'s {COUNTS[name]}"
 
 
 def b64url(text: str) -> bytes:

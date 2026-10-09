@@ -30,9 +30,41 @@ def load(name: str) -> dict:
     return json.loads((VECTORS / name).read_text(encoding="utf-8"))
 
 
+# Every file's case count, read once from the files at hardening-a and never at test time, so a
+# file emptied or cut short fails at collection rather than passing on the cases it still holds.
+COUNTS = {
+    "aid-lens.json": 3,
+    "signature-base.json": 14,
+    "accepts.json": 44,
+    "refusals.json": 144,
+    "misuse.json": 10,
+    "signs.json": 16,
+    "responses.json": 13,
+}
+
+# Each test that runs one file's cases, and the file.
+DRIVERS = {
+    "test_aid_lens": "aid-lens.json",
+    "test_signature_base_vectors": "signature-base.json",
+    "test_signature_vectors": "signature-base.json",
+    "test_accept_vectors": "accepts.json",
+    "test_refusal_vectors": "refusals.json",
+    "test_misuse_vectors": "misuse.json",
+    "test_sign_vectors": "signs.json",
+    "test_response_vectors": "responses.json",
+}
+
+
 def cases(name: str):
     data = load(name)
+    assert len(data["cases"]) == COUNTS[name], f"{name} holds {len(data['cases'])} cases"
     return [pytest.param(case, id=case["id"]) for case in data["cases"]]
+
+
+def test_every_vector_case_ran(collected):
+    for test, name in DRIVERS.items():
+        ran = collected(test)
+        assert ran is None or ran == COUNTS[name], f"{test} ran {ran} of {name}'s {COUNTS[name]}"
 
 
 @pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json",
