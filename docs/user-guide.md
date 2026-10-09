@@ -516,7 +516,17 @@ The verdict's AID is the keyid the resolver vouched for, so the authorization st
 
 The profile signs responses too, and binds each one to the request it answers. By default a signed response covers `@status`, a digest of its own body, and the request's `@method`, `@path` and `@query` marked `req` (RFC 9421 §2.4), plus the request's `content-digest` when the request had content. So an intermediary can neither change the status or the body nor attach the response to a different question. Pass the request with the body it carried: a response that binds `"content-digest";req` is checked against that body, and fiki cannot check a body it was not given, so verifying one against a request with no body is a mistake in the call. A request that had content and no `Content-Digest` to bind is refused as `UncoveredBody` at signing time. To name the covered list yourself, spell a request component with the port's `req` helper, which turns `@path` into `"@path";req`.
 
-A client states the AID it expects to be talking to, and a response signed by any other is refused as `UnknownKey`, however valid its signature. From vectors format 3 that is a required decision, as `authorities` is for a server: pass the AID, or decline explicitly to accept any signer and read who it was from the verdict (Python `expected_keyid=None`). An empty string names no AID and is a mistake in the call, not the decline. A response verifier also applies `RESPONSE_MINIMUM` by default, as a request verifier applies `DEFAULT_MINIMUM`: a response that covers less, or has no `created`, is refused, and the default reads the request's components, so pass the request the response answers or it is `MissingComponent`. A response signed without its request covers only its own components, which that default refuses. Opt out of the minimum the same way as for a request. An unsigned 401 is `Unauthenticated`, checked before anything else, because a server that refuses a request before it knows which agent it is cannot sign the refusal; its body is not to be trusted. `authorities` applies to requests only.
+A client states the AID it expects to be talking to, and a response signed by any other is refused as `UnknownKey`, however valid its signature. From vectors format 3 that is a required decision, as `authorities` is for a server: pass the AID, or decline explicitly to accept any signer and read who it was from the verdict (Python `expected_keyid=None`). An empty string names no AID and is a mistake in the call, not the decline. A response verifier also applies `RESPONSE_MINIMUM` by default, as a request verifier applies `DEFAULT_MINIMUM`: a response that covers less, or has no `created`, is refused, and the default reads the request's components, so pass the request the response answers or it is `MissingComponent`. A response signed without its request covers only its own components, which that default refuses. Opt out of the minimum the same way as for a request.
+
+| Language | Expect this AID | Accept any signer |
+|---|---|---|
+| Python | `expected_keyid=aid` | `expected_keyid=None` |
+| JavaScript | `expectedKeyid: aid` | `expectedKeyid: null` |
+| Go | `ExpectedKeyid: aid` | `AnyKeyid: true` |
+| Rust | `expected_keyid: ExpectedKeyid::is(aid)` | `expected_keyid: ExpectedKeyid::Unchecked` |
+| Java | `.withExpectedKeyid(aid)` | `.withoutKeyidCheck()` |
+| C# | `.WithExpectedKeyId(aid)` | `.DecliningKeyidCheck()` |
+ An unsigned 401 is `Unauthenticated`, checked before anything else, because a server that refuses a request before it knows which agent it is cannot sign the refusal; its body is not to be trusted. `authorities` applies to requests only.
 
 ### Python
 
