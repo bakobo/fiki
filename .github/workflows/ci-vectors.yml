@@ -40,6 +40,32 @@ jobs:
         run: uv run --with base58 python ../vectors/keys/generate.py
       - name: Fail if any generated file changed
         run: |
+          # keys.json records, per private key, whether the ssh-keygen on the generating machine
+          # refused it (ssh_keygen_refuses). That is an observation of whichever OpenSSH is
+          # installed, not a value the generator decides: OpenSSH 10.2 here reads a PKCS #8 key
+          # the runner's OpenSSH refuses. So that one field is compared with the committed file's
+          # value restored, and every other byte of every vector file must match exactly.
+          python3 - <<'PY'
+          import json, subprocess
+          path = "../vectors/keys/keys.json"
+          committed = json.loads(subprocess.run(["git", "show", "HEAD:vectors/keys/keys.json"],
+                                                capture_output=True, check=True, text=True).stdout)
+          fresh = json.load(open(path))
+          def restore(new, old):
+              if isinstance(new, dict) and isinstance(old, dict):
+                  if "ssh_keygen_refuses" in new and "ssh_keygen_refuses" in old:
+                      new["ssh_keygen_refuses"] = old["ssh_keygen_refuses"]
+                  for k in new:
+                      if k in old:
+                          restore(new[k], old[k])
+              elif isinstance(new, list) and isinstance(old, list):
+                  for a, b in zip(new, old):
+                      restore(a, b)
+          restore(fresh, committed)
+          text = open(path).read()
+          indent = 2 if '\n  "' in text else None
+          open(path, "w").write(json.dumps(fresh, indent=indent) + ("\n" if text.endswith("\n") else ""))
+          PY
           if ! git diff --exit-code -- ../vectors; then
             echo "::error::A committed vector file differs from what its generator writes; regenerate and commit, or revert the hand edit."
             exit 1
