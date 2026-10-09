@@ -654,7 +654,7 @@ namespace Bakobo.Fiki
                     "This message has no Signature-Input header, so there is no way to know which components a signature would cover.");
             }
 
-            var signatures = Parse(rawSignature, "Signature", FikiErrorKind.MalformedSignature);
+            var signatures = Members(Parse(rawSignature, "Signature", FikiErrorKind.MalformedSignature), "Signature", FikiErrorKind.MalformedSignature);
             foreach (var member in signatures)
             {
                 // Draft 6 of the KERI profile would call this malformed-signature, since such a header
@@ -666,7 +666,7 @@ namespace Bakobo.Fiki
                         "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this Signature header carries something else.");
                 }
             }
-            var inputs = Parse(rawInput, "Signature-Input", FikiErrorKind.MalformedSignatureInput);
+            var inputs = Members(Parse(rawInput, "Signature-Input", FikiErrorKind.MalformedSignatureInput), "Signature-Input", FikiErrorKind.MalformedSignatureInput);
             foreach (var member in inputs)
             {
                 CheckInput(member.Value, requireKeyId, requireCreated);
@@ -700,6 +700,20 @@ namespace Bakobo.Fiki
                     "RFC 9421 carries an Ed25519 signature as a 64-byte RFC 8941 byte sequence, wrapped in colons; this one is something else.");
             }
             return (SfInnerList)only.Value;
+        }
+
+        /// <summary>
+        /// A header of spaces parses as an empty dictionary, as RFC 8941 section 4.2.2 reads it, and
+        /// is refused as the header's malformed kind, the refusal the parser gave it before it
+        /// followed the section and the one fiki-py gives it (this.i @7fexwu3s).
+        /// </summary>
+        private static SfDictionary Members(SfDictionary parsed, string name, FikiErrorKind kind)
+        {
+            if (parsed.Count == 0)
+            {
+                throw new FikiException(kind, $"The {name} header holds nothing but spaces, so it names no signature.");
+            }
+            return parsed;
         }
 
         /// <summary>Refuse a Signature-Input member fiki would otherwise have to guess about.</summary>
@@ -784,7 +798,39 @@ namespace Bakobo.Fiki
         /// </summary>
         internal static SfDictionary Parse(string? raw, string name, FikiErrorKind kind)
         {
-            SfDictionary parsed;
+            var parsed = Bounded(raw, name, kind, "dictionary", Sfv.ParseDictionary);
+            var members = new List<SfMember>();
+            foreach (var member in parsed)
+            {
+                members.Add(member.Value);
+            }
+            CheckCounts(members, name, kind);
+            return parsed;
+        }
+
+        /// <summary>
+        /// A list, under the same four bounds as <see cref="Parse"/>, its members counted against
+        /// <see cref="HttpSignatures.MaxDictionaryMembers"/>. fiki reads no list header: this is the
+        /// entry point the httpwg corpus's list cases run through (this.i @7fexwu3s), so the bounds
+        /// it tests are the ones a header gets.
+        /// </summary>
+        internal static List<SfMember> ParseList(string raw, string name, FikiErrorKind kind)
+        {
+            var parsed = Bounded(raw, name, kind, "list", Sfv.ParseList);
+            CheckCounts(parsed, name, kind);
+            return parsed;
+        }
+
+        /// <summary>An item, under the same bounds, for the httpwg corpus's item cases (this.i @7fexwu3s).</summary>
+        internal static SfItem ParseItem(string raw, string name, FikiErrorKind kind)
+        {
+            var parsed = Bounded(raw, name, kind, "item", Sfv.ParseItem);
+            CheckCounts(new List<SfMember> { parsed }, name, kind);
+            return parsed;
+        }
+
+        private static T Bounded<T>(string? raw, string name, FikiErrorKind kind, string shape, Func<string, T> parse)
+        {
             try
             {
                 raw = raw ?? throw new FormatException("There is no header.");
@@ -792,40 +838,38 @@ namespace Bakobo.Fiki
                 // no UTF-8 spelling, so no peer sent it and nothing can read it (tick 7us4).
                 if (PyText.HasLoneSurrogate(raw))
                 {
-                    throw new FikiException(kind, $"The {name} header holds a character that has no UTF-8 encoding, so it cannot be read as an RFC 8941 dictionary.");
+                    throw new FikiException(kind, $"The {name} header holds a character that has no UTF-8 encoding, so it cannot be read as an RFC 8941 {shape}.");
                 }
                 var size = System.Text.Encoding.UTF8.GetByteCount(raw);
                 if (size > HttpSignatures.MaxFieldBytes)
                 {
                     throw new FikiException(kind, $"The {name} header is {size} bytes, and fiki reads one of at most {HttpSignatures.MaxFieldBytes}.");
                 }
-                parsed = Sfv.ParseDictionary(raw);
+                return parse(raw);
             }
             catch (FormatException)
             {
-                throw new FikiException(kind, $"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary.");
+                throw new FikiException(kind, $"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 {shape}.");
             }
-            CheckCounts(parsed, name, kind);
-            return parsed;
         }
 
-        private static void CheckCounts(SfDictionary parsed, string name, FikiErrorKind kind)
+        private static void CheckCounts(List<SfMember> members, string name, FikiErrorKind kind)
         {
             FikiException Refuse(string what, int limit) => new FikiException(
                 kind, $"The {name} header has more than {limit} {what}, which is more than fiki reads from any honest signer.");
 
-            if (parsed.Count > HttpSignatures.MaxDictionaryMembers)
+            if (members.Count > HttpSignatures.MaxDictionaryMembers)
             {
                 throw Refuse("members", HttpSignatures.MaxDictionaryMembers);
             }
-            foreach (var member in parsed)
+            foreach (var member in members)
             {
-                var items = member.Value is SfInnerList list ? list.Items : new SfItem[0];
+                var items = member is SfInnerList list ? list.Items : new SfItem[0];
                 if (items.Count > HttpSignatures.MaxInnerListItems)
                 {
                     throw Refuse("items in one inner list", HttpSignatures.MaxInnerListItems);
                 }
-                foreach (var item in new List<SfMember>(items) { member.Value })
+                foreach (var item in new List<SfMember>(items) { member })
                 {
                     if (item.Params.Count > HttpSignatures.MaxParameters)
                     {
