@@ -313,9 +313,9 @@ struct SignCase {
     note: Option<String>,
 }
 
-const SIGN_REQUIRED: [&str; 16] = [
+const SIGN_REQUIRED: [&str; 17] = [
     "id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created", "expires",
-    "nonce", "tag", "minimum", "status", "request", "label",
+    "nonce", "tag", "minimum", "status", "request", "label", "keyid",
 ];
 
 impl SignCase {
