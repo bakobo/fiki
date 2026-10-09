@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-09T04:12Z
 
+- 2026-10-09T20:40Z Ruled 2026-10-09: each library checks AID shape itself before calling the resolver; no new public API unless a port needs it. Format 4.
