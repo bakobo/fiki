@@ -7,8 +7,8 @@ package fiki
 // disagrees with it the parser is wrong, except where a recorded fiki decision says otherwise.
 // Those exceptions are the only ones, and each is named below: RFC 9651's Dates and Display
 // Strings are refused (@7vdhfv3q), fiki's input bounds are refused (@5zrf8gjk), a byte sequence
-// whose padding is missing, partial or excessive is refused (@2g4xxev9), and the Signature-Input
-// entry point refuses a field that is empty after OWS (review B7, as fiki-py's does).
+// whose padding is missing, partial or excessive is refused (@2g4xxev9), and the entry point
+// refuses a field that is empty after OWS (review B7, pinned by vectors/refusals.json).
 //
 // Entry points. A dictionary case runs through parseField, the bounded entry point VerifyRequest
 // reads Signature-Input through, which measures MaxFieldBytes and whose parser counts
@@ -74,10 +74,11 @@ var corpusFikiWay = map[string]struct {
 	// can_fail in the corpus because two field lines are joined inside a string; fiki-py's
 	// http_sfv reads the joined value as the string "foo, bar", and so does this port.
 	"string.json/two lines string": {false, "fiki-py's outcome for a can_fail case: accepted"},
-	// Not can_fail: the corpus parses an empty dictionary, and fiki's Signature-Input entry point
-	// refuses a present field that is empty after OWS (go/messages.go parseField, review B7), as
-	// fiki-py's _parse does through http_sfv. No this.i node records it yet.
-	"dictionary.json/empty dictionary": {true, "review B7: a present Signature-Input of nothing is malformed"},
+	// Not can_fail: the corpus parses an empty dictionary, and fiki's entry point refuses a
+	// signature header that is present but empty after OWS (review B7, pinned at vectors_format 3
+	// under @524c8qgv by vectors/refusals.json signature-header-of-spaces), as fiki-py's _parse
+	// does through http_sfv.
+	"dictionary.json/empty dictionary": {true, "review B7, refusals.json signature-header-of-spaces"},
 }
 
 type sfCase struct {
