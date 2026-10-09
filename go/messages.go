@@ -36,6 +36,12 @@ const DefaultSkew int64 = 5
 // RequestMinimum and ResponseMinimum are the KERI profile's minimum covered sets (section 3), for
 // a signer's or verifier's Minimum. A body adds content-digest on top, and a response to a request
 // that had a body adds "content-digest";req.
+//
+// These exported slices, DefaultMinimum included, are copies for callers to read and pass; fiki
+// enforces nothing from them. Assigning to one or editing its elements changes no floor and no
+// default fiki applies, because what fiki enforces is the private arrays below, which Go can keep
+// out of other code's reach where it cannot make a slice immutable. Keep the two in step:
+// TestTheFormat3Policy fails when they differ.
 var (
 	RequestMinimum  = []string{"@method", "@path", "@query"}
 	ResponseMinimum = []string{"@status", Req("@method"), Req("@path"), Req("@query")}
@@ -48,6 +54,9 @@ var (
 // The values fiki itself reads. The exported slices above are for callers to read and pass; Go
 // cannot make a slice immutable, and a policy any code in the process could rewrite is not a
 // policy (#17 hostile pass), so verification and the profile floors use these private arrays.
+// This is the copy that is enforced: change a minimum here and in the exported slice above
+// together, since changing only the exported one changes nothing fiki enforces, and the
+// TestTheFormat3Policy check that they agree is the only thing holding them in step.
 var (
 	requestMinimum  = [...]string{"@method", "@path", "@query"}
 	responseMinimum = [...]string{"@status", `"@method";req`, `"@path";req`, `"@query";req`}
@@ -322,6 +331,16 @@ func checkLabel(label string) error {
 }
 
 // signed returns the signature headers, plus the Content-Digest fiki generated, if it did.
+//
+// Signature-Input is cut from the base that was signed rather than serialized again from the
+// parameters, so the header and the base cannot diverge: whatever a verifier rebuilds from
+// Signature-Input is byte for byte the line fiki signed. Taking the last "@signature-params"
+// marker is safe because of two invariants. buildBase appends the @signature-params line last, and
+// checkCovered refuses @signature-params as a covered component, since it is not among the derived
+// components fiki builds; so the last line of the base is always the params line. A covered
+// field's value may contain the marker, but only on an earlier line, which LastIndex passes over.
+// Nor can the params line repeat the marker after its own: every string in it is an RFC 8941
+// sf-string, whose quotes are escaped.
 func signed(key *Key, base []byte, label, generated string) map[string]string {
 	label = labelled(label)
 	params := string(base)
