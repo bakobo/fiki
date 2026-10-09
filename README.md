@@ -39,7 +39,7 @@ One badge per language above, each clickable through to that port's workflow —
 
 The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all; C# fetches `BouncyCastle.Cryptography`, because .NET's has no Ed25519 yet, along with xUnit and coverlet for the tests.
 
-A green run means that implementation reproduces every shared conformance vector, 240 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
+A green run means that implementation reproduces every shared conformance vector, 244 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
 
 ## What is covered, and the one thing that is not
 
