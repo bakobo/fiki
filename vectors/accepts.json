@@ -1,8 +1,14 @@
 {
   "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
-  "vectors_format": 2,
+  "vectors_format": 3,
   "generated_by": "vectors/generate.py",
   "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
     "@method",
     "@authority",
     "@path",
@@ -20,6 +26,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -42,6 +50,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -65,6 +75,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -86,6 +98,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -107,6 +121,8 @@
       "body": null,
       "max_age": 300,
       "now": 1700000120,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -128,6 +144,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000060,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -149,6 +167,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": 1700000000,
+      "minimum": null,
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -156,7 +176,7 @@
         "@path",
         "content-digest"
       ],
-      "note": "A caller who names their own covered set, including the digest."
+      "note": "A caller who names their own covered set, including the digest, verified by one who opts out of the default minimum (format 3); under the default it is InsufficientCoverage, for want of @authority and @query."
     },
     {
       "id": "non-default-port",
@@ -169,6 +189,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -189,6 +211,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -210,6 +234,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -231,6 +257,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -251,6 +279,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -272,6 +302,8 @@
       "body": null,
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -347,17 +379,19 @@
         "x-h56": "56",
         "x-h57": "57",
         "x-h58": "58",
-        "x-h59": "59",
-        "Signature-Input": "sig=(\"@method\" \"@path\" \"@query\" \"content-digest\" \"x-h0\" \"x-h1\" \"x-h2\" \"x-h3\" \"x-h4\" \"x-h5\" \"x-h6\" \"x-h7\" \"x-h8\" \"x-h9\" \"x-h10\" \"x-h11\" \"x-h12\" \"x-h13\" \"x-h14\" \"x-h15\" \"x-h16\" \"x-h17\" \"x-h18\" \"x-h19\" \"x-h20\" \"x-h21\" \"x-h22\" \"x-h23\" \"x-h24\" \"x-h25\" \"x-h26\" \"x-h27\" \"x-h28\" \"x-h29\" \"x-h30\" \"x-h31\" \"x-h32\" \"x-h33\" \"x-h34\" \"x-h35\" \"x-h36\" \"x-h37\" \"x-h38\" \"x-h39\" \"x-h40\" \"x-h41\" \"x-h42\" \"x-h43\" \"x-h44\" \"x-h45\" \"x-h46\" \"x-h47\" \"x-h48\" \"x-h49\" \"x-h50\" \"x-h51\" \"x-h52\" \"x-h53\" \"x-h54\" \"x-h55\" \"x-h56\" \"x-h57\" \"x-h58\" \"x-h59\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
-        "Signature": "sig=:x1BqqWlcPP/Fev6pxBwUdxIYWBwW24dTr8NtHJrLutul9EqhgXhra+wZvzA/93gePDnM3NAgE6QzSo6g8pA6BA==:"
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\" \"x-h0\" \"x-h1\" \"x-h2\" \"x-h3\" \"x-h4\" \"x-h5\" \"x-h6\" \"x-h7\" \"x-h8\" \"x-h9\" \"x-h10\" \"x-h11\" \"x-h12\" \"x-h13\" \"x-h14\" \"x-h15\" \"x-h16\" \"x-h17\" \"x-h18\" \"x-h19\" \"x-h20\" \"x-h21\" \"x-h22\" \"x-h23\" \"x-h24\" \"x-h25\" \"x-h26\" \"x-h27\" \"x-h28\" \"x-h29\" \"x-h30\" \"x-h31\" \"x-h32\" \"x-h33\" \"x-h34\" \"x-h35\" \"x-h36\" \"x-h37\" \"x-h38\" \"x-h39\" \"x-h40\" \"x-h41\" \"x-h42\" \"x-h43\" \"x-h44\" \"x-h45\" \"x-h46\" \"x-h47\" \"x-h48\" \"x-h49\" \"x-h50\" \"x-h51\" \"x-h52\" \"x-h53\" \"x-h54\" \"x-h55\" \"x-h56\" \"x-h57\" \"x-h58\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:YakqlsPAlZJkiSeGrMiqrs9gBwbS1PUc9LaUZTAmRKFCCqhIaPFKCtN6W7S0WgCYNX9/zJENf1CpCJAjKeDkDQ==:"
       },
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
         "@method",
+        "@authority",
         "@path",
         "@query",
         "content-digest",
@@ -419,8 +453,7 @@
         "x-h55",
         "x-h56",
         "x-h57",
-        "x-h58",
-        "x-h59"
+        "x-h58"
       ],
       "note": "Each bound reached and none exceeded: 16 Content-Digest members, 64 covered components, 16 parameters on one item."
     },
@@ -436,6 +469,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -446,6 +481,101 @@
         "content-digest"
       ],
       "note": "Signature-Input, Signature and Content-Digest at exactly the bound, which is read; one byte more is malformed."
+    },
+    {
+      "id": "uncovered-body-under-an-explicit-opt-out",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": null,
+      "authorities": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "minimum=None is the explicit opt-out, and it still accepts what 0.8 accepted."
+    },
+    {
+      "id": "served-authority",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": [
+        "api.example.com",
+        "other.example"
+      ],
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ]
+    },
+    {
+      "id": "origin-form-path-with-a-leading-double-slash",
+      "method": "GET",
+      "url": "//evil.example/p",
+      "headers": {
+        "Host": "victim.example",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:zZShWvsGVYvo92DmvqUzk2rMttgn0b+uzYOwLZw4bRTRJYuJvceoIfCuTqyq/ZkfP6ONwlRwrUgtR3QpZmO2AQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "Signed for victim.example with the path //evil.example/p, and verified from the origin-form target and the Host header."
+    },
+    {
+      "id": "mixed-order-key-the-cofactorless-check-accepts",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA\"",
+        "Signature": "sig=:VcTxOABHQ679elKeh7KDRpE7F8PE0uz2GTWq1QuG+Bso8YmJkS3P5FApCXtB6wtxhVq24CYSXAl1H+qo7YdRBA==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "aid": "BLFUvWIYiuKD3Rh_7-jDH14nbt8IO0z_EcnVz_hWx0RA",
+      "keyid": "sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "The same mixed-order key, with a k that is a multiple of 8, so both equations hold; a port that refuses every mixed-order key fails here."
     }
   ]
 }

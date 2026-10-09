@@ -1,8 +1,14 @@
 {
   "about": "A seed to its non-transferable AID and to its keyid.",
-  "vectors_format": 2,
+  "vectors_format": 3,
   "generated_by": "vectors/generate.py",
   "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
     "@method",
     "@authority",
     "@path",

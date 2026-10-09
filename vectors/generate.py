@@ -20,9 +20,12 @@ rather than a bug should be able to see that from the file.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import sys
 from pathlib import Path
+
+import http_sfv
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "py" / "src"))
@@ -33,9 +36,11 @@ from fiki import (  # noqa: E402
     Key,
     sign_request,
     signature_base,
-    verify_request,
 )
 from fiki.messages import content_digest  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rfc8032  # noqa: E402  RFC 8032 section 6, verbatim: the independent Ed25519 oracle
 
 RFC_SEED = base64.urlsafe_b64decode("n4Ni-HpISpVObnQMW0wOhCKROaIKqKtW_2ZYb2p9KcU" + "=")
 SEED_A = bytes(range(32))
@@ -45,17 +50,27 @@ SEED_B = bytes(range(1, 33))
 # semantic version, because there is no meaningful minor here: an implementation either satisfies
 # these vectors or it does not, and even ADDING a case is breaking for an implementation that
 # already shipped. Format 2 is the 0.8.0 cross-port sweep (`this.i` @5zrf8gjk): ports, IP-literals,
-# strict RFC 8941, the input bounds, raw field values, weak keys, and the verdict's keyid. Bump it whenever the behaviour these files require changes — a covered-set
-# default, an error name, a refusal that becomes an acceptance. Every port exports the format it
+# strict RFC 8941, the input bounds, raw field values, weak keys, and the verdict's keyid. Format 3
+# (`this.i` @524c8qgv) makes the verifier fail closed by default: every accept and refusal case
+# states the verifier's `minimum` ("default", null for the explicit opt-out, or a list) and its
+# `authorities` (null or a list), since authorities is now a required decision. Bump it whenever
+# the behaviour these files require changes — a covered-set default, an error name, a refusal
+# that becomes an acceptance. Every port exports the format it
 # satisfies and asserts the two agree, so a port running newer vectors fails loudly rather than
 # passing a subset and reporting conformance it does not have.
-VECTORS_FORMAT = 2
+VECTORS_FORMAT = 3
+
+# The verifier's default minimum (@524c8qgv), stated here rather than imported so that these
+# files say what the contract is, not what fiki-py happens to do. Content-digest joins it whenever
+# the request has a body.
+DEFAULT_MINIMUM = ["@method", "@authority", "@path", "@query"]
 
 HEADER = {
     "about": "Shared conformance vectors for fiki. Every implementation runs these.",
     "vectors_format": VECTORS_FORMAT,
     "generated_by": "vectors/generate.py",
     "default_covered": list(DEFAULT_COVERED),
+    "default_minimum": DEFAULT_MINIMUM,
 }
 
 
@@ -63,6 +78,122 @@ def keyid_of(key: Key) -> str:
     from fiki.messages import _keyid
 
     return _keyid(key.aid)
+
+
+# --- the Ed25519 equation (@524c8qgv) ---
+#
+# RFC 8032 section 5.1.7 permits the cofactored check [8][S]B = [8]R + [8][k]A' and the
+# cofactorless [S]B = R + [k]A'; fiki pins the cofactorless one. These signatures tell them
+# apart. Each is checked here against RFC 8032's own verify() (cofactorless), a cofactored check
+# built from the same RFC code, and OpenSSL through cryptography, before it is written.
+
+_IDENTITY = (0, 1, 1, 0)
+
+
+def _torsion8():
+    """A point of order 8, found as [q]P for a curve point P rather than taken from memory."""
+    for n in range(1, 1000):
+        point = rfc8032.point_decompress(hashlib.sha256(b"fiki-torsion-%d" % n).digest())
+        if point is None:
+            continue
+        torsion = rfc8032.point_mul(rfc8032.q, point)
+        if not rfc8032.point_equal(rfc8032.point_mul(4, torsion), _IDENTITY):
+            return torsion
+    raise AssertionError("no point of order 8 found")
+
+
+def _cofactored(public: bytes, msg: bytes, signature: bytes) -> bool:
+    A = rfc8032.point_decompress(public)
+    R = rfc8032.point_decompress(signature[:32])
+    s = int.from_bytes(signature[32:], "little")
+    h = rfc8032.sha512_modq(signature[:32] + public + msg)
+    left = rfc8032.point_mul(8, rfc8032.point_mul(s, rfc8032.G))
+    right = rfc8032.point_mul(8, rfc8032.point_add(R, rfc8032.point_mul(h, A)))
+    return rfc8032.point_equal(left, right)
+
+
+def _openssl_accepts(public: bytes, msg: bytes, signature: bytes) -> bool:
+    from cryptography.exceptions import InvalidSignature
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    try:
+        Ed25519PublicKey.from_public_bytes(public).verify(signature, msg)
+    except InvalidSignature:
+        return False
+    return True
+
+
+def _mixed_sign(seed: bytes, public: bytes, msg: bytes, *, torsion_r, want_cofactorless: bool):
+    """A signature by ``seed`` that the cofactored check accepts and the cofactorless one
+    accepts exactly when ``want_cofactorless``, varying the nonce until it does."""
+    a, prefix = rfc8032.secret_expand(seed)
+    for counter in range(1000):
+        r = rfc8032.sha512_modq(prefix + msg + b"fiki-mixed-%d" % counter)
+        R = rfc8032.point_mul(r, rfc8032.G)
+        if torsion_r is not None:
+            R = rfc8032.point_add(R, torsion_r)
+        Rs = rfc8032.point_compress(R)
+        h = rfc8032.sha512_modq(Rs + public + msg)
+        signature = Rs + int.to_bytes((r + h * a) % rfc8032.q, 32, "little")
+        if rfc8032.verify(public, msg, signature) == want_cofactorless:
+            assert _cofactored(public, msg, signature), "the cofactored check must accept it"
+            assert _openssl_accepts(public, msg, signature) == want_cofactorless, \
+                "OpenSSL must agree with RFC 8032's verify()"
+            return signature
+    raise AssertionError("no signature of the wanted kind found")
+
+
+def _mixed_key(seed: bytes) -> bytes:
+    """seed's public key plus a point of order 8: of mixed order, so not refused as small-order."""
+    from fiki.keys import _decode_point, _small_order
+
+    a, _ = rfc8032.secret_expand(seed)
+    mixed = rfc8032.point_compress(rfc8032.point_add(rfc8032.point_mul(a, rfc8032.G), _torsion8()))
+    point = _decode_point(mixed)
+    assert point is not None and not _small_order(*point), "fiki must not refuse this key's shape"
+    return mixed
+
+
+def mixed_order_refusals():
+    """(case id, signature-for-base, keyid, note) for signatures only the cofactored check takes."""
+    honest = rfc8032.secret_to_public(SEED_A)
+    mixed = _mixed_key(SEED_A)
+    return [
+        ("cofactored-only-signature-under-an-honest-key",
+         lambda base: base64.b64encode(_mixed_sign(SEED_A, honest, base, torsion_r=_torsion8(),
+                                                   want_cofactorless=False)).decode("ascii"),
+         b64url(honest),
+         "R carries a point of order 8. [8][S]B = [8]R + [8][k]A holds and [S]B = R + [k]A "
+         "does not, so the cofactorless check fiki pins refuses it (RFC 8032 section 5.1.7)."),
+        ("mixed-order-key-the-cofactorless-check-refuses",
+         lambda base: base64.b64encode(_mixed_sign(SEED_A, mixed, base, torsion_r=None,
+                                                   want_cofactorless=False)).decode("ascii"),
+         b64url(mixed),
+         "The key is SEED_A's plus a point of order 8, and k is not a multiple of 8, so only the "
+         "cofactored equation holds."),
+    ]
+
+
+def mixed_order_accepts(signed_at: int):
+    """(case id, seed, signed headers, note) for a mixed-order key the cofactorless check takes."""
+    mixed = _mixed_key(SEED_A)
+    keyid = b64url(mixed)
+    url = "https://api.example.com/x"
+    base = signature_base(method="GET", url=url, headers={}, covered=DEFAULT_COVERED,
+                          created=signed_at, keyid=keyid, alg="ed25519")
+    signature = _mixed_sign(SEED_A, mixed, base, torsion_r=None, want_cofactorless=True)
+    params = base.decode("utf-8").rsplit('"@signature-params": ', 1)[1]
+    headers = {"Signature-Input": f"sig={params}",
+               "Signature": f"sig=:{base64.b64encode(signature).decode('ascii')}:"}
+    return [("mixed-order-key-the-cofactorless-check-accepts", SEED_A, headers,
+             "The same mixed-order key, with a k that is a multiple of 8, so both equations "
+             "hold; a port that refuses every mixed-order key fails here.")]
+
+
+def aid_of_raw(raw: bytes) -> str:
+    from fiki import to_aid
+
+    return to_aid(raw)
 
 
 def b64url(raw: bytes) -> str:
@@ -278,6 +409,29 @@ def signature_bases():
             note="RFC 9110 section 5.5: SP and HTAB around a field value are not part of it.",
         ),
     ]
+    # Written out by hand from RFC 9112 section 3.2.1 rather than produced by fiki-py's
+    # signature_base, which read this target as a network-path reference until format 3: a vector
+    # generated by the code under test would have pinned that bug (@524c8qgv).
+    params = ('("@method" "@authority" "@path" "@query");created=1700000000;alg="ed25519";'
+              f'keyid="{keyid}"')
+    by_hand = (f'"@method": GET\n"@authority": victim.example\n"@path": //evil.example/p\n'
+               f'"@query": ?x=1\n"@signature-params": {params}').encode("utf-8")
+    cases.append({
+        "id": "origin-form-path-with-a-leading-double-slash",
+        "seed_hex": SEED_A.hex(),
+        "method": "GET",
+        "url": "//evil.example/p?x=1",
+        "headers": {"Host": "victim.example"},
+        "covered": list(DEFAULT_COVERED),
+        "created": 1700000000,
+        "keyid": keyid,
+        "base": by_hand.decode("utf-8"),
+        "signature": base64.b64encode(Key.from_seed(SEED_A).sign(by_hand)).decode("ascii"),
+        "alg": "ed25519",
+        "note": "A target that begins with a slash is origin-form (RFC 9112 section 3.2.1): "
+                "@path is //evil.example/p and @authority is the Host header (@524c8qgv). Read "
+                "as a network-path reference, the sender would choose the authority.",
+    })
     return {**HEADER, "about": "Signature bases and the signatures over them, byte for byte.",
             "cases": cases}
 
@@ -298,7 +452,7 @@ def refusals():
     cases = []
 
     def add(case_id, error, *, method="POST", target=url, headers=None, body_text='{"hello": "world"}',
-            note=None, max_age=None, now=None):
+            note=None, max_age=None, now=None, minimum="default", authorities=None):
         case = {
             "id": case_id,
             "method": method,
@@ -307,6 +461,8 @@ def refusals():
             "body": body_text,
             "max_age": max_age,
             "now": now,
+            "minimum": minimum,
+            "authorities": authorities,
             "error": error,
         }
         if note:
@@ -414,7 +570,7 @@ def refusals():
     # Signed over the base a lenient port would build, since fiki will not build it, so only the
     # IP-literal check can refuse it.
     forged = signature_base(method="GET", url="https://[::1]/things", headers={},
-                            covered=["@method", "@authority", "@path"], created=1700000000,
+                            covered=["@method", "@authority", "@path", "@query"], created=1700000000,
                             keyid=keyid_of(key), alg="ed25519")
     forged = forged.replace(b'"@authority": [::1]', b'"@authority": [not-an-ip]')
     add("ip-literal-that-is-not-an-address", "SignatureMismatch", method="GET", body_text=None,
@@ -431,7 +587,7 @@ def refusals():
     # A covered field value is checked for line breaks and controls as received, and only then
     # trimmed of SP and HTAB, so a line break at its edge is refused like one inside it.
     noted = signed(method="GET", body=None, headers={"X-Note": "value"},
-                   covered=["@method", "@path", "@query", "x-note"])
+                   covered=["@method", "@authority", "@path", "@query", "x-note"])
     add("covered-field-with-a-line-break-at-its-edge", "SignatureMismatch", method="GET",
         headers={**noted, "X-Note": "value\r\n"}, body_text=None,
         note="Signed over 'value', received as 'value' CR LF. Trimming the line break before "
@@ -503,6 +659,120 @@ def refusals():
         note="At most 16 parameters on an item; parameters on a digest member are ignored "
              "otherwise.")
 
+    # --- format 3: the verifier fails closed by default (@524c8qgv) ---
+
+    get_default = signed(method="GET", body=None)
+    add("uncovered-body", "InsufficientCoverage", method="GET", headers=get_default,
+        note="Signed with no body, received with one: under the default minimum a body needs a "
+             "covered content-digest. Before format 3 this verified.")
+    add("body-announced-by-content-length-only", "InsufficientCoverage", method="GET",
+        headers={**get_default, "Content-Length": "18"}, body_text=None,
+        note="The caller did not pass the body, but the headers say there is one, which counts "
+             "(the profile's body test).")
+    add("uncovered-digest-that-contradicts-the-body", "InsufficientCoverage", method="GET",
+        headers={**get_default, "Content-Digest": "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:"},
+        note="An uncovered Content-Digest attests to nothing, so it cannot stand in for coverage.")
+    for case_id, covered, missing in [
+        ("default-minimum-without-query", ["@method", "@authority", "@path"], "@query"),
+        ("default-minimum-without-authority", ["@method", "@path", "@query"], "@authority"),
+        ("default-minimum-without-method", ["@authority", "@path", "@query"], "@method"),
+    ]:
+        add(case_id, "InsufficientCoverage", method="GET", body_text=None,
+            headers=signed(method="GET", body=None, covered=covered),
+            note=f"A valid signature that does not cover {missing}, which the default minimum "
+                 "requires.")
+    empty = unchecked(key, method="GET", url=url, headers={}, covered=(), created=1700000000,
+                      keyid=keyid_of(key))
+    add("empty-covered-list", "InsufficientCoverage", method="GET", headers=empty, body_text=None,
+        note="sig=() binds nothing but its own parameters, so it would authenticate any request "
+             "within its freshness window.")
+    # fiki will not build a base with no created, so strip it from one and sign what is left.
+    with_created = signature_base(method="GET", url=url, headers={}, covered=DEFAULT_COVERED,
+                                  created=1700000000, keyid=keyid_of(key), alg="ed25519")
+    without = with_created.replace(b";created=1700000000", b"")
+    assert without != with_created
+    no_created = {
+        "Signature-Input": "sig=" + without.decode().rsplit('"@signature-params": ', 1)[1],
+        "Signature": f"sig=:{base64.b64encode(key.sign(without)).decode()}:",
+    }
+    add("no-created-under-the-default-minimum", "MalformedSignatureInput", method="GET",
+        headers=no_created, body_text=None,
+        note="A signature with no created replays forever; every minimum requires it (@7p9s3g9k).")
+    add("minimum-opt-out-still-checks-served-authorities", "InsufficientCoverage", method="GET",
+        body_text=None, minimum=None, authorities=["api.example.com"],
+        headers=signed(method="GET", body=None, covered=["@method", "@path", "@query"]),
+        note="Opting out of the minimum does not opt out of authorities, which require "
+             "@authority (@605z9tnw).")
+    add("authority-not-served", "SignatureMismatch", method="GET", body_text=None,
+        authorities=["other.example"], headers=get_default,
+        note="Covered and valid, but not an authority this verifier serves.")
+
+    # A target that begins with a slash is origin-form, however many slashes follow (@524c8qgv).
+    elsewhere = signed(method="GET", body=None, url="https://evil.example/p")
+    add("network-path-target-is-a-path", "SignatureMismatch", method="GET", body_text=None,
+        target="//evil.example/p", headers={**elsewhere, "Host": "victim.example"},
+        note="Signed for evil.example. Received at victim.example as the origin-form target "
+             "//evil.example/p, whose @path is //evil.example/p and whose @authority is the "
+             "Host header. Ports that read it as a network-path reference let the sender "
+             "choose the authority.")
+    for case_id, target in [
+        ("scheme-without-authority", "https:/things?limit=1&sort=name"),
+        ("scheme-with-empty-authority", "https:///things?limit=1&sort=name"),
+        ("authority-form-target", "api.example.com:443"),
+        ("asterisk-form-target", "*"),
+    ]:
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, target=target,
+            headers={**get_default, "Host": "api.example.com"},
+            note="Neither origin-form nor an absolute URI with an authority, so no base can be "
+                 "built: a signature mismatch (@5zrf8gjk).")
+
+    for case_id, target in [
+        ("target-with-a-line-break", "/things\n?limit=1&sort=name"),
+        ("target-with-a-tab", "/thi\tngs?limit=1&sort=name"),
+        ("target-with-a-space", "/things ?limit=1&sort=name"),
+        ("absolute-url-with-a-line-break", "https://api.example.com/thi\r\nngs?limit=1&sort=name"),
+    ]:
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, target=target,
+            headers={**get_default, "Host": "api.example.com"},
+            note="A request target holds no space or control character. Stripping one, as some "
+                 "URL parsers do, made /things LF verify as /things (review V-M5).")
+
+    # RFC 8941 to the grammar (@524c8qgv): an sf-string holds printable ASCII only, and the
+    # whitespace inside an inner list, after a parameter's semicolon, and at the start of a
+    # header is SP, never HTAB.
+    for case_id, raw_text in [
+        ("keyid-with-a-line-break", "E\r\nkeri"),
+        ("keyid-with-a-tab", "a\tb"),
+        ("keyid-with-a-nul", "a\x00b"),
+        ("keyid-with-a-del", "a\x7fb"),
+        ("keyid-with-non-ascii", "caf\u00e9"),
+    ]:
+        bad = signed(method="GET", body=None)
+        real = bad["Signature-Input"].split('keyid="')[1].split('"')[0]
+        bad["Signature-Input"] = bad["Signature-Input"].replace(f'keyid="{real}"', f'keyid="{raw_text}"')
+        assert raw_text in bad["Signature-Input"], case_id
+        add(case_id, "MalformedSignatureInput", method="GET", headers=bad, body_text=None,
+            note="An sf-string carries %x20-7E only (RFC 8941 section 3.3.3).")
+    for case_id, mangle in [
+        ("tab-between-inner-list-items", lambda v: v.replace('"@method" "@authority"', '"@method"\t"@authority"')),
+        ("tab-after-a-parameter-semicolon", lambda v: v.replace(";created=", ";\tcreated=")),
+        ("tab-at-the-start-of-the-header", lambda v: "\t" + v),
+    ]:
+        bad = signed(method="GET", body=None)
+        before = bad["Signature-Input"]
+        bad["Signature-Input"] = mangle(before)
+        assert bad["Signature-Input"] != before, case_id
+        add(case_id, "MalformedSignatureInput", method="GET", headers=bad, body_text=None,
+            note="RFC 8941 sections 3.1.1, 3.1.2 and 4.2: SP only here, never HTAB.")
+
+    # The cofactorless Ed25519 equation (@524c8qgv), checked by RFC 8032's own code.
+    for case_id, signature_text, keyid_text, note in mixed_order_refusals():
+        crafted = signed(method="GET", body=None, keyid=keyid_text)
+        base = signature_base(method="GET", url=url, headers={}, covered=DEFAULT_COVERED,
+                              created=1700000000, keyid=keyid_text, alg="ed25519")
+        add(case_id, "SignatureMismatch", method="GET", body_text=None,
+            headers={**crafted, "Signature": f"sig=:{signature_text(base)}:"}, note=note)
+
     return {
         **HEADER,
         "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
@@ -525,32 +795,40 @@ def accepts():
     cases = []
 
     def add(case_id, *, method, url, headers=None, body_text=None, covered=None, expires=None,
-            max_age=None, now=None, note=None, nonce=None, after=None):
+            max_age=None, now=None, note=None, nonce=None, after=None, minimum="default",
+            authorities=None, signer=key, verify_url=None, presigned=None, received_body=None):
         payload = None if body_text is None else body_text.encode("utf-8")
         sent = dict(headers or {})
-        sent.update(
-            sign_request(
-                key=key, method=method, url=url, headers=dict(sent), body=payload,
-                covered=covered, created=signed_at, expires=expires, nonce=nonce,
+        if presigned is not None:
+            sent.update(presigned)
+        else:
+            sent.update(
+                sign_request(
+                    key=signer, method=method, url=url, headers=dict(sent), body=payload,
+                    covered=covered, created=signed_at, expires=expires, nonce=nonce,
+                )
             )
-        )
         if after is not None:
             after(sent)
-        verdict = verify_request(
-            method=method, url=url, headers=sent, body=payload, max_age=max_age,
-            now=signed_at if now is None else now,
-        )
+        # The verdict is what the signer put there, read back from the signed headers, never
+        # what fiki-py's verifier answers: a vector produced by the code under test pins its bugs.
+        inner = http_sfv.Dictionary()
+        inner.parse(sent["Signature-Input"].encode("ascii"))
+        member = inner["sig"]
+        keyid = member.params["keyid"]
         case = {
             "id": case_id,
             "method": method,
-            "url": url,
+            "url": url if verify_url is None else verify_url,
             "headers": sent,
-            "body": body_text,
+            "body": body_text if received_body is None else received_body,
             "max_age": max_age,
             "now": signed_at if now is None else now,
-            "aid": verdict.aid,
-            "keyid": verdict.keyid,
-            "covered": list(verdict.covered),
+            "minimum": minimum,
+            "authorities": authorities,
+            "aid": aid_of_raw(base64.urlsafe_b64decode(keyid + "=" * (-len(keyid) % 4))),
+            "keyid": keyid,
+            "covered": [item.value for item in member],
         }
         if note:
             case["note"] = note
@@ -570,8 +848,10 @@ def accepts():
     add("before-its-expiry", method="GET", url="https://api.example.com/x",
         expires=signed_at + 600, max_age=None, now=signed_at + 60)
     add("chosen-covered-set", method="POST", url="https://api.example.com/x",
-        body_text=body.decode(), covered=["@method", "@path", "content-digest"],
-        note="A caller who names their own covered set, including the digest.")
+        body_text=body.decode(), covered=["@method", "@path", "content-digest"], minimum=None,
+        note="A caller who names their own covered set, including the digest, verified by one "
+             "who opts out of the default minimum (format 3); under the default it is "
+             "InsufficientCoverage, for want of @authority and @query.")
     add("non-default-port", method="GET", url="https://api.example.com:8443/x")
 
     # --- format 2: the 0.8.0 cross-port sweep (@5zrf8gjk) ---
@@ -596,8 +876,9 @@ def accepts():
         url="https://api.example.com/x", body_text=body.decode(),
         headers={"Content-Digest": good + "".join(f";p{i}" for i in range(16))
                  + "".join(f", x{i}=:AAAA:" for i in range(15)),
-                 **{f"x-h{i}": str(i) for i in range(60)}},
-        covered=["@method", "@path", "@query", "content-digest", *(f"x-h{i}" for i in range(60))],
+                 **{f"x-h{i}": str(i) for i in range(59)}},
+        covered=["@method", "@authority", "@path", "@query", "content-digest",
+                 *(f"x-h{i}" for i in range(59))],
         note="Each bound reached and none exceeded: 16 Content-Digest members, 64 covered "
              "components, 16 parameters on one item.")
 
@@ -615,6 +896,22 @@ def accepts():
         headers={"Content-Digest": padded_to(MAX_FIELD_BYTES, f'{good}, x="', '"')},
         note="Signature-Input, Signature and Content-Digest at exactly the bound, which is "
              "read; one byte more is malformed.")
+
+    # --- format 3 (@524c8qgv) ---
+    add("uncovered-body-under-an-explicit-opt-out", method="GET",
+        url="https://api.example.com/x", minimum=None, body_text=None,
+        received_body=body.decode(),
+        note="minimum=None is the explicit opt-out, and it still accepts what 0.8 accepted.")
+    add("served-authority", method="GET", url="https://api.example.com/x",
+        authorities=["api.example.com", "other.example"])
+    add("origin-form-path-with-a-leading-double-slash", method="GET",
+        url="https://victim.example//evil.example/p", verify_url="//evil.example/p",
+        headers={"Host": "victim.example"},
+        note="Signed for victim.example with the path //evil.example/p, and verified from the "
+             "origin-form target and the Host header.")
+    for case_id, signer_seed, crafted_headers, note in mixed_order_accepts(signed_at):
+        add(case_id, method="GET", url="https://api.example.com/x", presigned=crafted_headers,
+            note=note)
 
     return {**HEADER,
             "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",

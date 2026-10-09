@@ -1,8 +1,14 @@
 {
   "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
-  "vectors_format": 2,
+  "vectors_format": 3,
   "generated_by": "vectors/generate.py",
   "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
     "@method",
     "@authority",
     "@path",
@@ -21,6 +27,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "The headline case. heti's KERI dialect cannot see this at all."
     },
@@ -36,6 +44,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch"
     },
     {
@@ -50,6 +60,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch"
     },
     {
@@ -64,6 +76,8 @@
       "body": "{\"hello\": \"goodbye\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "DigestMismatch"
     },
     {
@@ -78,6 +92,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "DigestMismatch",
       "note": "Fail closed: a verifier that cannot check the digest has not checked the body."
     },
@@ -93,6 +109,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignatureLabel"
     },
     {
@@ -107,6 +125,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "UnsupportedAlgorithm"
     },
     {
@@ -121,6 +141,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedKey"
     },
     {
@@ -134,6 +156,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MissingSignature"
     },
     {
@@ -147,6 +171,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MissingSignatureInput"
     },
     {
@@ -161,6 +187,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignatureInput"
     },
     {
@@ -175,6 +203,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignature"
     },
     {
@@ -189,6 +219,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MissingSignatureLabel"
     },
     {
@@ -203,6 +235,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignatureValue"
     },
     {
@@ -217,6 +251,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MissingKey"
     },
     {
@@ -231,6 +267,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest"
     },
     {
@@ -245,6 +283,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": 300,
       "now": 1700000400,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureTooOld",
       "note": "The verifier's own policy, which it had to state to get: max_age has no default."
     },
@@ -260,6 +300,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": 300,
       "now": 1699999940,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureTooOld",
       "note": "A broken clock, or a signer buying themselves a longer window."
     },
@@ -275,6 +317,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": 1700000120,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureExpired",
       "note": "Enforced even with max_age=None: expires is the SIGNER's declaration, and a verifier that accepts one without checking it is selling a guarantee nobody bought."
     },
@@ -289,6 +333,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "65536 is not a port, so @authority cannot be built: a base that cannot be built is a signature mismatch (profile section 9)."
     },
@@ -303,6 +349,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch"
     },
     {
@@ -316,6 +364,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "Nothing but :port may follow an IP-literal's closing bracket."
     },
@@ -324,12 +374,14 @@
       "method": "GET",
       "url": "https://[not-an-ip]/things",
       "headers": {
-        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
-        "Signature": "sig=:8gGCQQ55pyP87DKU21kIyWjgjufbSBnMC7aba5bRmOfyGJ9REpNnm8rzHBHJ6++hia/Jod8mUaIfnJ9uhdPyBQ==:"
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:U/5NFKz0y4rSg3yeG0itmAlo0mFebsX/J7rQ4iWjJokMBjVPmBZ5AtGOdoV90Vqyt1wKvkl6iMdVv7BzeklRDQ==:"
       },
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "An IP-literal holds an IPv6 address or IPvFuture (RFC 3986 section 3.2.2). The signature is good over the base a port without that check would build."
     },
@@ -344,6 +396,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "65536 behind 5,000 leading zeros is still out of range, and is refused without converting the digits."
     },
@@ -353,12 +407,14 @@
       "url": "https://api.example.com/things?limit=1&sort=name",
       "headers": {
         "X-Note": "value\r\n",
-        "Signature-Input": "sig=(\"@method\" \"@path\" \"@query\" \"x-note\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
-        "Signature": "sig=:x1aQKesIDlCJ3Q00HHkpoo1nwcuK6gGzD0Ka/fKgAdi24nMemTp0dDh8Lo9dH6+c+6oEKmvfUBqPUBGyJlBTBw==:"
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-note\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AtYhgGWBvxMRS4j7ytGwn2z58PIniMwUKUnyv6jQp+v/KNWFNbapm03sKb5ZoKLKkPElYF1gB0w5eUnPTbfCDQ==:"
       },
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "SignatureMismatch",
       "note": "Signed over 'value', received as 'value' CR LF. Trimming the line break before checking for it would verify this."
     },
@@ -373,6 +429,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedKey",
       "note": "The identity point: under it a signature of 0x01 and 63 zero bytes verifies over any message, so it is refused before the signature is examined."
     },
@@ -387,6 +445,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedKey",
       "note": "y = p is not the canonical encoding of any point (RFC 8032 section 5.1.3)."
     },
@@ -402,6 +462,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "RFC 8941 section 3.3.1: an integer has at most fifteen digits."
     },
@@ -417,6 +479,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "RFC 8941 section 4.2.4: a decimal has at least one digit after its point."
     },
@@ -432,6 +496,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "Base64 padded to a multiple of four characters is the only spelling fiki decodes."
     },
@@ -447,6 +513,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest"
     },
     {
@@ -461,6 +529,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest"
     },
     {
@@ -475,6 +545,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "RFC 4648 section 3.3: padding only at the end (@2g4xxev9)."
     },
@@ -490,6 +562,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignature",
       "note": "A character outside the base64 alphabet, which some decoders silently skip."
     },
@@ -505,6 +579,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignatureInput",
       "note": "8193 bytes, made so by a long nonce the signer chose; one byte shorter verifies."
     },
@@ -520,6 +596,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignature",
       "note": "8193 bytes, made so by a string parameter on the signature that nothing reads."
     },
@@ -535,6 +613,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "8193 bytes, made so by a member whose algorithm fiki ignores. A signer that measures the digest it is handed refuses to sign it, so this one was signed over the base."
     },
@@ -550,6 +630,8 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignature",
       "note": "At most 16 members in any of the three headers. Sixteen would be MalformedSignatureLabel, as two would."
     },
@@ -626,6 +708,8 @@
       "body": null,
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedSignatureInput",
       "note": "At most 64 items in an inner list; this one verifies otherwise."
     },
@@ -641,8 +725,489 @@
       "body": "{\"hello\": \"world\"}",
       "max_age": null,
       "now": null,
+      "minimum": "default",
+      "authorities": null,
       "error": "MalformedDigest",
       "note": "At most 16 parameters on an item; parameters on a digest member are ignored otherwise."
+    },
+    {
+      "id": "uncovered-body",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "Signed with no body, received with one: under the default minimum a body needs a covered content-digest. Before format 3 this verified."
+    },
+    {
+      "id": "body-announced-by-content-length-only",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Content-Length": "18"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "The caller did not pass the body, but the headers say there is one, which counts (the profile's body test)."
+    },
+    {
+      "id": "uncovered-digest-that-contradicts-the-body",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Content-Digest": "sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "An uncovered Content-Digest attests to nothing, so it cannot stand in for coverage."
+    },
+    {
+      "id": "default-minimum-without-query",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7mpjzqqw2r8PkKWP3LN5UbaJfVRrLW+tbuGLDbwucqA3ljDi3KAKs+C1oMNIrJ7uKh5uyOd2RsKP81q3NwRuDA==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "A valid signature that does not cover @query, which the default minimum requires."
+    },
+    {
+      "id": "default-minimum-without-authority",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:/9Fq9XnmvY+kvVwDkgykN9VDG0E+9otDDW4MrKQ2nI5tHGMca/gOfwzCtF1TuofI6f1by5Kj9W8jyHQopKhLAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "A valid signature that does not cover @authority, which the default minimum requires."
+    },
+    {
+      "id": "default-minimum-without-method",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:u4YZpmwAOLrQcCcFQMAIvpx9AT1RGMvUzXmk6GbRYT1WHegQJ1h/UwNsDytAteLblbnx7x6Rp2J/8CgLq3CHCQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "A valid signature that does not cover @method, which the default minimum requires."
+    },
+    {
+      "id": "empty-covered-list",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=();created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:MJjT0nQDkwatIq3S9j4cp+lsvqwqte+W39tNMP+WH2J/Tneyt9J/+ze5LD1IjAsgwL3BeERjGDhun5VWR4O1DA==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "InsufficientCoverage",
+      "note": "sig=() binds nothing but its own parameters, so it would authenticate any request within its freshness window."
+    },
+    {
+      "id": "no-created-under-the-default-minimum",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:vbcF6WeuaOKX8CwhDB5fsX7ghmVsukkHod/RYDvv5Yu2fUp3BYj+shXE2wPRo6J4iaEHFR25EsAOXjrZpIalDw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "A signature with no created replays forever; every minimum requires it (@7p9s3g9k)."
+    },
+    {
+      "id": "minimum-opt-out-still-checks-served-authorities",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:/9Fq9XnmvY+kvVwDkgykN9VDG0E+9otDDW4MrKQ2nI5tHGMca/gOfwzCtF1TuofI6f1by5Kj9W8jyHQopKhLAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": null,
+      "authorities": [
+        "api.example.com"
+      ],
+      "error": "InsufficientCoverage",
+      "note": "Opting out of the minimum does not opt out of authorities, which require @authority (@605z9tnw)."
+    },
+    {
+      "id": "authority-not-served",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": [
+        "other.example"
+      ],
+      "error": "SignatureMismatch",
+      "note": "Covered and valid, but not an authority this verifier serves."
+    },
+    {
+      "id": "network-path-target-is-a-path",
+      "method": "GET",
+      "url": "//evil.example/p",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:5m7FQ7E+ahw12ibSgzWYnGnq+RXwAf5P+C+IN7SXa0wHvv1kgk6GX+tt8wBB/yQI/x9Ec3vj8ho4uTA3s5HaBA==:",
+        "Host": "victim.example"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "Signed for evil.example. Received at victim.example as the origin-form target //evil.example/p, whose @path is //evil.example/p and whose @authority is the Host header. Ports that read it as a network-path reference let the sender choose the authority."
+    },
+    {
+      "id": "scheme-without-authority",
+      "method": "GET",
+      "url": "https:/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "Neither origin-form nor an absolute URI with an authority, so no base can be built: a signature mismatch (@5zrf8gjk)."
+    },
+    {
+      "id": "scheme-with-empty-authority",
+      "method": "GET",
+      "url": "https:///things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "Neither origin-form nor an absolute URI with an authority, so no base can be built: a signature mismatch (@5zrf8gjk)."
+    },
+    {
+      "id": "authority-form-target",
+      "method": "GET",
+      "url": "api.example.com:443",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "Neither origin-form nor an absolute URI with an authority, so no base can be built: a signature mismatch (@5zrf8gjk)."
+    },
+    {
+      "id": "asterisk-form-target",
+      "method": "GET",
+      "url": "*",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "Neither origin-form nor an absolute URI with an authority, so no base can be built: a signature mismatch (@5zrf8gjk)."
+    },
+    {
+      "id": "target-with-a-line-break",
+      "method": "GET",
+      "url": "/things\n?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "A request target holds no space or control character. Stripping one, as some URL parsers do, made /things LF verify as /things (review V-M5)."
+    },
+    {
+      "id": "target-with-a-tab",
+      "method": "GET",
+      "url": "/thi\tngs?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "A request target holds no space or control character. Stripping one, as some URL parsers do, made /things LF verify as /things (review V-M5)."
+    },
+    {
+      "id": "target-with-a-space",
+      "method": "GET",
+      "url": "/things ?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "A request target holds no space or control character. Stripping one, as some URL parsers do, made /things LF verify as /things (review V-M5)."
+    },
+    {
+      "id": "absolute-url-with-a-line-break",
+      "method": "GET",
+      "url": "https://api.example.com/thi\r\nngs?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "A request target holds no space or control character. Stripping one, as some URL parsers do, made /things LF verify as /things (review V-M5)."
+    },
+    {
+      "id": "keyid-with-a-line-break",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"E\r\nkeri\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "An sf-string carries %x20-7E only (RFC 8941 section 3.3.3)."
+    },
+    {
+      "id": "keyid-with-a-tab",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"a\tb\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "An sf-string carries %x20-7E only (RFC 8941 section 3.3.3)."
+    },
+    {
+      "id": "keyid-with-a-nul",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"a\u0000b\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "An sf-string carries %x20-7E only (RFC 8941 section 3.3.3)."
+    },
+    {
+      "id": "keyid-with-a-del",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"a\u007fb\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "An sf-string carries %x20-7E only (RFC 8941 section 3.3.3)."
+    },
+    {
+      "id": "keyid-with-non-ascii",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"caf\u00e9\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "An sf-string carries %x20-7E only (RFC 8941 section 3.3.3)."
+    },
+    {
+      "id": "tab-between-inner-list-items",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\"\t\"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "RFC 8941 sections 3.1.1, 3.1.2 and 4.2: SP only here, never HTAB."
+    },
+    {
+      "id": "tab-after-a-parameter-semicolon",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");\tcreated=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "RFC 8941 sections 3.1.1, 3.1.2 and 4.2: SP only here, never HTAB."
+    },
+    {
+      "id": "tab-at-the-start-of-the-header",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "\tsig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "MalformedSignatureInput",
+      "note": "RFC 8941 sections 3.1.1, 3.1.2 and 4.2: SP only here, never HTAB."
+    },
+    {
+      "id": "cofactored-only-signature-under-an-honest-key",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:Tq9bH8h5IdQfOXd76bTrC1sd8HFSHieRDcFohdh+LL7bGm2QeQwwwOFuVf5FAP83GTaXlZZJM8/60VhQkAH0Dw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "R carries a point of order 8. [8][S]B = [8]R + [8][k]A holds and [S]B = R + [k]A does not, so the cofactorless check fiki pins refuses it (RFC 8032 section 5.1.7)."
+    },
+    {
+      "id": "mixed-order-key-the-cofactorless-check-refuses",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA\"",
+        "Signature": "sig=:1kQ6QXBE/NtoY+7T1VcsrDvgRjPcHVbId0ssPtMZxUmoj34g6bNJRBZsOMZQTt2gWlg2IjqPuFFbdAjWJ/iABw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "error": "SignatureMismatch",
+      "note": "The key is SEED_A's plus a point of order 8, and k is not a multiple of 8, so only the cofactored equation holds."
     }
   ]
 }
