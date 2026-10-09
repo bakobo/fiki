@@ -88,7 +88,7 @@ def component(spec: str | http_sfv.Item) -> http_sfv.Item:
     item = _component_item(spec)
     if not item.value.startswith("@") and not _TOKEN.fullmatch(item.value):
         raise ValueError(
-            f"{spec!r} is not a component fiki can name: a field is named by an HTTP field name, "
+            f"{shown(spec)} is not a component fiki can name: a field is named by an HTTP field name, "
             "one or more token characters, and a derived component by its @ name."
         )
     return item
@@ -101,7 +101,7 @@ def _component_item(spec: str) -> http_sfv.Item:
             item.parse(spec.encode("utf-8"))
         except ValueError as ex:
             raise UnsupportedComponent(
-                f"fiki cannot read {spec} as a component identifier; name a component plainly, "
+                f"fiki cannot read {shown(spec)} as a component identifier; name a component plainly, "
                 'as "@path", or in its serialized form, as \'"@path";req\'.',
                 component=spec,
                 supported=", ".join(DERIVED + RESPONSE_DERIVED),
@@ -214,12 +214,13 @@ def canonical(headers: Mapping[str, str]) -> dict[str, str]:
     for name, value in headers.items():
         if type(name) is not str or type(value) is not str:
             raise TypeError(
-                f"A header is a name and a value, both strings; this one is {name!r}: {value!r}."
+                f"A header is a name and a value, both strings; this one is {shown(name)}: "
+                f"{shown(value)}."
             )
         lowered = ascii_lower(name)
         if lowered in out:
             raise ValueError(
-                f'The headers name the field "{lowered}" more than once, in different cases, '
+                f"The headers name the field {shown(lowered)} more than once, in different cases, "
                 "and a field has one value; combine them before calling fiki."
             )
         out[lowered] = value
@@ -239,7 +240,7 @@ def check_method(method) -> None:
         raise TypeError(f"A request's method is a string; this one is {method!r}.")
     if not _TOKEN.fullmatch(method):
         raise ValueError(
-            f"The method {method!r} is not an HTTP method: a method is one or more token "
+            f"The method {shown(method)} is not an HTTP method: a method is one or more token "
             "characters, with no spaces, line breaks or separators."
         )
 
@@ -309,7 +310,7 @@ def _split(message: _Message):
     try:
         return urlsplit(url)
     except ValueError as ex:
-        raise _unreadable(message, f"{ex}.") from ex
+        raise _unreadable(message, f"Python's urlsplit refuses it, saying {shown(str(ex))}.") from ex
 
 
 def _port(text: str, message: _Message) -> int | None:
@@ -532,7 +533,7 @@ def check_signer_params(*, created, expires, keyid, alg, nonce, tag) -> None:
             raise TypeError(f"{name} is a string; this one is {value!r}.")
         if not _SF_STRING.fullmatch(value):
             raise ValueError(
-                f"The {name} {value!r} holds a character outside printable ASCII, which an "
+                f"The {name} {shown(value)} holds a character outside printable ASCII, which an "
                 "RFC 8941 string cannot carry; a line break there would forge a header line."
             )
 
@@ -543,7 +544,7 @@ def check_label(label) -> None:
         raise TypeError(f"A signature label is a string; this one is {label!r}.")
     if not _SF_KEY.fullmatch(label):
         raise ValueError(
-            f"The label {label!r} is not an RFC 8941 key: it starts with a lowercase letter or "
+            f"The label {shown(label)} is not an RFC 8941 key: it starts with a lowercase letter or "
             "'*' and continues with lowercase letters, digits, '_', '-', '.' and '*'."
         )
 

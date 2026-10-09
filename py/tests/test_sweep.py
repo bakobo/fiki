@@ -124,7 +124,7 @@ def test_an_ip_literal_keeps_its_brackets(url, expected):
     "https://::1]/things",
 ])
 def test_text_after_an_ip_literal_is_a_caller_error_when_signing(url):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot be read: "):
         authority(url)
 
 
@@ -141,7 +141,7 @@ NOT_ADDRESSES = ["not-an-ip", "1.2.3.4", "vZ.x", "v1.", "V1.x", "v.x", "::1%", "
 
 @pytest.mark.parametrize("inside", NOT_ADDRESSES)
 def test_a_bracketed_host_that_is_not_an_address_is_a_caller_error_when_signing(inside):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="urlsplit refuses it"):
         sign(url=f"https://[{inside}]/x")
 
 
@@ -164,7 +164,7 @@ def test_an_authority_urlsplit_does_not_refuse_is_still_unreadable(netloc, monke
     request, headers = sign(url="https://a.example/x")
     lenient = SplitResult("https", netloc, "/x", "", "")
     monkeypatch.setattr("fiki.base.urlsplit", lambda url: lenient)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot be read: "):
         authority("https://a.example/x")
     with pytest.raises(SignatureMismatch):
         verify(request, headers)
@@ -183,9 +183,9 @@ def test_an_ipv6_address_or_ipvfuture_is_an_ip_literal(inside):
 
 @pytest.mark.parametrize("headers", [{None: "x"}, {"x-a": None}, {b"x-a": "1"}, {"x-a": 1}])
 def test_a_header_name_or_value_that_is_not_a_string_is_a_caller_error(headers):
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="both strings"):
         sign(headers=headers)
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="both strings"):
         verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
 
 
@@ -198,9 +198,9 @@ def test_a_header_name_or_value_that_is_not_a_string_is_a_caller_error(headers):
     "not a dictionary (((",
 ])
 def test_a_supplied_digest_the_body_does_not_match_is_a_caller_error(digest):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not one a verifier would accept"):
         sign(method="POST", body=BODY, headers={"Content-Digest": digest})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not one a verifier would accept"):
         sign_response(key=KEY, status=200, body=BODY, headers={"content-digest": digest},
                       created=AT)
 
@@ -301,6 +301,39 @@ def test_long_integers_and_badly_padded_byte_sequences_are_malformed(member):
         verify(request, headers)
 
 
+_RFC_9651 = [("x=@1659578233", "Date"), ("x=-@1", None), ("x=2;a=@0", "Date"),
+             ("x=(@1)", "Date"), ("x=(1 2;a=@1)", "Date"), ("x=(1);a=@-5", "Date"),
+             ('x=%"a"', "Display String"), ('x=%"%c3%a9"', "Display String"),
+             ('x=2;a=%"b"', "Display String"), ('x=(%"c")', "Display String"),
+             ('x=();a=%""', "Display String")]
+
+
+@pytest.mark.parametrize("member, kind", _RFC_9651)
+def test_a_date_or_display_string_is_malformed_in_a_content_digest(member, kind):
+    # RFC 9421 references RFC 8941, which has neither type; http_sfv parses both (@7vdhfv3q).
+    request, headers = with_digest(f"{content_digest(BODY)}, {member}")
+    with pytest.raises(MalformedDigest, match=kind or "could not parse"):
+        verify(request, headers)
+
+
+@pytest.mark.parametrize("member, kind", [(m, k) for m, k in _RFC_9651 if k])
+def test_a_date_or_display_string_is_malformed_in_the_other_two_headers(member, kind):
+    request, headers = sign()
+    params = member.removeprefix("x=")
+    bad = dict(headers, Signature=f"{headers['Signature']}, x={params}")
+    with pytest.raises(MalformedSignature, match=kind):
+        verify(request, bad)
+    bad = dict(headers, **{"Signature-Input": f"{headers['Signature-Input']}, x={params}"})
+    with pytest.raises(MalformedSignatureInput, match=kind):
+        verify(request, bad)
+
+
+@pytest.mark.parametrize("member", ['x="@1"', 'x="%\\"a\\""', 'x=a;b="@1"'])
+def test_what_only_looks_like_a_date_or_display_string_is_still_accepted(member):
+    request, headers = with_digest(f"{content_digest(BODY)}, {member}")
+    assert verify(request, headers).aid == KEY.aid
+
+
 def test_trailing_ows_after_a_dictionary_member_is_accepted():
     request, headers = sign()
     headers["Signature"] += " \t"
@@ -311,25 +344,25 @@ def test_trailing_ows_after_a_dictionary_member_is_accepted():
 
 @pytest.mark.parametrize("method", ["", " ", "G T", "GET\r\n", "GET\n", "G(T", "café"])
 def test_a_method_that_is_not_a_token_is_a_caller_error_wherever_a_request_is_built(method):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         sign(method=method, covered=["@path"])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         signature_base(method=method, url=URL, headers={}, covered=["@path"], **BASE_ARGS)
     request, headers = sign()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         verify({**request, "method": method}, headers)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         response_signature_base(status=200, headers={}, covered=["@status"],
                                 request=Request(method=method, url=URL), **BASE_ARGS)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         verify_response(expected_keyid=None, minimum=None, status=200, headers={}, max_age=None,
                         request=Request(method=method, url=URL))
 
 
 def test_a_method_that_is_not_a_string_is_a_type_error():
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="method is a string"):
         sign(method=None, covered=["@path"])
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="method is a string"):
         sign(method=b"GET", covered=["@path"])
 
 
@@ -362,9 +395,9 @@ BAD_PORTS = ["65536", "99999", "8x", "+80", " 80", "-1", "٨٠", "80 ", "0x50", 
 
 @pytest.mark.parametrize("port", BAD_PORTS)
 def test_a_port_that_is_not_one_is_a_caller_error_when_signing(port):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot be read: "):
         authority(f"https://a.example:{port}/x")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="cannot be read: "):
         sign(url=f"https://a.example:{port}/x")
 
 
@@ -411,14 +444,14 @@ def test_a_bad_port_is_never_read_when_authority_is_not_covered():
 
 @pytest.mark.parametrize("label", ["a\r\nb", "Sig", "1sig", "", "si g", "sigé", "-a"])
 def test_a_label_that_is_not_an_rfc_8941_key_is_a_caller_error(label):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an RFC 8941 key"):
         sign(label=label)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an RFC 8941 key"):
         sign_response(key=KEY, status=200, created=AT, label=label)
 
 
 def test_a_label_that_is_not_a_string_is_a_type_error():
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="label is a string"):
         sign(label=None)
 
 
@@ -432,16 +465,16 @@ def test_any_rfc_8941_key_is_a_label(label):
 @pytest.mark.parametrize("field", ["keyid", "nonce", "tag"])
 @pytest.mark.parametrize("value", ["a\r\nb", "a\nb", "café", "a\x7f", "a\tb", "\x00"])
 def test_a_serialized_string_outside_printable_ascii_is_a_caller_error(field, value):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="outside printable ASCII"):
         sign(**{field: value})
     args = dict(BASE_ARGS, **{field: value})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="outside printable ASCII"):
         signature_base(method="GET", url=URL, headers={}, covered=["@path"], **args)
 
 
 @pytest.mark.parametrize("field", ["keyid", "nonce", "tag"])
 def test_a_serialized_string_that_is_not_a_string_is_a_type_error(field):
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="is a string; this one is 7"):
         sign(**{field: 7})
 
 
@@ -454,14 +487,14 @@ def test_every_printable_ascii_character_is_a_serializable_string(field):
 
 @pytest.mark.parametrize("name", ["x\r\ny", "a b", "", "x:y", "café", "x\t"])
 def test_a_component_name_that_is_not_a_field_name_is_a_caller_error(name):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a component fiki can name"):
         sign(covered=["@method", name], headers={name: "1"} if name else {})
 
 
 def test_a_serialized_component_whose_name_is_not_a_field_name_is_a_caller_error():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a component fiki can name"):
         sign(covered=['"a b"'])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a component fiki can name"):
         sign_response(key=KEY, status=200, created=AT, covered=["@status", '"a b";req'],
                       request=Request(method="GET", url=URL))
 
@@ -482,17 +515,17 @@ def test_a_field_name_is_still_lowercased_for_a_local_caller():
 @pytest.mark.parametrize("field", ["created", "expires"])
 @pytest.mark.parametrize("value", [10**15, -1, 2**64])
 def test_a_timestamp_outside_the_integer_range_is_a_caller_error(field, value):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="fiki signs one from 0 to 999999999999999"):
         sign(**{field: value})
     args = dict(BASE_ARGS, **{field: value})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="fiki signs one from 0 to 999999999999999"):
         signature_base(method="GET", url=URL, headers={}, covered=["@path"], **args)
 
 
 @pytest.mark.parametrize("field", ["created", "expires"])
 @pytest.mark.parametrize("value", [True, "1700000000", 1.0])
 def test_a_timestamp_that_is_not_an_integer_is_a_type_error(field, value):
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="is a whole number of seconds"):
         sign(**{field: value})
 
 
@@ -508,9 +541,9 @@ def test_the_largest_and_smallest_timestamps_are_signed():
 @pytest.mark.parametrize("value", [0, -1, -(10**30)])
 def test_a_freshness_window_that_is_not_positive_is_a_caller_error(field, value):
     request, headers = sign()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="a freshness window is a positive number"):
         verify(request, headers, **{field: value})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="a freshness window is a positive number"):
         verify_response(expected_keyid=None, minimum=None, status=200, headers={}, **{"max_age": None, field: value})
 
 
@@ -518,13 +551,13 @@ def test_a_freshness_window_that_is_not_positive_is_a_caller_error(field, value)
 @pytest.mark.parametrize("value", [True, 1.5, "300"])
 def test_a_freshness_window_that_is_not_an_integer_is_a_type_error(field, value):
     request, headers = sign()
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="is a whole number of seconds"):
         verify(request, headers, **{field: value})
 
 
 def test_skew_none_is_not_a_way_to_decline_the_check():
     request, headers = sign()
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="skew is a whole number of seconds"):
         verify(request, headers, skew=None)
 
 
@@ -614,7 +647,7 @@ def test_a_content_digest_that_cannot_be_encoded_is_malformed(value):
     for covered in (["@status", req("content-digest")], None):
         with pytest.raises(MalformedDigest):
             sign_response(key=KEY, status=200, request=asked, created=AT, covered=covered)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not one a verifier would accept"):
         sign(method="POST", body=BODY, headers={"Content-Digest": value})
 
 
@@ -682,3 +715,54 @@ def test_an_item_with_seventeen_parameters_is_malformed():
 
 def test_an_item_with_sixteen_parameters_is_read():
     assert verify(*with_digest(content_digest(BODY) + params(16))).aid == KEY.aid
+
+
+# --- Every message quotes a value it was handed escaped and cut (@524c8qgv, part two) ---
+
+_LONE = "\ud800"
+_LONG = "a" * 3000
+
+
+def _quotable(message: str) -> None:
+    """Printable as UTF-8, free of C0, DEL, C1, U+2028 and U+2029, and at most 1024 characters."""
+    message.encode("utf-8")
+    assert not any(ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F or c in "  "
+                   for c in message), ascii(message[:200])
+    assert len(message) <= 1024, len(message)
+
+
+def _long_authority():
+    url = "https://" + "a" * 3000 + ".example/x"
+    request, headers = sign(url=url, covered=["@authority"])
+    return verify(request, headers, authorities={"api.example.com"})
+
+
+@pytest.mark.parametrize("call, error, fragment", [
+    (lambda: sign(covered=['"@pa' + _LONE + 'th"']), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=['"@path";a' + _LONE]), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=['"' + _LONG + '\x85']), UnsupportedComponent, "as a component"),
+    (lambda: sign(covered=[_LONG + " x"]), ValueError, "is not a component fiki can name"),
+    (lambda: sign(headers={"X-" + _LONE: "a", "x-" + _LONE: "b"}), ValueError,
+     "more than once"),
+    (lambda: sign(headers={"x-a": 1, "x-" + _LONG: "b"}), TypeError, "both strings"),
+    (lambda: sign(headers={1: _LONG}), TypeError, "both strings"),
+    (lambda: verify(*sign(), url="https://a" + _LONE + "℀/x"), SignatureMismatch,
+     "cannot be read"),
+    (lambda: sign(url="https://a\x85℀/x"), ValueError, "cannot be read"),
+    (lambda: verify(*sign(), expected_aid=_LONE * 44), MalformedKey, "44 characters"),
+    (lambda: verify(*sign(), expected_aid="B" + "A" * 42 + _LONE), MalformedKey,
+     "not valid base64url"),
+    (lambda: verify(*sign(), expected_aid="B" + "A" * 42 + "\x85"), MalformedKey,
+     "not valid base64url"),
+    (_long_authority, SignatureMismatch, "does not serve"),
+    (lambda: sign(method=_LONG + " "), ValueError, "is not an HTTP method"),
+    (lambda: sign(method=_LONE), ValueError, "is not an HTTP method"),
+    (lambda: sign(keyid=_LONG + "\n"), ValueError, "outside printable ASCII"),
+    (lambda: sign(nonce=_LONE), ValueError, "outside printable ASCII"),
+    (lambda: sign(label=_LONG + "A"), ValueError, "is not an RFC 8941 key"),
+    (lambda: sign(label=_LONE), ValueError, "is not an RFC 8941 key"),
+])
+def test_every_message_quotes_what_it_was_handed_escaped_and_cut(call, error, fragment):
+    with pytest.raises(error, match=fragment) as caught:
+        call()
+    _quotable(str(caught.value))

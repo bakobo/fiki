@@ -30,9 +30,41 @@ def load(name: str) -> dict:
     return json.loads((VECTORS / name).read_text(encoding="utf-8"))
 
 
+# Every file's case count, read once from the files at hardening-a and never at test time, so a
+# file emptied or cut short fails at collection rather than passing on the cases it still holds.
+COUNTS = {
+    "aid-lens.json": 3,
+    "signature-base.json": 14,
+    "accepts.json": 44,
+    "refusals.json": 144,
+    "misuse.json": 10,
+    "signs.json": 16,
+    "responses.json": 13,
+}
+
+# Each test that runs one file's cases, and the file.
+DRIVERS = {
+    "test_aid_lens": "aid-lens.json",
+    "test_signature_base_vectors": "signature-base.json",
+    "test_signature_vectors": "signature-base.json",
+    "test_accept_vectors": "accepts.json",
+    "test_refusal_vectors": "refusals.json",
+    "test_misuse_vectors": "misuse.json",
+    "test_sign_vectors": "signs.json",
+    "test_response_vectors": "responses.json",
+}
+
+
 def cases(name: str):
     data = load(name)
+    assert len(data["cases"]) == COUNTS[name], f"{name} holds {len(data['cases'])} cases"
     return [pytest.param(case, id=case["id"]) for case in data["cases"]]
+
+
+def test_every_vector_case_ran(collected):
+    for test, name in DRIVERS.items():
+        ran = collected(test)
+        assert ran is None or ran == COUNTS[name], f"{test} ran {ran} of {name}'s {COUNTS[name]}"
 
 
 @pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json",
@@ -199,7 +231,7 @@ def test_sign_vectors(case):
     if case.get("error") == "caller":
         with pytest.raises((TypeError, ValueError)) as caught:
             sign()
-        assert not isinstance(caught.value, FikiError)
+        _is_fikis_own(caught, case)
     elif "error" in case:
         with pytest.raises(FikiError) as caught:
             sign()
@@ -209,6 +241,36 @@ def test_sign_vectors(case):
         assert sign() == case["expected_headers"]
 
 
+# What each caller-error case's message must say, so that only fiki's own refusal passes and a
+# TypeError or ValueError raised by a bug inside fiki does not (tick 7xbw, T3). The vectors carry
+# no message, since each port words its own; the omitted-argument cases are Python's own refusal,
+# which is the outcome they pin.
+CALLER_MESSAGES = {
+    "authorities-is-a-string": "authorities is a collection of the hosts",
+    "authorities-is-a-string-containing-the-host": "authorities is a collection of the hosts",
+    "authorities-is-empty": "authorities is empty, which serves no host",
+    "authorities-holds-a-non-string": "Every authority is a string",
+    "authorities-omitted": "missing 1 required keyword-only argument: 'authorities'",
+    "minimum-below-the-profiles": "must include the profile's own, @method, @path, @query",
+    "minimum-empty": "must include the profile's own, @method, @path, @query",
+    "response-expected-keyid-omitted": "missing 1 required keyword-only argument: 'expected_keyid'",
+    "response-minimum-below-the-profiles": "must include the profile's own, @status",
+    "response-expected-keyid-empty": "expected_keyid is empty, which names no AID",
+    "url-over-8192-bytes": "cannot be read: it is over 8192 bytes",
+}
+
+
+def _is_fikis_own(caught, case) -> None:
+    assert not isinstance(caught.value, FikiError)
+    assert CALLER_MESSAGES[case["id"]] in str(caught.value), str(caught.value)[:300]
+
+
+def test_every_caller_error_case_names_the_message_it_expects():
+    ids = {case["id"] for case in load("misuse.json")["cases"]}
+    ids |= {case["id"] for case in load("signs.json")["cases"] if case.get("error") == "caller"}
+    assert ids == set(CALLER_MESSAGES)
+
+
 @pytest.mark.parametrize("case", cases("misuse.json"))
 def test_misuse_vectors(case):
     """A mistake in the call is Python's TypeError or ValueError, never a FikiError (@5zrf8gjk)."""
@@ -216,7 +278,7 @@ def test_misuse_vectors(case):
     if case.get("kind") == "response":
         with pytest.raises((TypeError, ValueError)) as caught:
             _verify_response(case)
-        assert not isinstance(caught.value, FikiError)
+        _is_fikis_own(caught, case)
         return
     with pytest.raises((TypeError, ValueError)) as caught:
         verify_request(
@@ -228,7 +290,7 @@ def test_misuse_vectors(case):
             now=case["now"],
             **_policy(case),
         )
-    assert not isinstance(caught.value, FikiError)
+    _is_fikis_own(caught, case)
 
 
 @pytest.mark.parametrize("case", cases("refusals.json"))

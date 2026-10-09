@@ -22,8 +22,30 @@ KEYS = Path(__file__).resolve().parents[2] / "vectors" / "keys" / "keys.json"
 VECTORS = json.loads(KEYS.read_text(encoding="utf-8"))
 
 
+# Every section's case count, read once from keys.json at hardening-a and never at test time, so
+# a section emptied or cut short fails at collection rather than passing on what it still holds.
+COUNTS = {("public", "accepts"): 18, ("public", "refusals"): 72, ("private", "accepts"): 7,
+          ("private", "refusals"): 43}
+
+# Each test that runs one section's cases, and the section.
+DRIVERS = {
+    "test_a_public_spelling_converts_to_its_aid": ("public", "accepts"),
+    "test_a_malformed_public_spelling_is_refused_without_echoing_it": ("public", "refusals"),
+    "test_an_openssh_key_loads_and_signs_as_its_seed": ("private", "accepts"),
+    "test_a_malformed_openssh_key_is_refused_without_echoing_it": ("private", "refusals"),
+}
+
+
 def _cases(section: str, kind: str) -> list:
-    return [pytest.param(case, id=case["id"]) for case in VECTORS[section][kind]]
+    held = VECTORS[section][kind]
+    assert len(held) == COUNTS[section, kind], f"{section} {kind} holds {len(held)} cases"
+    return [pytest.param(case, id=case["id"]) for case in held]
+
+
+def test_every_key_vector_case_ran(collected):
+    for test, section in DRIVERS.items():
+        ran = collected(test)
+        assert ran is None or ran == COUNTS[section], f"{test} ran {ran} of {COUNTS[section]}"
 
 
 def test_the_file_declares_the_format_this_port_satisfies():
