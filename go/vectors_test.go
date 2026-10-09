@@ -29,6 +29,39 @@ func load(t *testing.T, name string, into any) {
 	}
 }
 
+// vectorCounts pins how many cases each shared vector file holds, read from the files once at
+// hardening-a (tick 7xbw, T8), never at test time: an emptied or shortened cases array fails here
+// rather than passing a driver that loops over nothing.
+var vectorCounts = map[string]int{
+	"aid-lens.json":       3,
+	"signature-base.json": 14,
+	"accepts.json":        44,
+	"refusals.json":       144,
+	"misuse.json":         10,
+	"signs.json":          16,
+	"responses.json":      13,
+}
+
+// pinned asserts that a file holds exactly its pinned number of cases, and returns what each case
+// calls as it runs; when the test ends, every one of them must have.
+func pinned(t *testing.T, counts map[string]int, name string, held int) func() {
+	t.Helper()
+	want, ok := counts[name]
+	if !ok {
+		t.Fatalf("%s has no pinned case count", name)
+	}
+	if held != want {
+		t.Fatalf("%s holds %d cases, and %d are pinned", name, held, want)
+	}
+	ran := 0
+	t.Cleanup(func() {
+		if ran != want {
+			t.Errorf("%s: %d of its %d cases ran", name, ran, want)
+		}
+	})
+	return func() { ran++ }
+}
+
 type aidCase struct {
 	ID           string `json:"id"`
 	SeedHex      string `json:"seed_hex"`
@@ -227,14 +260,12 @@ func (c requestCase) policy(t *testing.T) VerifyOptions {
 	return opts
 }
 
-func loadRequestCases(t *testing.T, name string) []requestCase {
+// loadRequestCases is a verify file's cases, and what each calls as it runs (see pinned).
+func loadRequestCases(t *testing.T, name string) ([]requestCase, func()) {
 	t.Helper()
 	var file struct{ Cases []requestCase }
 	load(t, name, &file)
-	if len(file.Cases) < 5 {
-		t.Fatalf("%s holds %d cases; the verify vectors are never that few", name, len(file.Cases))
-	}
-	return file.Cases
+	return file.Cases, pinned(t, vectorCounts, name, len(file.Cases))
 }
 
 func mustHex(t *testing.T, text string) []byte {
@@ -267,8 +298,10 @@ func TestThisPortSatisfiesTheVectorsFormatItIsRunning(t *testing.T) {
 func TestAIDLens(t *testing.T) {
 	var file struct{ Cases []aidCase }
 	load(t, "aid-lens.json", &file)
+	ran := pinned(t, vectorCounts, "aid-lens.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			key, err := FromSeed(mustHex(t, c.SeedHex))
 			if err != nil {
 				t.Fatal(err)
@@ -293,8 +326,10 @@ func TestAIDLens(t *testing.T) {
 func TestSignatureBaseVectors(t *testing.T) {
 	var file struct{ Cases []baseCase }
 	load(t, "signature-base.json", &file)
+	ran := pinned(t, vectorCounts, "signature-base.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			base, err := SignatureBase(c.Method, c.URL, c.Headers, c.Covered,
 				SignatureParams{Created: c.Created, Keyid: c.Keyid, Alg: c.Alg})
 			if err != nil {
@@ -318,8 +353,10 @@ func TestSignatureBaseVectors(t *testing.T) {
 }
 
 func TestAcceptVectors(t *testing.T) {
-	for _, c := range loadRequestCases(t, "accepts.json") {
+	cases, ran := loadRequestCases(t, "accepts.json")
+	for _, c := range cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			verdict, err := VerifyRequest(c.Method, c.URL, c.Headers, c.policy(t))
 			if err != nil {
 				t.Fatalf("expected this request to verify, got %v", err)
@@ -339,8 +376,10 @@ func TestAcceptVectors(t *testing.T) {
 }
 
 func TestRefusalVectors(t *testing.T) {
-	for _, c := range loadRequestCases(t, "refusals.json") {
+	cases, ran := loadRequestCases(t, "refusals.json")
+	for _, c := range cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			// Every entry names the kind fiki reports, so this port maps its own onto the same
 			// condition rather than inventing a taxonomy of its own.
 			_, err := VerifyRequest(c.Method, c.URL, c.Headers, c.policy(t))
@@ -362,8 +401,10 @@ func TestRefusalVectors(t *testing.T) {
 // VerifyResponse's own policy (format 3 part two): ResponseMinimum by default, and ExpectedKeyid
 // a stated decision.
 func TestResponseVectors(t *testing.T) {
-	for _, c := range loadRequestCases(t, "responses.json") {
+	cases, ran := loadRequestCases(t, "responses.json")
+	for _, c := range cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			verdict, err := c.verifyResponse(t)
 			if c.Error == "" {
 				if err != nil {
@@ -439,11 +480,10 @@ func deref[T any](p *T) T {
 func TestSignVectors(t *testing.T) {
 	var file struct{ Cases []signCase }
 	load(t, "signs.json", &file)
-	if len(file.Cases) < 5 {
-		t.Fatalf("signs.json holds %d cases", len(file.Cases))
-	}
+	ran := pinned(t, vectorCounts, "signs.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			checkFields(t, c.ID, c.fields, signFields)
 			key, err := FromSeed(mustHex(t, c.SeedHex))
 			if err != nil {
@@ -495,8 +535,10 @@ func TestSignVectors(t *testing.T) {
 // Go's type system refuses it at compile time, and the case asserts exactly that: the policy does
 // not decode into the option's type, so no caller can write it.
 func TestMisuseVectors(t *testing.T) {
-	for _, c := range loadRequestCases(t, "misuse.json") {
+	cases, ran := loadRequestCases(t, "misuse.json")
+	for _, c := range cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			if c.Error != "caller" {
 				t.Fatalf("error = %q, want caller", c.Error)
 			}
