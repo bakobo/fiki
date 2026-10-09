@@ -9,15 +9,27 @@
 //! a resolver returning the wrong number of bytes, a status that is not an integer — the case is
 //! absent here and @5e2phpjy says why.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
-    verify_request, verify_response, verifying_key, Error, Key, Kind, Request, Resolver,
-    SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM, RESPONSE_MINIMUM,
+    verify_request, verify_response, verifying_key, Authorities, Error, Key, Kind, Minimum,
+    Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
+    RESPONSE_MINIMUM,
 };
 use sha2::{Digest, Sha256, Sha512};
+
+/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
+/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
+/// so a test whose subject is something else states that policy rather than relying on it.
+fn opted_out() -> VerifyOptions {
+    VerifyOptions {
+        minimum: Minimum::Off,
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    }
+}
 
 const URL: &str = "https://keria.example.com/identifiers?type=rot";
 const BODY: &[u8] = br#"{"hello": "world"}"#;
@@ -195,15 +207,15 @@ fn covering(specs: &[&str]) -> SignOptions {
 
 fn minimum(specs: &[&str]) -> VerifyOptions {
     VerifyOptions {
-        minimum: Some(strings(specs)),
-        ..Default::default()
+        minimum: Minimum::Of(strings(specs)),
+        ..opted_out()
     }
 }
 
 fn resolving(resolver: Resolver) -> VerifyOptions {
     VerifyOptions {
         resolve: Some(resolver),
-        ..Default::default()
+        ..opted_out()
     }
 }
 
@@ -285,7 +297,7 @@ fn two_recognized_digests_must_both_match() {
     // Signed without the body, since a signer refuses a digest its body contradicts (@5zrf8gjk).
     let mut sent = bodiless(&[("Content-Digest", &digest)], with_digest_covered());
     sent.body = Some(BODY.to_vec());
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::DigestMismatch);
+    assert_eq!(sent.kind(opted_out()), Kind::DigestMismatch);
 }
 
 #[test]
@@ -300,17 +312,14 @@ fn two_recognized_digests_that_both_match_verify() {
         with_body(SignOptions::default()),
     )
     .unwrap();
-    assert_eq!(
-        sent.verify(VerifyOptions::default()).unwrap().aid,
-        key().aid()
-    );
+    assert_eq!(sent.verify(opted_out()).unwrap().aid, key().aid());
 }
 
 #[test]
 fn an_unparsable_digest_is_malformed_even_when_no_body_was_supplied() {
     // Section 9 puts malformed-digest before digest-mismatch.
     let sent = bodiless(&[("Content-Digest", "((((")], with_digest_covered());
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedDigest);
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedDigest);
 }
 
 // --- caller-chosen keyid and an authoritative resolver (@6g9zjsv9) ---
@@ -339,9 +348,7 @@ fn a_resolver_supplies_the_key_for_a_transferable_aid() {
 
 #[test]
 fn without_a_resolver_the_verdict_still_reports_the_raw_keyid() {
-    let verdict = signed(SignOptions::default())
-        .verify(VerifyOptions::default())
-        .unwrap();
+    let verdict = signed(SignOptions::default()).verify(opted_out()).unwrap();
     assert_eq!(verdict.aid, key().aid());
     assert_eq!(verdict.keyid, Some(encode(&raw(&key()), B64URL, false)));
 }
@@ -432,7 +439,7 @@ fn expected_aid_and_a_resolver_together_are_a_caller_error() {
 fn verify_options_debug_names_the_resolver_without_calling_it() {
     let shown = format!("{:?}", resolving(table(&[])));
     assert!(shown.contains("<resolver>"), "{shown}");
-    assert!(format!("{:?}", VerifyOptions::default()).contains("resolve: None"));
+    assert!(format!("{:?}", opted_out()).contains("resolve: None"));
 }
 
 // --- component identifiers with parameters ---
@@ -451,7 +458,7 @@ fn a_caller_may_name_components_in_their_serialized_form() {
         "@query",
         "\"content-digest\"",
     ]));
-    let verdict = sent.verify(VerifyOptions::default()).unwrap();
+    let verdict = sent.verify(opted_out()).unwrap();
     assert_eq!(
         verdict.covered,
         ["@method", "@path", "@query", "content-digest"]
@@ -492,7 +499,7 @@ fn a_signer_refuses_an_unsupported_component_parameter() {
 
 #[test]
 fn a_signed_response_verifies_and_binds_its_request() {
-    let verdict = check(&respond(SignOptions::default()), VerifyOptions::default()).unwrap();
+    let verdict = check(&respond(SignOptions::default()), opted_out()).unwrap();
     assert_eq!(verdict.aid, key().aid());
     assert_eq!(
         verdict.covered,
@@ -540,7 +547,7 @@ fn a_status_that_is_not_three_digits_has_no_status_line() {
             &signed_200,
             Some(&request()),
             Some(RESPONSE_BODY),
-            VerifyOptions::default(),
+            opted_out(),
         );
         assert_eq!(kind_of(err), Kind::MissingComponent);
     }
@@ -576,7 +583,7 @@ fn an_altered_status_is_refused() {
         &headers,
         Some(&request()),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::SignatureMismatch);
 }
@@ -589,7 +596,7 @@ fn a_swapped_response_body_is_refused() {
         &headers,
         Some(&request()),
         Some(br#"{"done": false}"#),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::DigestMismatch);
 }
@@ -605,7 +612,7 @@ fn a_response_checked_against_a_different_request_is_refused() {
         &respond(SignOptions::default()),
         Some(&elsewhere),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::SignatureMismatch);
 }
@@ -617,14 +624,7 @@ fn a_response_with_no_request_covers_only_its_own_components() {
         ..Default::default()
     };
     let headers = respond_to(None, &[], opts).unwrap();
-    let verdict = check_as(
-        200,
-        &headers,
-        None,
-        Some(RESPONSE_BODY),
-        VerifyOptions::default(),
-    )
-    .unwrap();
+    let verdict = check_as(200, &headers, None, Some(RESPONSE_BODY), opted_out()).unwrap();
     assert_eq!(verdict.covered, ["@status", "content-digest"]);
 }
 
@@ -636,7 +636,7 @@ fn a_bodyless_response_to_a_bodyless_request_covers_no_digest() {
         ..Default::default()
     };
     let headers = respond_to(Some(&get), &[], SignOptions::default()).unwrap();
-    let verdict = check_as(200, &headers, Some(&get), None, VerifyOptions::default()).unwrap();
+    let verdict = check_as(200, &headers, Some(&get), None, opted_out()).unwrap();
     assert_eq!(
         verdict.covered,
         [
@@ -669,13 +669,7 @@ fn a_req_component_with_no_request_to_read_it_from_is_missing() {
     };
     assert_eq!(kind_of(respond_to(None, &[], opts)), Kind::MissingComponent);
     let headers = respond(SignOptions::default());
-    let err = check_as(
-        200,
-        &headers,
-        None,
-        Some(RESPONSE_BODY),
-        VerifyOptions::default(),
-    );
+    let err = check_as(200, &headers, None, Some(RESPONSE_BODY), opted_out());
     assert_eq!(kind_of(err), Kind::MissingComponent);
 }
 
@@ -709,7 +703,7 @@ fn a_signed_401_is_verified_like_any_other_response() {
         &headers,
         Some(&request()),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(verdict.unwrap().aid, key().aid());
 }
@@ -722,33 +716,44 @@ fn an_unsigned_401_is_unauthenticated_before_anything_else() {
         &unsigned,
         Some(&request()),
         Some(br#"{"title": "no"}"#),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::Unauthenticated);
 }
 
 #[test]
 fn an_unsigned_200_is_missing_its_signature() {
-    let err = check_as(
-        200,
-        &BTreeMap::new(),
-        Some(&request()),
-        None,
-        VerifyOptions::default(),
-    );
+    let err = check_as(200, &BTreeMap::new(), Some(&request()), None, opted_out());
     assert_eq!(kind_of(err), Kind::MissingSignature);
 }
 
 #[test]
 fn served_authorities_are_a_caller_error_on_a_response() {
     let opts = VerifyOptions {
-        authorities: Some(BTreeSet::from(["keria.example.com".to_string()])),
-        ..Default::default()
+        authorities: Authorities::served(["keria.example.com".to_string()]),
+        ..opted_out()
     };
     assert_eq!(
         kind_of(check(&respond(SignOptions::default()), opts)),
         Kind::InvalidArgument
     );
+}
+
+#[test]
+fn a_response_keeps_no_minimum_and_needs_no_authorities_when_none_is_stated() {
+    // verify_response keeps its 0.8 default for now (`this.i` @524c8qgv's first child): an
+    // unstated minimum there is no minimum, and authorities do not apply to a response, so the
+    // required decision is verify_request's alone.
+    let sent = respond(SignOptions {
+        covered: Some(strings(&["@status", "content-digest"])),
+        ..Default::default()
+    });
+    assert!(check(&sent, VerifyOptions::default()).is_ok());
+    let unchecked = VerifyOptions {
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    };
+    assert!(check(&sent, unchecked).is_ok());
 }
 
 // --- the covered list, as received ---
@@ -763,7 +768,7 @@ fn an_unsupported_component_in_a_request_is_refused_not_dropped() {
     ] {
         let sent = signed(SignOptions::default()).mangle("\"@method\"", covered);
         assert_eq!(
-            sent.kind(VerifyOptions::default()),
+            sent.kind(opted_out()),
             Kind::UnsupportedComponent,
             "{covered}"
         );
@@ -780,7 +785,7 @@ fn an_unsupported_component_in_a_response_is_refused() {
     ] {
         let headers = mangled(respond(SignOptions::default()), old, new);
         assert_eq!(
-            kind_of(check(&headers, VerifyOptions::default())),
+            kind_of(check(&headers, opted_out())),
             Kind::UnsupportedComponent,
             "{new}"
         );
@@ -790,10 +795,7 @@ fn an_unsupported_component_in_a_response_is_refused() {
 #[test]
 fn a_duplicate_component_is_refused() {
     let sent = signed(SignOptions::default()).mangle("\"@path\"", "\"@path\" \"@path\"");
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::DuplicateComponent
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::DuplicateComponent);
 }
 
 #[test]
@@ -804,7 +806,7 @@ fn a_duplicate_is_found_whatever_the_parameter_order_and_before_it_is_unsupporte
         "\"content-digest\";req;sf \"content-digest\";sf;req",
     );
     assert_eq!(
-        kind_of(check(&headers, VerifyOptions::default())),
+        kind_of(check(&headers, opted_out())),
         Kind::DuplicateComponent
     );
 }
@@ -825,7 +827,7 @@ fn a_malformed_signature_input_member_is_refused() {
     ] {
         let sent = signed(SignOptions::default()).mangle(old, &new);
         assert_eq!(
-            sent.kind(VerifyOptions::default()),
+            sent.kind(opted_out()),
             Kind::MalformedSignatureInput,
             "{new}"
         );
@@ -837,10 +839,7 @@ fn a_signature_input_member_that_is_not_an_inner_list_is_refused() {
     let mut sent = signed(SignOptions::default());
     sent.headers
         .insert("Signature-Input".into(), "sig=\"not a list\"".into());
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureInput);
 }
 
 #[test]
@@ -853,10 +852,7 @@ fn two_labels_in_the_signature_header_are_malformed() {
         .to_string();
     let both = format!("{}, other={value}", sent.headers["Signature"]);
     sent.headers.insert("Signature".into(), both);
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureLabel
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureLabel);
 }
 
 #[test]
@@ -866,10 +862,7 @@ fn a_signature_that_is_not_64_bytes_is_a_malformed_value() {
         "Signature".into(),
         format!("sig=:{}:", encode(&[0u8; 32], B64STD, true)),
     );
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureValue
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureValue);
 }
 
 #[test]
@@ -885,7 +878,7 @@ fn a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labels() {
         sent.headers.insert("Signature-Input".into(), both);
         sent.headers.insert("Signature".into(), member.into());
         assert_eq!(
-            sent.kind(VerifyOptions::default()),
+            sent.kind(opted_out()),
             Kind::MalformedSignatureValue,
             "{member}"
         );
@@ -899,7 +892,7 @@ fn an_unsigned_message_is_missing_its_signature_first() {
     let mut sent = signed(SignOptions::default());
     sent.headers.remove("Signature");
     sent.headers.remove("Signature-Input");
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MissingSignature);
+    assert_eq!(sent.kind(opted_out()), Kind::MissingSignature);
 }
 
 #[test]
@@ -907,10 +900,7 @@ fn an_unparsable_signature_is_reported_before_an_unparsable_input() {
     let mut sent = signed(SignOptions::default());
     sent.headers.insert("Signature".into(), "((((".into());
     sent.headers.insert("Signature-Input".into(), "((((".into());
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignature
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignature);
 }
 
 #[test]
@@ -920,7 +910,7 @@ fn a_malformed_key_is_reported_before_an_unsupported_algorithm() {
     let sent = sent
         .mangle(&keyid, "not-a-key")
         .mangle("alg=\"ed25519\"", "alg=\"rsa-pss-sha512\"");
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedKey);
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedKey);
 }
 
 #[test]
@@ -933,7 +923,7 @@ fn staleness_is_reported_before_expiry() {
         max_age: Some(300),
         skew: Some(60),
         now: Some(AT + 1000),
-        ..Default::default()
+        ..opted_out()
     };
     assert_eq!(sent.kind(opts), Kind::SignatureTooOld);
 }
@@ -973,7 +963,7 @@ fn a_request_covering_the_minimum_verifies() {
 #[test]
 fn a_request_covering_less_than_the_minimum_is_refused_even_though_it_verifies() {
     let sent = signed(covering(&["@method", "@path", "content-digest"]));
-    assert!(sent.verify(VerifyOptions::default()).is_ok());
+    assert!(sent.verify(opted_out()).is_ok());
     let err = sent.verify(minimum(&REQUEST_MINIMUM)).unwrap_err();
     assert_eq!(err.kind, Kind::InsufficientCoverage);
     assert_eq!(err.detail.as_deref(), Some("@query"));
@@ -1142,7 +1132,7 @@ fn a_missing_keyid_is_reported_before_the_covered_list_and_the_labels() {
     })
     .mangle(&format!(";keyid=\"{}\"", aid()), "");
     let opts = VerifyOptions {
-        minimum: Some(strings(&REQUEST_MINIMUM)),
+        minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
         ..resolving(resolve())
     };
     assert_eq!(sent.kind(opts), Kind::MissingKey);
@@ -1165,7 +1155,7 @@ fn a_missing_keyid_is_fine_when_the_verifier_names_the_key() {
     let sent = sent.mangle(&format!(";keyid=\"{keyid}\""), "");
     let opts = VerifyOptions {
         expected_aid: Some(key().aid()),
-        ..Default::default()
+        ..opted_out()
     };
     // Verifies against the key, then mismatches only because the keyid was part of what was signed.
     let err = sent.verify(opts).unwrap_err();
@@ -1176,7 +1166,7 @@ fn a_missing_keyid_is_fine_when_the_verifier_names_the_key() {
 fn an_expected_aid_reports_the_keyid_as_received() {
     let opts = VerifyOptions {
         expected_aid: Some(key().aid()),
-        ..Default::default()
+        ..opted_out()
     };
     let verdict = signed(SignOptions::default()).verify(opts).unwrap();
     assert_eq!(verdict.keyid, Some(encode(&raw(&key()), B64URL, false)));
@@ -1254,7 +1244,7 @@ fn a_response_from_an_aid_other_than_the_expected_one_is_an_unknown_key() {
     let opts = VerifyOptions {
         expected_keyid: Some(aid()),
         expected_aid: Some(key().aid()),
-        ..Default::default()
+        ..opted_out()
     };
     assert_eq!(kind_of(check(&unnamed, opts)), Kind::UnknownKey);
 }
@@ -1279,8 +1269,8 @@ fn a_covered_authority_outside_the_served_set_is_a_signature_mismatch() {
 
 fn serving(name: &str) -> VerifyOptions {
     VerifyOptions {
-        authorities: Some(BTreeSet::from([name.to_string()])),
-        ..Default::default()
+        authorities: Authorities::served([name.to_string()]),
+        ..opted_out()
     }
 }
 
@@ -1303,7 +1293,7 @@ fn a_request_signed_for_another_host_without_authority_is_refused_given_authorit
     sent.url = "https://victim.example/identifiers?type=rot".into();
     let err = sent
         .verify(VerifyOptions {
-            minimum: Some(strings(&REQUEST_MINIMUM)),
+            minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
             ..serving("victim.example")
         })
         .unwrap_err();
@@ -1314,7 +1304,7 @@ fn a_request_signed_for_another_host_without_authority_is_refused_given_authorit
 #[test]
 fn without_authorities_an_uncovered_authority_still_verifies() {
     let uncovered = signed(covering(&["@method", "@path", "@query", "content-digest"]));
-    assert!(uncovered.verify(VerifyOptions::default()).is_ok());
+    assert!(uncovered.verify(opted_out()).is_ok());
 }
 
 #[test]
@@ -1370,11 +1360,7 @@ fn a_base_that_cannot_be_built_is_a_signature_mismatch() {
         )
         .unwrap();
         sent.headers.insert("X-Note".into(), value.into());
-        assert_eq!(
-            sent.kind(VerifyOptions::default()),
-            Kind::SignatureMismatch,
-            "{value:?}"
-        );
+        assert_eq!(sent.kind(opted_out()), Kind::SignatureMismatch, "{value:?}");
         let params = SignatureParams {
             created: Some(AT),
             keyid: Some("k".into()),
@@ -1408,7 +1394,7 @@ fn a_tab_in_a_field_value_still_builds() {
         ])),
     )
     .unwrap();
-    assert!(sent.verify(VerifyOptions::default()).is_ok());
+    assert!(sent.verify(opted_out()).is_ok());
 }
 
 // --- created is required under a minimum (@7p9s3g9k) ---
@@ -1433,10 +1419,7 @@ fn a_minimum_requires_created_as_part_of_signature_input() {
 #[test]
 fn without_a_minimum_created_stays_optional_as_rfc_9421_makes_it() {
     // The missing created surfaces only as the signature it breaks.
-    assert_eq!(
-        without_created().kind(VerifyOptions::default()),
-        Kind::SignatureMismatch
-    );
+    assert_eq!(without_created().kind(opted_out()), Kind::SignatureMismatch);
 }
 
 // --- a covered "content-digest";req is recomputed over the request body (bakobo/fiki#4) ---
@@ -1474,7 +1457,7 @@ fn a_swapped_request_body_is_refused_when_the_response_binds_its_digest() {
         &respond(SignOptions::default()),
         Some(&swapped()),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::DigestMismatch);
 }
@@ -1487,7 +1470,7 @@ fn an_unreadable_request_digest_is_malformed_when_the_response_binds_it() {
         &headers,
         Some(&unreadable(Some(BODY))),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::MalformedDigest);
 }
@@ -1502,7 +1485,7 @@ fn a_malformed_request_digest_outranks_a_mismatched_response_digest() {
         &headers,
         Some(&unreadable(Some(BODY))),
         Some(br#"{"done": false}"#),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::MalformedDigest);
 }
@@ -1543,7 +1526,7 @@ fn a_bound_request_digest_with_no_request_body_to_check_is_a_caller_error() {
         &respond(SignOptions::default()),
         Some(&bodiless),
         Some(RESPONSE_BODY),
-        VerifyOptions::default(),
+        opted_out(),
     );
     assert_eq!(kind_of(err), Kind::InvalidArgument);
 }
@@ -1664,11 +1647,7 @@ fn a_raw_keyid_is_decoded_only_in_its_own_spelling() {
         &format!("{}+", &keyid[..42]),
     ] {
         let mangled = signed(SignOptions::default()).mangle(&keyid, bad);
-        assert_eq!(
-            mangled.kind(VerifyOptions::default()),
-            Kind::MalformedKey,
-            "{bad}"
-        );
+        assert_eq!(mangled.kind(opted_out()), Kind::MalformedKey, "{bad}");
     }
 }
 
@@ -1706,11 +1685,11 @@ fn a_max_age_with_no_created_to_check_is_too_old_without_a_minimum() {
             ),
         ]),
     };
-    assert!(sent.verify(VerifyOptions::default()).is_ok());
+    assert!(sent.verify(opted_out()).is_ok());
     let aged = VerifyOptions {
         max_age: Some(300),
         now: Some(AT),
-        ..Default::default()
+        ..opted_out()
     };
     assert_eq!(sent.kind(aged), Kind::SignatureTooOld);
 }
@@ -1759,7 +1738,7 @@ fn forged_under(keyid: &str) -> Sent {
 fn a_small_order_key_is_malformed_through_an_inline_keyid() {
     for small in small_order_keys() {
         let sent = forged_under(&encode(&small, B64URL, false));
-        let err = sent.verify(VerifyOptions::default()).unwrap_err();
+        let err = sent.verify(opted_out()).unwrap_err();
         assert_eq!(err.kind, Kind::MalformedKey, "{small:02x?}");
     }
 }
@@ -1786,7 +1765,7 @@ fn a_small_order_key_is_malformed_as_an_aid() {
         );
         let opts = VerifyOptions {
             expected_aid: Some(aid.clone()),
-            ..Default::default()
+            ..opted_out()
         };
         assert_eq!(
             forged_under("anything").kind(opts),
@@ -1802,7 +1781,7 @@ fn the_small_order_refusal_comes_before_the_algorithm() {
     identity[0] = 1;
     let sent = forged_under(&encode(&identity, B64URL, false))
         .mangle("alg=\"ed25519\"", "alg=\"rsa-pss-sha512\"");
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedKey);
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedKey);
 }
 
 // --- a field value is checked raw, and a method is never empty (@56qu7gyw) ---
@@ -1830,7 +1809,7 @@ fn noting(value: &str) -> Sent {
 fn a_line_break_or_nul_in_a_covered_value_is_refused_before_any_trimming() {
     for value in ["admin\r\n", "admin\n", "\r\nadmin", "admin\0", "admin\r"] {
         assert_eq!(
-            noting(value).kind(VerifyOptions::default()),
+            noting(value).kind(opted_out()),
             Kind::SignatureMismatch,
             "{value:?}"
         );
@@ -1848,9 +1827,7 @@ fn a_line_break_or_nul_in_a_covered_value_is_refused_before_any_trimming() {
 
 #[test]
 fn only_spaces_and_tabs_around_a_value_are_trimmed() {
-    assert!(noting(" \tadmin\t ")
-        .verify(VerifyOptions::default())
-        .is_ok());
+    assert!(noting(" \tadmin\t ").verify(opted_out()).is_ok());
 }
 
 #[test]
@@ -1858,7 +1835,7 @@ fn an_empty_method_is_a_caller_error_wherever_at_method_is_built() {
     let err = sign_as(&key(), "", URL, &[], with_body(SignOptions::default())).unwrap_err();
     assert_eq!(err.kind, Kind::InvalidArgument);
     let sent = signed(SignOptions::default());
-    let err = verify_request("", URL, &sent.headers, &VerifyOptions::default()).unwrap_err();
+    let err = verify_request("", URL, &sent.headers, &opted_out()).unwrap_err();
     assert_eq!(err.kind, Kind::InvalidArgument);
     let params = SignatureParams::default();
     let err = signature_base("", URL, &BTreeMap::new(), &strings(&["@method"]), &params);
@@ -1923,11 +1900,7 @@ fn a_y_at_or_above_the_prime_is_a_second_spelling_that_decompresses() {
 fn a_non_canonical_or_off_curve_key_is_malformed_on_every_path() {
     for bytes in non_canonical_keys() {
         let sent = forged_under(&encode(&bytes, B64URL, false));
-        assert_eq!(
-            sent.kind(VerifyOptions::default()),
-            Kind::MalformedKey,
-            "{bytes:02x?}"
-        );
+        assert_eq!(sent.kind(opted_out()), Kind::MalformedKey, "{bytes:02x?}");
 
         let resolver: Resolver = Arc::new(move |_: &str| Ok(Some(bytes)));
         let err = forged_under(&aid())
@@ -1971,10 +1944,7 @@ fn a_huge_parameter_list_is_parsed_in_linear_time() {
         format!("sig=(\"@method\");keyid=\"k\"{params}"),
     );
     let started = std::time::Instant::now();
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureInput);
     assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
 }
 
@@ -2002,13 +1972,13 @@ fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {
             ),
         ]),
     };
-    let named = |minimum: Option<Vec<String>>| VerifyOptions {
+    let named = |minimum: Minimum| VerifyOptions {
         expected_aid: Some(key().aid()),
         minimum,
-        ..Default::default()
+        ..opted_out()
     };
-    assert!(sent.verify(named(None)).is_ok());
-    let err = sent.verify(named(Some(covered))).unwrap_err();
+    assert!(sent.verify(named(Minimum::Off)).is_ok());
+    let err = sent.verify(named(Minimum::Of(covered))).unwrap_err();
     assert_eq!(err.kind, Kind::MissingKey);
 }
 
@@ -2022,12 +1992,9 @@ fn two_header_names_equal_but_for_case_are_a_caller_error_everywhere() {
         ..covering(&["@status", "x-role", "content-digest"])
     };
     let mut signed = respond_to(Some(&asked), &[("x-role", "member")], opts).unwrap();
-    assert!(check(&signed, VerifyOptions::default()).is_ok());
+    assert!(check(&signed, opted_out()).is_ok());
     signed.insert("X-Role".into(), "admin".into());
-    assert_eq!(
-        kind_of(check(&signed, VerifyOptions::default())),
-        Kind::InvalidArgument
-    );
+    assert_eq!(kind_of(check(&signed, opted_out())), Kind::InvalidArgument);
 
     let sent = signed_request_with(&[("x-role", "member")]);
     let mut doubled = sent.headers.clone();
@@ -2038,7 +2005,7 @@ fn two_header_names_equal_but_for_case_are_a_caller_error_everywhere() {
         &doubled,
         &VerifyOptions {
             body: sent.body.clone(),
-            ..Default::default()
+            ..opted_out()
         },
     );
     assert_eq!(kind_of(err), Kind::InvalidArgument);
@@ -2067,13 +2034,7 @@ fn two_header_names_equal_but_for_case_are_a_caller_error_everywhere() {
     let err = respond_to(Some(&twice), &[], SignOptions::default());
     assert_eq!(kind_of(err), Kind::InvalidArgument);
     let good = respond(SignOptions::default());
-    let err = check_as(
-        200,
-        &good,
-        Some(&twice),
-        Some(RESPONSE_BODY),
-        VerifyOptions::default(),
-    );
+    let err = check_as(200, &good, Some(&twice), Some(RESPONSE_BODY), opted_out());
     assert_eq!(kind_of(err), Kind::InvalidArgument);
 }
 

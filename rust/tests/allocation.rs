@@ -8,8 +8,20 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fiki::{
-    content_digest, sign_response, verify_response, Key, Request, SignOptions, VerifyOptions,
+    content_digest, sign_response, verify_response, Authorities, Key, Minimum, Request,
+    SignOptions, VerifyOptions,
 };
+
+/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
+/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
+/// so a test whose subject is something else states that policy rather than relying on it.
+fn opted_out() -> VerifyOptions {
+    VerifyOptions {
+        minimum: Minimum::Off,
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    }
+}
 
 struct Counting;
 
@@ -60,7 +72,7 @@ fn a_large_request_body_is_hashed_in_place_when_a_response_binds_it() {
     );
 
     let (verdict, used) =
-        allocated_by(|| verify_response(204, &headers, Some(&request), &VerifyOptions::default()));
+        allocated_by(|| verify_response(204, &headers, Some(&request), &opted_out()));
     assert!(verdict
         .unwrap()
         .covered

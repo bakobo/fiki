@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use fiki::{
-    sign_request, sign_response, verify_request, verify_response, Error, Key, Kind, Request,
-    Resolver, SignOptions, VerifyOptions, REQUEST_MINIMUM, RESPONSE_MINIMUM,
+    sign_request, sign_response, verify_request, verify_response, Authorities, Error, Key, Kind,
+    Minimum, Request, Resolver, SignOptions, VerifyOptions, REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };
 
 type Outcome = Result<(), Box<dyn std::error::Error>>;
@@ -76,6 +76,8 @@ fn plain() -> Outcome {
         &VerifyOptions {
             max_age: Some(300),
             body: Some(body.to_vec()),
+            // Required, like max_age: the hosts this verifier serves, or Authorities::Unchecked.
+            authorities: Authorities::served(["api.example.com"]),
             ..Default::default()
         },
     )?;
@@ -122,7 +124,8 @@ fn keri_verify(headers: &BTreeMap<String, String>, table: &BTreeMap<String, [u8;
             max_age: Some(300),
             body: Some(body.to_vec()),
             resolve: Some(resolve),
-            minimum: Some(REQUEST_MINIMUM.map(String::from).to_vec()),
+            minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+            authorities: Authorities::served(["keria.example.com"]),
             ..Default::default()
         },
     )?;
@@ -171,7 +174,7 @@ fn keri_verify_response(
             body: Some(br#"{"done": true}"#.to_vec()),
             resolve: Some(resolve),
             expected_keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
-            minimum: Some(RESPONSE_MINIMUM.map(String::from).to_vec()),
+            minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
             ..Default::default()
         },
     )?;
@@ -193,7 +196,8 @@ fn refusals(
         max_age: Some(300),
         body: Some(BODY.to_vec()),
         resolve: Some(resolve),
-        minimum: Some(REQUEST_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+        authorities: Authorities::served(["keria.example.com"]),
         ..Default::default()
     };
     let verify = |headers: &BTreeMap<String, String>, opts: &VerifyOptions| {
@@ -232,7 +236,7 @@ fn refusals(
     let input = doubled["Signature-Input"].replacen("\"@path\"", "\"@path\" \"@path\"", 1);
     doubled.insert("Signature-Input".into(), input);
     let below = VerifyOptions {
-        minimum: Some(vec!["@method".into()]),
+        minimum: Minimum::Of(vec!["@method".into()]),
         ..opts(known.clone())
     };
 

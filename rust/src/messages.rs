@@ -48,6 +48,63 @@ pub const RESPONSE_MINIMUM: [&str; 4] = [
     "\"@query\";req",
 ];
 
+/// What [`verify_request`] requires when the caller states no minimum of its own
+/// ([`Minimum::Default`], `this.i` @524c8qgv): fiki's own signing default, so a verifier left at
+/// its defaults accepts what a fiki signer produces and nothing that covers less. A body adds
+/// `content-digest`, and, being a minimum, it requires `created` and a `keyid`.
+pub const DEFAULT_MINIMUM: [&str; 4] = ["@method", "@authority", "@path", "@query"];
+
+/// The verifier's covered-set policy, [`VerifyOptions::minimum`].
+///
+/// Three states rather than an `Option`, because "not stated" and "opted out" must differ: left
+/// at [`Minimum::Default`], [`verify_request`] applies [`DEFAULT_MINIMUM`] (`this.i` @524c8qgv),
+/// and only [`Minimum::Off`] applies none. [`verify_response`] keeps its own default for now,
+/// which is no minimum, so there `Default` and `Off` are the same.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Minimum {
+    /// Not stated: [`DEFAULT_MINIMUM`] for a request, no minimum for a response.
+    #[default]
+    Default,
+    /// The explicit opt-out: no minimum, and so no body rule and no required `created`. A body
+    /// handed over with no covered `content-digest` is accepted, and the verdict's `covered` is the
+    /// only place that shows it (@2f227n4r).
+    Off,
+    /// This minimum, which must include [`REQUEST_MINIMUM`] or [`RESPONSE_MINIMUM`]; anything
+    /// smaller is `InvalidArgument`.
+    Of(Vec<String>),
+}
+
+/// The `@authority` values a verifier serves, [`VerifyOptions::authorities`] (`this.i` @524c8qgv).
+///
+/// [`verify_request`] has no default for it, as it has none for `max_age`: the caller decides, and
+/// leaving it at [`Authorities::Unstated`] is `InvalidArgument`. Entries are compared exactly with
+/// `@authority` as fiki derives it: a lowercase host, and a port unless it is the default port of
+/// an absolute URL's scheme.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Authorities {
+    /// No decision was made, which [`verify_request`] refuses as `InvalidArgument`.
+    #[default]
+    Unstated,
+    /// The explicit decision not to check which host a request was signed for.
+    Unchecked,
+    /// The hosts this verifier serves. A covered `@authority` outside them is `SignatureMismatch`,
+    /// and stating them makes `@authority` required even under [`Minimum::Off`] (@605z9tnw). An
+    /// empty set serves no host at all, so it is `InvalidArgument`.
+    Served(BTreeSet<String>),
+}
+
+impl Authorities {
+    /// The hosts this verifier serves: `Authorities::served(["api.example.com"])`. A bare string
+    /// is not a collection of hosts, so `served("api.example.com")` does not compile.
+    pub fn served<I, S>(hosts: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Authorities::Served(hosts.into_iter().map(Into::into).collect())
+    }
+}
+
 const SIGNATURE_LENGTH: usize = 64;
 
 /// The most bytes fiki reads of a Signature, Signature-Input or Content-Digest field value, measured
@@ -135,13 +192,18 @@ pub struct Verdict {
 /// tolerance, or an explicit `None` to decline the check. Both defaults would be wrong
 /// (`this.i` @67shl6c5).
 ///
+/// `authorities` is a decision of the same kind for [`verify_request`] (`this.i` @524c8qgv): the
+/// hosts this verifier serves, or [`Authorities::Unchecked`]; left [`Authorities::Unstated`] it is
+/// `InvalidArgument`. A request covering a host outside them is a `SignatureMismatch`, and stating
+/// them makes `@authority` required, so a request that does not cover it is `InsufficientCoverage`
+/// (@605z9tnw).
+///
 /// `expected_aid` and `resolve` each decide the key alone; supplying both is `InvalidArgument`.
-/// `minimum` is the verifier's covered-set policy, [`REQUEST_MINIMUM`] or [`RESPONSE_MINIMUM`] or
-/// a superset of it, which also requires `created` and applies the profile's body rule (`None`
-/// applies no minimum at all). `expected_keyid` refuses a signature by any other keyid as
-/// `UnknownKey`. `authorities` is the set of `@authority` values this verifier serves; a request
-/// covering another is a `SignatureMismatch`, and supplying it makes `@authority` required, so a
-/// request that does not cover it is `InsufficientCoverage` (@605z9tnw).
+/// `minimum` is the verifier's covered-set policy ([`Minimum`]): left at its default a request
+/// must cover [`DEFAULT_MINIMUM`]; a stated one is [`REQUEST_MINIMUM`] or [`RESPONSE_MINIMUM`] or
+/// a superset of it. Any minimum also requires `created`, a `keyid` even beside `expected_aid`,
+/// and applies the profile's body rule; [`Minimum::Off`] applies none of it. `expected_keyid`
+/// refuses a signature by any other keyid as `UnknownKey`.
 #[derive(Default, Clone)]
 pub struct VerifyOptions {
     pub max_age: Option<i64>,
@@ -150,9 +212,9 @@ pub struct VerifyOptions {
     pub skew: Option<i64>,
     pub now: Option<i64>,
     pub resolve: Option<Resolver>,
-    pub minimum: Option<Vec<String>>,
+    pub minimum: Minimum,
     pub expected_keyid: Option<String>,
-    pub authorities: Option<BTreeSet<String>>,
+    pub authorities: Authorities,
 }
 
 impl fmt::Debug for VerifyOptions {
@@ -168,6 +230,40 @@ impl fmt::Debug for VerifyOptions {
             .field("expected_keyid", &self.expected_keyid)
             .field("authorities", &self.authorities)
             .finish()
+    }
+}
+
+/// A verifier's [`Minimum`] as the minimum it applies, `default` standing in when none is stated.
+fn stated(
+    minimum: &Minimum,
+    default: Option<&[&str]>,
+    floor: &[&str],
+) -> Result<Option<Vec<Item>>> {
+    match minimum {
+        Minimum::Default => {
+            let default = default.map(|d| d.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+            floored(default.as_deref(), floor)
+        }
+        Minimum::Off => Ok(None),
+        Minimum::Of(given) => floored(Some(given), floor),
+    }
+}
+
+/// `authorities` is a decision the caller made, and a set of hosts is not empty (@524c8qgv).
+fn check_authorities(authorities: &Authorities) -> Result<()> {
+    match authorities {
+        Authorities::Unstated => Err(Error::new(
+            Kind::InvalidArgument,
+            "authorities is a required decision: state the hosts this verifier serves, such as \
+             Authorities::served([\"api.example.com\"]), or Authorities::Unchecked to decline the \
+             check.",
+        )),
+        Authorities::Served(hosts) if hosts.is_empty() => Err(Error::new(
+            Kind::InvalidArgument,
+            "authorities is empty, which serves no host at all; pass Authorities::Unchecked to \
+             decline the check.",
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -191,7 +287,7 @@ fn floored(minimum: Option<&[String]>, floor: &[&str]) -> Result<Option<Vec<Item
             Kind::InvalidArgument,
             format!(
                 "A minimum covered set must include the profile's own, {}; this one leaves out {}. \
-                 Pass None to apply no minimum at all.",
+                 State no minimum to take the default, or opt out of any.",
                 floor.join(", "),
                 missing.join(", ")
             ),
@@ -416,9 +512,12 @@ pub fn sign_response(
 /// correct refusal.
 ///
 /// `max_age` and `skew`, when given, are positive; anything else is `InvalidArgument`
-/// (`this.i` @5zrf8gjk), as is a method that is not an HTTP token. A URL whose port is not a number
-/// from 0 to 65535 is a base that cannot be built, so a covered `@authority` makes it a
-/// `SignatureMismatch`. The Signature, Signature-Input and Content-Digest headers are bounded
+/// (`this.i` @5zrf8gjk), as is a method that is not an HTTP token, an [`Authorities::Unstated`], or
+/// an empty set of hosts. A target beginning with "/" is origin-form, whatever follows, and its
+/// `@authority` is the Host header, checked as any authority is; anything else must be a scheme,
+/// "://" and an authority. A target of any other shape, holding a "#", a space or a control
+/// character, or whose authority's port is not a number from 0 to 65535, is a base that cannot be
+/// built, so a covered derived component makes it a `SignatureMismatch`. The Signature, Signature-Input and Content-Digest headers are bounded
 /// before they are parsed, at [`MAX_FIELD_BYTES`] each, [`MAX_DICTIONARY_MEMBERS`] members,
 /// [`MAX_INNER_LIST_ITEMS`] items in an inner list and [`MAX_PARAMETERS`] parameters on an item,
 /// and a header over any of them is malformed.
@@ -429,7 +528,8 @@ pub fn verify_request(
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
     check_window(opts)?;
-    let minimum = floored(opts.minimum.as_deref(), &REQUEST_MINIMUM)?;
+    check_authorities(&opts.authorities)?;
+    let minimum = stated(&opts.minimum, Some(&DEFAULT_MINIMUM), &REQUEST_MINIMUM)?;
     let headers = &canonical(headers)?;
     verify(
         &Message::request(method, url, headers, true)?,
@@ -456,8 +556,8 @@ pub fn verify_response(
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
     check_window(opts)?;
-    let minimum = floored(opts.minimum.as_deref(), &RESPONSE_MINIMUM)?;
-    if opts.authorities.is_some() {
+    let minimum = stated(&opts.minimum, None, &RESPONSE_MINIMUM)?;
+    if matches!(opts.authorities, Authorities::Served(_)) {
         return Err(Error::new(
             Kind::InvalidArgument,
             "A response has no @authority of its own, so served authorities do not apply to one; \
@@ -515,7 +615,7 @@ fn verify(
     }
     // Served authorities bind the signature to a host only if it commits to one, so supplying
     // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
-    if opts.authorities.is_some() {
+    if matches!(opts.authorities, Authorities::Served(_)) {
         check_minimum(items, &[component("@authority")?], false, false)?;
     }
 
@@ -568,7 +668,7 @@ fn verify(
             )
         })?;
 
-    if let Some(served) = &opts.authorities {
+    if let Authorities::Served(served) = &opts.authorities {
         for item in items.iter().filter(|i| i.text() == Some("@authority")) {
             let value = crate::base::value_of(item, message)?;
             if !served.contains(&value) {

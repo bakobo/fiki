@@ -22,11 +22,22 @@ use std::sync::Arc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fiki::{
     response_signature_base, sign_request, signature_base, verify_request, verify_response,
-    verifying_key, Error, Key, Kind, Request, Resolver, SignOptions, SignatureParams, Verdict,
-    VerifyOptions, KERI_VECTORS_FORMAT,
+    verifying_key, Authorities, Error, Key, Kind, Minimum, Request, Resolver, SignOptions,
+    SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
+
+/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
+/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
+/// so a test whose subject is something else states that policy rather than relying on it.
+fn opted_out() -> VerifyOptions {
+    VerifyOptions {
+        minimum: Minimum::Off,
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    }
+}
 
 const FILES: [&str; 5] = [
     "rfc9421.json",
@@ -306,8 +317,8 @@ fn verify(
         now: Some(now),
         resolve: Some(resolver(keys)),
         expected_keyid: policy["expected_keyid"].as_str().map(str::to_string),
-        minimum: Some(strings(&policy[minimum])),
-        ..Default::default()
+        minimum: Minimum::Of(strings(&policy[minimum])),
+        ..opted_out()
     };
     match response {
         Some(response) => verify_response(
@@ -325,9 +336,10 @@ fn verify(
             &headers_of(request),
             &VerifyOptions {
                 body: body_of(request),
-                authorities: policy["authorities"]
-                    .as_array()
-                    .map(|a| a.iter().map(|s| s.as_str().unwrap().to_string()).collect()),
+                authorities: match policy["authorities"].as_array() {
+                    Some(hosts) => Authorities::served(hosts.iter().map(|s| s.as_str().unwrap())),
+                    None => Authorities::Unchecked,
+                },
                 ..options("request_minimum")
             },
         ),
