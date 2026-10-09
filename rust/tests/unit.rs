@@ -5,17 +5,19 @@
 use std::collections::BTreeMap;
 
 use fiki::{
-    content_digest, sign_request, signature_base, verify_request, verifying_key, Authorities, Key,
-    Kind, Minimum, SignOptions, SignatureParams, VerifyOptions,
+    content_digest, sign_request, signature_base, verify_request, verify_response, verifying_key,
+    Authorities, ExpectedKeyid, Key, Kind, Minimum, SignOptions, SignatureParams, VerifyOptions,
 };
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
-/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
-/// so a test whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
+/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
+/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
+/// whose subject is something else states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     }
 }
@@ -86,7 +88,7 @@ fn keys_and_the_lens() {
         Kind::MalformedKey
     );
     let raw = verifying_key(SEED_AID).unwrap();
-    assert_eq!(fiki::to_aid(raw.as_bytes()), SEED_AID);
+    assert_eq!(fiki::to_aid(raw.as_bytes()).unwrap(), SEED_AID);
 }
 
 #[test]
@@ -116,7 +118,7 @@ fn bytes_that_are_not_a_usable_key_are_refused_up_front() {
     // decompresses it by reducing y, so it used to surface only as a failed signature. A key that
     // cannot be a key is refused as malformed before any signature is checked (`this.i` @34qlc8r3);
     // profile.rs pins every class of it on every path.
-    let aid = fiki::to_aid(&[0xFFu8; 32]);
+    let aid = fiki::to_aid(&[0xFFu8; 32]).unwrap();
     assert_eq!(verifying_key(&aid).unwrap_err().kind, Kind::MalformedKey);
 }
 
@@ -726,4 +728,139 @@ fn authorities_built_from_a_list_of_hosts() {
         fiki::DEFAULT_MINIMUM,
         ["@method", "@authority", "@path", "@query"]
     );
+}
+
+#[test]
+fn to_aid_of_anything_but_32_bytes_is_a_caller_error() {
+    // Review B8: it indexed a 33-byte buffer with whatever it was handed, and panicked.
+    for length in [0, 1, 31, 33, 64] {
+        let refused = fiki::to_aid(&vec![7u8; length]).unwrap_err();
+        assert_eq!(refused.kind, Kind::InvalidArgument, "{length}");
+        assert!(refused.message.contains(&length.to_string()), "{length}");
+    }
+    assert_eq!(fiki::to_aid(&[0u8; 32]).unwrap().len(), 44);
+}
+
+#[test]
+fn an_error_quotes_at_most_64_characters_of_an_untrusted_url_and_escapes_controls() {
+    // Review A9, B9: a 5 MB URL made a 10 MB error carrying the URL twice, in the message and the
+    // detail (`this.i` @524c8qgv).
+    let signed = sign_request(
+        &key(),
+        "GET",
+        "https://api.example.com/x",
+        &BTreeMap::new(),
+        &SignOptions {
+            created: Some(SIGNED_AT),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let url = format!("https://api.example.com/{}", "p".repeat(9000));
+    let refused = verify_request("GET", &url, &signed, &opted_out()).unwrap_err();
+    assert_eq!(refused.kind, Kind::SignatureMismatch);
+    assert!(refused.message.len() < 400, "{}", refused.message);
+    assert!(
+        refused.message.contains("cut from 9024 characters"),
+        "{}",
+        refused.message
+    );
+    assert!(refused.detail.as_deref().is_some_and(|d| d.len() < 120));
+
+    let refused = verify_request(
+        "GET",
+        "https://api.example.com/a\x1bb",
+        &signed,
+        &opted_out(),
+    )
+    .unwrap_err();
+    assert!(!refused.message.contains('\x1b'), "{}", refused.message);
+    assert!(refused.message.contains("\\u{1b}"), "{}", refused.message);
+    assert!(!refused.detail.unwrap().contains('\x1b'));
+
+    // A Host over the bound, and one under it holding a control character, are quoted the same way.
+    for host in ["h".repeat(9000), "a\x07.example".to_string()] {
+        let refused =
+            verify_request("GET", "/x", &headers(&[("Host", &host)]), &opted_out()).unwrap_err();
+        assert!(refused.message.len() < 400, "{}", refused.message);
+        assert!(!refused.message.contains('\x07'), "{}", refused.message);
+    }
+}
+
+#[test]
+fn an_empty_expected_keyid_is_a_caller_error_in_both_verifiers() {
+    // "" names no AID, and reading it as the decline would turn a missing value into "accept any
+    // signer" (`this.i` @524c8qgv, part-two refinements).
+    let empty = VerifyOptions {
+        expected_keyid: ExpectedKeyid::Is(String::new()),
+        ..opted_out()
+    };
+    let refused = verify_request("GET", URL_QUERY, &BTreeMap::new(), &empty).unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+    let refused = verify_response(200, &BTreeMap::new(), None, &empty).unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+    // Unstated is refused only for a response; a request verifier has a key policy of its own.
+    let unstated = VerifyOptions {
+        expected_keyid: ExpectedKeyid::Unstated,
+        ..opted_out()
+    };
+    let refused = verify_response(200, &BTreeMap::new(), None, &unstated).unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+    assert_eq!(
+        verify_request("GET", URL_QUERY, &BTreeMap::new(), &unstated)
+            .unwrap_err()
+            .kind,
+        Kind::MissingSignature
+    );
+    assert_eq!(ExpectedKeyid::is("B-x"), ExpectedKeyid::Is("B-x".into()));
+}
+
+#[test]
+fn userinfo_is_a_caller_error_when_signing() {
+    // RFC 9110 section 4.2.4 (`this.i` @524c8qgv): refused, never stripped. refusals.json pins the
+    // verifier's side.
+    for url in [
+        "https://user@api.example.com/x",
+        "https://@api.example.com/x",
+        "https://:@api.example.com/x",
+    ] {
+        let refused = sign_request(
+            &key(),
+            "GET",
+            url,
+            &BTreeMap::new(),
+            &SignOptions::default(),
+        )
+        .unwrap_err();
+        assert_eq!(refused.kind, Kind::InvalidArgument, "{url}");
+    }
+}
+
+#[test]
+fn a_covered_field_value_is_bounded_inclusively_before_it_is_trimmed() {
+    let sign = |value: &str| {
+        sign_request(
+            &key(),
+            "GET",
+            URL_QUERY,
+            &headers(&[("X-Note", value)]),
+            &SignOptions {
+                covered: Some(vec!["@method".into(), "x-note".into()]),
+                ..Default::default()
+            },
+        )
+    };
+    assert!(sign(&"n".repeat(fiki::MAX_FIELD_BYTES)).is_ok());
+    assert_eq!(
+        sign(&"n".repeat(fiki::MAX_FIELD_BYTES + 1))
+            .unwrap_err()
+            .kind,
+        Kind::SignatureMismatch
+    );
+    // Over the bound only with its optional whitespace, which is measured too.
+    let padded = format!(" {} ", "n".repeat(fiki::MAX_FIELD_BYTES - 1));
+    assert_eq!(sign(&padded).unwrap_err().kind, Kind::SignatureMismatch);
+    // Measured in bytes, not characters.
+    let wide = "é".repeat(fiki::MAX_FIELD_BYTES / 2 + 1);
+    assert_eq!(sign(&wide).unwrap_err().kind, Kind::SignatureMismatch);
 }
