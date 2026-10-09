@@ -394,9 +394,12 @@ class FailClosedTest {
 
     @Test
     void theKelvinSignIsNotLowercasedIntoAK() {
-        // U+212A lowercases to "k" under String.toLowerCase; fiki lowercases ASCII only (B5).
-        assertEquals(FikiException.Kind.SignatureMismatch,
-            kindOf(() -> authority("https://Keria.example/p", Map.of())));
+        // U+212A lowercases to "k" under String.toLowerCase; fiki lowercases ASCII only (B5). In a
+        // URL it is a host that is not ASCII, an unreadable target and so the signer's mistake, as
+        // in fiki-py; in a Host header it is a value no base can carry.
+        IllegalArgumentException unreadable = assertThrows(IllegalArgumentException.class,
+            () -> authority("https://Keria.example/p", Map.of()));
+        assertTrue(unreadable.getMessage().contains("its host is not ASCII"), unreadable.getMessage());
         assertEquals(FikiException.Kind.SignatureMismatch,
             kindOf(() -> authority("/p", Map.of("Host", "Keria.example"))));
         // A header named with it is not the ASCII field it imitates, so a signature covering that
