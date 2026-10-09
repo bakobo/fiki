@@ -27,6 +27,12 @@ import {
 } from '../src/index.js';
 import { parseDictionary } from '../src/sfv.js';
 
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
+
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const URL_ = 'https://api.example.com/things?limit=1';
 const BODY = new TextEncoder().encode('{"hello": "world"}');
@@ -41,7 +47,7 @@ async function sign(overrides = {}) {
 }
 
 const verify = (request, headers, overrides = {}) =>
-  verifyRequest({ headers, maxAge: null, now: AT, ...request, ...overrides });
+  verifyRequest({ ...POLICY, headers, maxAge: null, now: AT, ...request, ...overrides });
 
 /** A POST validly signed over a Content-Digest of the caller's spelling.
  *
@@ -134,13 +140,13 @@ describe('A4: header values are strings, and a field is named once', () => {
   for (const headers of [{ 'x-a': null }, { 'x-a': undefined }, { 'x-a': 1 }, { 'x-a': ['1'] }]) {
     it(`${JSON.stringify(headers)} is a caller error on sign and verify`, async () => {
       await assert.rejects(sign({ headers }), callerError);
-      await assert.rejects(verifyRequest({ method: 'GET', url: URL_, headers, maxAge: null }), callerError);
+      await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null }), callerError);
     });
   }
 
   it('two names equal case-insensitively are a caller error, whatever the first value', async () => {
     await assert.rejects(sign({ headers: { 'X-A': '', 'x-a': '1' } }), callerError);
-    await assert.rejects(verifyRequest({ method: 'GET', url: URL_, headers: { 'X-A': '1', 'x-a': '1' }, maxAge: null }), callerError);
+    await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: { 'X-A': '1', 'x-a': '1' }, maxAge: null }), callerError);
   });
 });
 
@@ -650,30 +656,34 @@ describe('B20: input bounds, size before shape', () => {
   });
 });
 
-describe('E, conductor follow-up: a URL is cleaned as urlsplit cleans it, so every port builds one base', () => {
-  // Each expected base is fiki-py's on this branch (Python 3.14 urlsplit): TAB, CR and LF are
-  // removed anywhere in the URL, and leading C0 controls and spaces are stripped. Trailing ones
-  // are not, since urlsplit strips only the leading end.
+describe('E, superseded by @524c8qgv: a target holding a space or a control is refused, never cleaned', () => {
+  // Format 2 cleaned a URL as urlsplit cleans it, which made "/\nx" verify as "/x". Format 3 refuses
+  // such a target anywhere in it: a caller error on sign, a base that cannot be built on verify.
   const linesOf = (url) =>
     new TextDecoder()
       .decode(signatureBase({ method: 'GET', url, headers: {}, covered: ['@authority', '@path', '@query'], ...BASE_ARGS }))
       .split('\n')
       .slice(0, 3);
 
-  it('removes TAB, CR and LF anywhere', () => {
-    assert.deepEqual(linesOf('https://a.example/x\ty?q=1\r\n2'), ['"@authority": a.example', '"@path": /xy', '"@query": ?q=12']);
-    assert.deepEqual(linesOf('https://a.ex\tample:8\n0/p'), ['"@authority": a.example:80', '"@path": /p', '"@query": ?']);
-  });
+  for (const url of [
+    'https://a.example/x\ty?q=1',
+    'https://a.example/x?q=1\r\n2',
+    'https://a.ex\tample:80/p',
+    ' https://a.example/p',
+    '\x01https://a.example/p',
+    'https://a.example/p ',
+    'https://a.example/p\x1f',
+    'https://a.example/p\x7f',
+    '/p\nx',
+  ]) {
+    it(`${JSON.stringify(url)} is a caller error on sign and a mismatch on verify`, async () => {
+      assert.throws(() => linesOf(url), TypeError);
+      const [request, headers] = await sign({ url: 'https://a.example/p' });
+      await assert.rejects(verify({ ...request, url }, headers), errors.SignatureMismatch);
+    });
+  }
 
-  it('strips leading C0 controls and spaces, and keeps trailing ones', () => {
-    assert.deepEqual(linesOf(' \x01\x00https://a.example/p '), ['"@authority": a.example', '"@path": /p ', '"@query": ?']);
-    assert.throws(() => linesOf('https://a.example/p\x1f'), errors.SignatureMismatch);
-  });
-
-  it('signs and verifies such a URL', async () => {
-    const url = 'https://a.example/x\ty?q=1\r\n2';
-    const [request, headers] = await sign({ url });
-    assert.equal((await verify(request, headers)).aid, KEY.aid);
-    assert.equal((await verify({ ...request, url: 'https://a.example/xy?q=12' }, headers)).aid, KEY.aid);
+  it('builds the base of the same target without them', () => {
+    assert.deepEqual(linesOf('https://a.example/xy?q=12'), ['"@authority": a.example', '"@path": /xy', '"@query": ?q=12']);
   });
 });

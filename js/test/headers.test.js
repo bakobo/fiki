@@ -21,6 +21,12 @@ import {
   verifyResponse,
 } from '../src/index.js';
 
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
+
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const URL_ = 'https://keria.example.com/identifiers?type=rot';
 const BODY = new TextEncoder().encode('{"hello": "world"}');
@@ -49,7 +55,7 @@ describe('headers holding one field name twice (D-Q9ZT)', () => {
     it(`refuses ${id} when verifying`, async () => {
       const signed = await signRequest({ key: KEY, method: 'POST', url: URL_, body: BODY, created: AT });
       await assert.rejects(
-        () => verifyRequest({ method: 'POST', url: URL_, headers: { ...signed, ...extra }, body: BODY, maxAge: null }),
+        () => verifyRequest({ ...POLICY, method: 'POST', url: URL_, headers: { ...signed, ...extra }, body: BODY, maxAge: null }),
         TypeError,
       );
       const request = { method: 'POST', url: URL_, headers: { 'Content-Digest': DIGEST }, body: BODY };
@@ -73,7 +79,7 @@ describe('headers holding one field name twice (D-Q9ZT)', () => {
       covered: ['@method', '@path', '@query', 'x-role', 'content-digest'],
     });
     assert.equal(signed['Content-Digest'], undefined);
-    await verifyRequest({ method: 'POST', url: URL_, headers: { ...headers, ...signed }, body: BODY, maxAge: null });
+    await verifyRequest({ ...POLICY, method: 'POST', url: URL_, headers: { ...headers, ...signed }, body: BODY, maxAge: null });
   });
 });
 
@@ -82,7 +88,7 @@ describe('a header named __proto__ (PR #5 hostile review, H1)', () => {
     const headers = JSON.parse('{"__proto__": "admin", "__PROTO__": "guest"}');
     await assert.rejects(() => signRequest({ key: KEY, method: 'GET', url: URL_, headers, created: AT }), TypeError);
     const signed = await signRequest({ key: KEY, method: 'GET', url: URL_, created: AT });
-    await assert.rejects(() => verifyRequest({ method: 'GET', url: URL_, headers: { ...signed, ...headers }, maxAge: null }), TypeError);
+    await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: { ...signed, ...headers }, maxAge: null }), TypeError);
   });
 
   it('is an ordinary field when it appears once', async () => {
@@ -92,8 +98,8 @@ describe('a header named __proto__ (PR #5 hostile review, H1)', () => {
     assert.equal(new TextDecoder().decode(base).split('\n')[3], '"__proto__": admin');
     const signed = await signRequest({ key: KEY, method: 'GET', url: URL_, headers, covered, created: AT });
     const both = Object.assign(JSON.parse('{"__proto__": "admin"}'), signed);
-    await verifyRequest({ method: 'GET', url: URL_, headers: both, maxAge: null });
+    await verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: both, maxAge: null });
     const swapped = Object.assign(JSON.parse('{"__proto__": "guest"}'), signed);
-    await assert.rejects(() => verifyRequest({ method: 'GET', url: URL_, headers: swapped, maxAge: null }), errors.SignatureMismatch);
+    await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: swapped, maxAge: null }), errors.SignatureMismatch);
   });
 });

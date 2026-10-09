@@ -10,7 +10,7 @@
 // when their declared vectors format matches, whatever their own version numbers say — so this is
 // the number to compare, not the release. Monotonic, because a conformance contract has no
 // meaningful minor: an implementation either satisfies the vectors or it does not.
-export const VECTORS_FORMAT = 2;
+export const VECTORS_FORMAT = 3;
 
 // The KERI profile's own conformance contract, vectors/keri/ (`this.i` @8vwrexxc, @9enyfktu). A
 // separate number from VECTORS_FORMAT, because the two sets answer to different authorities and
@@ -32,6 +32,7 @@ export {
 } from './base.js';
 export {
   ALG,
+  DEFAULT_MINIMUM,
   DEFAULT_SKEW,
   REQUEST_MINIMUM,
   RESPONSE_MINIMUM,

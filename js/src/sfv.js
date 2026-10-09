@@ -54,7 +54,14 @@ class Cursor {
     return this.text[this.at++];
   }
 
-  skipSpace() {
+  // RFC 8941 distinguishes SP, which is all it allows inside an inner list, after a parameter's
+  // ";" and at the start of a field, from OWS (SP or HTAB), which it allows only around a list or
+  // dictionary comma and after a member (section 4.2).
+  skipSP() {
+    while (!this.done && this.peek() === ' ') this.at += 1;
+  }
+
+  skipOWS() {
     while (!this.done && (this.peek() === ' ' || this.peek() === '\t')) this.at += 1;
   }
 
@@ -76,21 +83,27 @@ function parseKey(cursor) {
   return cursor.text.slice(start, cursor.at);
 }
 
+// RFC 8941 section 3.3.3: unescaped = %x20-21 / %x23-5B / %x5D-7E.
+const UNESCAPED = /^[\x20\x21\x23-\x5b\x5d-\x7e]$/;
+
 function parseString(cursor) {
   cursor.expect('"');
   let out = '';
   while (!cursor.done) {
     const char = cursor.take();
     if (char === '\\') {
+      // A lone trailing backslash takes nothing, which is no escape either.
       const escaped = cursor.take();
       if (escaped !== '"' && escaped !== '\\') {
-        throw new MalformedSyntax(`Only \\" and \\\\ may be escaped in a string, not \\${escaped}.`);
+        throw new MalformedSyntax('Only \\" and \\\\ may be escaped in a string.');
       }
       out += escaped;
     } else if (char === '"') {
       return out;
-    } else {
+    } else if (UNESCAPED.test(char)) {
       out += char;
+    } else {
+      throw new MalformedSyntax('A string holds printable ASCII and nothing else.');
     }
   }
   throw new MalformedSyntax('A string ran to the end of the field without closing.');
@@ -139,7 +152,7 @@ function parseParameters(cursor) {
   const params = new Map();
   while (!cursor.done && cursor.peek() === ';') {
     cursor.take();
-    cursor.skipSpace();
+    cursor.skipSP();
     const key = parseKey(cursor);
     if (!cursor.done && cursor.peek() === '=') {
       cursor.take();
@@ -158,7 +171,7 @@ function parseInnerList(cursor) {
   cursor.expect('(');
   const items = [];
   for (;;) {
-    cursor.skipSpace();
+    cursor.skipSP();
     if (cursor.done) throw new MalformedSyntax('An inner list ran to the end of the field.');
     if (cursor.peek() === ')') {
       cursor.take();
@@ -178,9 +191,9 @@ function parseInnerList(cursor) {
 /** Parse one RFC 8941 item with its parameters, the whole of `text`: `"@path";req`. */
 export function parseItem(text) {
   const cursor = new Cursor(text);
-  cursor.skipSpace();
+  cursor.skipSP();
   const item = { value: parseBareItem(cursor), params: parseParameters(cursor) };
-  cursor.skipSpace();
+  cursor.skipSP();
   if (!cursor.done) throw new MalformedSyntax(`Unexpected text after the item at offset ${cursor.at} of ${text}.`);
   return item;
 }
@@ -189,7 +202,7 @@ export function parseItem(text) {
 export function parseDictionary(text) {
   const cursor = new Cursor(text);
   const out = new Map();
-  cursor.skipSpace();
+  cursor.skipSP();
   while (!cursor.done) {
     const key = parseKey(cursor);
     let value;
@@ -206,10 +219,10 @@ export function parseDictionary(text) {
     if (out.size > MAX_DICTIONARY_MEMBERS) {
       throw new MalformedSyntax(`A dictionary holds more than ${MAX_DICTIONARY_MEMBERS} members.`);
     }
-    cursor.skipSpace();
+    cursor.skipOWS();
     if (cursor.done) break;
     cursor.expect(',');
-    cursor.skipSpace();
+    cursor.skipOWS();
     if (cursor.done) throw new MalformedSyntax('A dictionary ended with a trailing comma.');
   }
   return out;
