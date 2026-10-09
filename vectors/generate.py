@@ -1094,6 +1094,25 @@ def refusals():
         body_text=None, headers={"Signature": " \t "},
         note="Profile section 9 order: a missing Signature-Input is found before the Signature "
              "is parsed, so whitespace there is never reached (pinned after fiki-go diverged).")
+    # Long untrusted values in refusals (#18 Copilot): every driver checks a refusal's message is
+    # at most 1024 characters, so each port must quote these cut, not whole.
+    long_text = "L" * 4000
+    lk = signed(method="GET", body=None)
+    lk["Signature-Input"] = lk["Signature-Input"].replace(f'keyid="{keyid_of(key)}"', f'keyid="{long_text}"')
+    add("long-keyid-that-is-not-a-key", "MalformedKey", method="GET", body_text=None, headers=lk,
+        note="A refusal quotes at most 64 characters of the keyid it refuses.")
+    la = signed(method="GET", body=None)
+    la["Signature-Input"] = la["Signature-Input"].replace('alg="ed25519"', f'alg="{long_text}"')
+    add("long-unsupported-algorithm", "UnsupportedAlgorithm", method="GET", body_text=None,
+        headers=la, note="A refusal quotes at most 64 characters of the algorithm it refuses.")
+    ll = signed(method="GET", body=None)
+    ll["Signature"] = "l" + "x" * 3999 + "=" + ll["Signature"].split("=", 1)[1]
+    add("long-label-on-the-signature-only", "MissingSignatureLabel", method="GET", body_text=None,
+        headers=ll, note="A refusal quotes at most 64 characters of a label.")
+    lc = signed(method="GET", body=None)
+    lc["Signature-Input"] = lc["Signature-Input"].replace('"@query"', '"@query" "@' + "q" * 4000 + '"')
+    add("long-unknown-derived-component", "UnsupportedComponent", method="GET", body_text=None,
+        headers=lc, note="A refusal quotes at most 64 characters of a component name.")
     two = signed(method="GET", body=None)
     sig_value = two["Signature"].split("=", 1)[1]
     add("two-members-in-signature-one-in-signature-input", "MalformedSignatureLabel",
