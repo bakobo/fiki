@@ -62,7 +62,9 @@ func main() {
 		if c.ID != "default-covered-get" {
 			continue
 		}
-		verdict, err := fiki.VerifyRequest(c.Method, c.URL, c.Headers, fiki.VerifyOptions{Now: c.Now})
+		// The case states no max_age and no authorities: the explicit declines.
+		verdict, err := fiki.VerifyRequest(c.Method, c.URL, c.Headers,
+			fiki.VerifyOptions{Now: c.Now, AnyAge: true, AnyAuthority: true})
 		must(err)
 		check("plain vector", verdict.AID, c.AID)
 	}
@@ -77,7 +79,8 @@ func main() {
 	headers, err := fiki.SignRequest(key, "POST", url, nil, fiki.SignOptions{Body: body})
 	must(err)
 	verdict, err := fiki.VerifyRequest("POST", url, headers,
-		fiki.VerifyOptions{Body: body, MaxAge: &maxAge, ExpectedAID: key.AID()})
+		fiki.VerifyOptions{Body: body, MaxAge: &maxAge, ExpectedAID: fiki.String(key.AID()),
+			Authorities: []string{"api.example.com"}})
 	must(err)
 	check("plain round trip", verdict.AID, key.AID())
 
@@ -117,7 +120,7 @@ func main() {
 		}
 		verdict, err := fiki.VerifyRequest(c.Request.Method, c.Request.URL, c.Request.Headers, fiki.VerifyOptions{
 			MaxAge: &keri.Policy.MaxAge, Skew: &keri.Policy.Skew, Now: c.Now, Resolve: resolve,
-			Minimum: fiki.RequestMinimum,
+			Minimum: fiki.RequestMinimum, Authorities: []string{"keria.example.com"},
 		})
 		must(err)
 		check("KERI vector", verdict.AID, c.Expected.Keyid)
@@ -132,7 +135,8 @@ func main() {
 			fiki.SignOptions{Keyid: controller.Keyid, Minimum: fiki.RequestMinimum})
 		must(err)
 		verdict, err = fiki.VerifyRequest("GET", url, headers,
-			fiki.VerifyOptions{MaxAge: &maxAge, Resolve: resolve, Minimum: fiki.RequestMinimum})
+			fiki.VerifyOptions{MaxAge: &maxAge, Resolve: resolve, Minimum: fiki.RequestMinimum,
+				Authorities: []string{"keria.example.com"}})
 		must(err)
 		check("KERI round trip", verdict.AID, controller.Keyid)
 	}
