@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 3), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 4). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 3), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 5). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 

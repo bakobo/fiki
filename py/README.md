@@ -61,7 +61,7 @@ key = Key.from_openssh(Path("fiki_ed25519").read_text())
 
 ## Responses, resolved keyids, and a minimum covered set
 
-These exist for the KERI profile of RFC 9421 (`this.i` @7f28p7xk, @6g9zjsv9) and are, for now, in this port only.
+These exist for the KERI profile of RFC 9421 (`this.i` @7f28p7xk, @6g9zjsv9). Every port has them; the [user guide](../docs/user-guide.md#signing-with-a-keri-identifier) shows each one's spelling.
 
 ```python
 from fiki import (REQUEST_MINIMUM, RESPONSE_MINIMUM, Request, sign_request, sign_response,

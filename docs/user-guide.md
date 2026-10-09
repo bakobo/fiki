@@ -33,6 +33,19 @@ Three consequences worth knowing before you wire it in.
 
 **You must state a freshness policy.** Verification takes a maximum age in seconds, or an explicit refusal to check. There is no default, because both candidates are wrong: a number guesses at your clock skew and replay window, and skipping silently is exactly what the argument exists to prevent. Separately, if a signer declared an `expires`, fiki enforces it whatever you chose — accepting one without checking it would sell a guarantee nobody bought.
 
+## Installing
+
+| Language | Install |
+|---|---|
+| Python 3.11+ | `pip install fiki==0.9.0` |
+| JavaScript, Node 20+ or a browser | `npm install @bakobo/fiki@0.9.0` |
+| Go 1.22+ | `go get github.com/bakobo/fiki/go@v0.9.0` |
+| Rust 1.75+ | `cargo add fiki@0.9.0` |
+| C#, .NET 10 or .NET Framework 4.8.1 | `dotnet add package Bakobo.Fiki --version 0.9.0` |
+| Java 17+ | not on Maven Central yet; build it from a clone as [java/README.md](../java/README.md#using-it-from-your-own-project) describes |
+
+This guide describes 0.9.0, which satisfies vectors format 3. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
+
 ## Signing a request
 
 Generate a key once, print the AID, and register it. Then sign.
@@ -262,6 +275,8 @@ Python has this today. The other ports will follow against the same vectors, `ve
 
 ## Signing with an SSH key
 
+This is in the Python port only, for now; the others will follow with the key spellings above.
+
 If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from`.
 
 ```python
@@ -286,12 +301,12 @@ Sometimes you have replay protection elsewhere — a nonce store, a gateway, an 
 |---|---|---|
 | Python | `max_age=300` | `max_age=None` |
 | JavaScript | `maxAge: 300` | `maxAge: null` |
-| Go | `MaxAge: &seconds` | `MaxAge: nil` |
-| Rust | `max_age: Some(300)` | `max_age: None` |
+| Go | `MaxAge: &seconds` | `AnyAge: true` |
+| Rust | `max_age: MaxAge::seconds(300)` | `max_age: MaxAge::Unchecked` |
 | Java | `VerifyOptions.maxAge(300)` | `VerifyOptions.decliningFreshness()` |
 | C# | `VerifyOptions.MaxAge(300)` | `VerifyOptions.DecliningFreshness()` |
 
-Omitting it entirely is an error, not a default. That is the point: the decision is visible at the call site either way.
+Omitting it entirely is an error, not a default. In Go and Rust, which cannot make a field mandatory, that error comes when the verifier runs rather than when it compiles. That is the point: the decision is visible at the call site either way.
 
 Clock skew is tolerated at 5 seconds by default and is adjustable, because two hosts disagreeing by a second is ordinary and a verifier that treats it as an attack is unusable.
 
@@ -386,7 +401,7 @@ A covered list that falls short of the minimum is refused as `InsufficientCovera
 
 ## Verifying with a resolver
 
-The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep.
+The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep. It comes from a KERI implementation that does read them: keripy or KERIA on a server, signify-ts in a browser or Node client, or a witness or watcher you query. fiki needs only the current signing key that implementation reports for the AID.
 
 The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is shaped like an AID and is not its canonical spelling is `MalformedKey` before the resolver sees it. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
 
