@@ -15,7 +15,7 @@ use std::sync::Arc;
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
     verify_request, verify_response, verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind,
-    Minimum, Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions,
+    MaxAge, Minimum, Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions,
     REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };
 use sha2::{Digest, Sha256, Sha512};
@@ -941,7 +941,7 @@ fn staleness_is_reported_before_expiry() {
         ..Default::default()
     });
     let opts = VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         skew: Some(60),
         now: Some(AT + 1000),
         ..opted_out()
@@ -1153,7 +1153,7 @@ fn a_missing_keyid_is_reported_before_the_covered_list_and_the_labels() {
     })
     .mangle(&format!(";keyid=\"{}\"", aid()), "");
     let opts = VerifyOptions {
-        minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
+        minimum: Minimum::of(REQUEST_MINIMUM),
         ..resolving(resolve())
     };
     assert_eq!(sent.kind(opts), Kind::MissingKey);
@@ -1314,7 +1314,7 @@ fn a_request_signed_for_another_host_without_authority_is_refused_given_authorit
     sent.url = "https://victim.example/identifiers?type=rot".into();
     let err = sent
         .verify(VerifyOptions {
-            minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
+            minimum: Minimum::of(REQUEST_MINIMUM),
             ..serving("victim.example")
         })
         .unwrap_err();
@@ -1708,7 +1708,7 @@ fn a_max_age_with_no_created_to_check_is_too_old_without_a_minimum() {
     };
     assert!(sent.verify(opted_out()).is_ok());
     let aged = VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         now: Some(AT),
         ..opted_out()
     };

@@ -73,6 +73,52 @@ pub enum Minimum {
     Of(Vec<String>),
 }
 
+impl Minimum {
+    /// This minimum: `Minimum::of(REQUEST_MINIMUM)`, or any collection of component names.
+    pub fn of<I, S>(components: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Minimum::Of(components.into_iter().map(Into::into).collect())
+    }
+}
+
+/// The age a verifier tolerates, [`VerifyOptions::max_age`] (`this.i` @67shl6c5, @65u2932c).
+///
+/// A required decision with no default, as [`Authorities`] is: a tolerance in seconds, or the
+/// explicit decision not to check age. Both defaults would be wrong — a value guesses at somebody
+/// else's clock skew and replay window, and declining by default is the silent skip the field
+/// exists to prevent — so [`verify_request`] and [`verify_response`] refuse
+/// [`MaxAge::Unstated`] as `InvalidArgument`, and `..Default::default()` does not decide it.
+/// Declining the age check never declines the signer's `expires`, which is always enforced.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MaxAge {
+    /// No decision was made, which [`verify_request`] and [`verify_response`] refuse as
+    /// `InvalidArgument`.
+    #[default]
+    Unstated,
+    /// The explicit decision not to check how old a signature is.
+    Unchecked,
+    /// A signature created more than this many seconds before now, beyond the skew allowance, is
+    /// `SignatureTooOld`. Not positive is `InvalidArgument`.
+    Seconds(i64),
+}
+
+impl MaxAge {
+    /// A tolerance of `seconds`: `MaxAge::seconds(300)`.
+    pub fn seconds(seconds: i64) -> Self {
+        MaxAge::Seconds(seconds)
+    }
+
+    fn seconds_or_none(self) -> Option<i64> {
+        match self {
+            MaxAge::Seconds(seconds) => Some(seconds),
+            _ => None,
+        }
+    }
+}
+
 /// The `@authority` values a verifier serves, [`VerifyOptions::authorities`] (`this.i` @524c8qgv).
 ///
 /// [`verify_request`] has no default for it, as it has none for `max_age`: the caller decides, and
@@ -212,9 +258,10 @@ pub struct Verdict {
 
 /// The verifier's policy and the body it has in hand.
 ///
-/// `max_age` is an `Option<i64>` that the caller must fill in one way or the other: seconds of
-/// tolerance, or an explicit `None` to decline the check. Both defaults would be wrong
-/// (`this.i` @67shl6c5).
+/// `max_age` is a required decision ([`MaxAge`]): [`MaxAge::seconds`] of tolerance, or
+/// [`MaxAge::Unchecked`] to decline the check. Left [`MaxAge::Unstated`] it is `InvalidArgument`
+/// in both [`verify_request`] and [`verify_response`], because both defaults would be wrong
+/// (`this.i` @67shl6c5, @65u2932c).
 ///
 /// `authorities` is a decision of the same kind for [`verify_request`] (`this.i` @524c8qgv): the
 /// hosts this verifier serves, or [`Authorities::Unchecked`]; left [`Authorities::Unstated`] it is
@@ -231,7 +278,7 @@ pub struct Verdict {
 /// decision for [`verify_response`].
 #[derive(Default, Clone)]
 pub struct VerifyOptions {
-    pub max_age: Option<i64>,
+    pub max_age: MaxAge,
     pub body: Option<Vec<u8>>,
     pub expected_aid: Option<String>,
     pub skew: Option<i64>,
@@ -1150,10 +1197,11 @@ fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> 
 /// A freshness window, when given, is a positive whole number of seconds (`this.i` @5zrf8gjk).
 ///
 /// The KERI profile's section 3 says so, and a zero or negative one would refuse every honest
-/// message or none. A `max_age` of `None` still declines the age check; a `skew` of `None` takes
+/// message or none. [`MaxAge::Unchecked`] declines the age check; a `skew` of `None` takes
 /// [`DEFAULT_SKEW`], since the expiry check uses a skew whatever `max_age` is.
 fn check_window(opts: &VerifyOptions) -> Result<()> {
-    for (name, value) in [("max_age", opts.max_age), ("skew", opts.skew)] {
+    let max_age = opts.max_age.seconds_or_none();
+    for (name, value) in [("max_age", max_age), ("skew", opts.skew)] {
         if let Some(value) = value.filter(|v| *v <= 0) {
             return Err(Error::detailed(
                 Kind::InvalidArgument,
@@ -1173,7 +1221,8 @@ fn check_freshness(list: &InnerList, opts: &VerifyOptions) -> Result<()> {
         Some(Value::Integer(n)) => Some(*n),
         _ => None,
     };
-    if expires.is_none() && opts.max_age.is_none() {
+    let max_age = opts.max_age.seconds_or_none();
+    if expires.is_none() && max_age.is_none() {
         return Ok(());
     }
     let skew = opts.skew.unwrap_or(DEFAULT_SKEW);
@@ -1182,7 +1231,7 @@ fn check_freshness(list: &InnerList, opts: &VerifyOptions) -> Result<()> {
     // window or a clock at either end of i64 is compared, never overflowed.
     let wide = |n: i64| i128::from(n);
 
-    if let Some(max_age) = opts.max_age {
+    if let Some(max_age) = max_age {
         let too_old = |why: String| Err(Error::new(Kind::SignatureTooOld, why));
         let Some(Value::Integer(created)) = list.param("created") else {
             return too_old(format!(

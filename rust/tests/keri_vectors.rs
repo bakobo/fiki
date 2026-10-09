@@ -22,8 +22,8 @@ use std::sync::Arc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fiki::{
     response_signature_base, sign_request, signature_base, verify_request, verify_response,
-    verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind, Minimum, Request, Resolver,
-    SignOptions, SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
+    verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind, MaxAge, Minimum, Request,
+    Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -314,7 +314,9 @@ fn verify(
     keys: &Value,
 ) -> fiki::Result<Verdict> {
     let options = |minimum: &str| VerifyOptions {
-        max_age: policy["max_age"].as_i64(),
+        max_age: policy["max_age"]
+            .as_i64()
+            .map_or(MaxAge::Unchecked, MaxAge::Seconds),
         skew: policy["skew"].as_i64(),
         now: Some(now),
         resolve: Some(resolver(keys)),

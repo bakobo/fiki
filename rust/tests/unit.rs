@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use fiki::{
     content_digest, sign_request, signature_base, verify_request, verify_response, verifying_key,
-    Authorities, ExpectedKeyid, Key, Kind, Minimum, SignOptions, SignatureParams, VerifyOptions,
+    Authorities, ExpectedKeyid, Key, Kind, MaxAge, Minimum, SignOptions, SignatureParams,
+    VerifyOptions,
 };
 
 /// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
@@ -385,7 +386,7 @@ fn signing_without_a_created_uses_the_wall_clock() {
         URL_QUERY,
         &out,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             ..opted_out()
         },
     )
@@ -567,7 +568,7 @@ fn a_sha512_digest_is_computed_and_compared() {
 
 #[test]
 fn freshness() {
-    let check = |now: i64, max_age: Option<i64>, skew: Option<i64>| {
+    let check = |now: i64, max_age: MaxAge, skew: Option<i64>| {
         let (_, out) = signed(SignOptions::default());
         verify_request(
             "POST",
@@ -581,21 +582,27 @@ fn freshness() {
             },
         )
     };
-    check(SIGNED_AT + 299, Some(300), None).expect("inside max age");
-    check(SIGNED_AT + 303, Some(300), None).expect("skew is tolerated");
+    check(SIGNED_AT + 299, MaxAge::seconds(300), None).expect("inside max age");
+    check(SIGNED_AT + 303, MaxAge::seconds(300), None).expect("skew is tolerated");
     assert_eq!(
-        check(SIGNED_AT + 400, Some(300), None).unwrap_err().kind,
+        check(SIGNED_AT + 400, MaxAge::seconds(300), None)
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
     assert_eq!(
-        check(SIGNED_AT + 302, Some(300), Some(1)).unwrap_err().kind,
+        check(SIGNED_AT + 302, MaxAge::seconds(300), Some(1))
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
     assert_eq!(
-        check(SIGNED_AT - 60, Some(300), None).unwrap_err().kind,
+        check(SIGNED_AT - 60, MaxAge::seconds(300), None)
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
-    check(SIGNED_AT + 1_000_000, None, None).expect("declining the check declines it");
+    check(SIGNED_AT + 1_000_000, MaxAge::Unchecked, None).expect("declining the check declines it");
 }
 
 #[test]
