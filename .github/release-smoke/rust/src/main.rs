@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use base64::Engine;
 use fiki::{
-    sign_request, verify_request, Key, Resolver, SignOptions, VerifyOptions, REQUEST_MINIMUM,
+    sign_request, verify_request, Authorities, Key, MaxAge, Minimum, Resolver, SignOptions,
+    VerifyOptions, REQUEST_MINIMUM,
 };
 use serde_json::Value;
 
@@ -47,7 +48,7 @@ fn main() {
         .nth(1)
         .expect("usage: fiki-release-smoke <vectors-dir>");
     let vectors = Path::new(&vectors);
-    let minimum: Vec<String> = REQUEST_MINIMUM.iter().map(|s| s.to_string()).collect();
+    let signing_minimum: Vec<String> = REQUEST_MINIMUM.map(String::from).to_vec();
 
     let accepts = load(&vectors.join("accepts.json"));
     let plain = case(&accepts, "default-covered-get");
@@ -55,7 +56,11 @@ fn main() {
         plain["method"].as_str().unwrap(),
         plain["url"].as_str().unwrap(),
         &headers(&plain["headers"]),
+        // The vector's null max_age and null authorities are the explicit declines; its minimum is
+        // the default.
         &VerifyOptions {
+            max_age: MaxAge::Unchecked,
+            authorities: Authorities::Unchecked,
             now: plain["now"].as_i64(),
             ..Default::default()
         },
@@ -85,9 +90,10 @@ fn main() {
         url,
         &signed,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             body: Some(body),
             expected_aid: Some(key.aid()),
+            authorities: Authorities::served(["api.example.com"]),
             ..Default::default()
         },
     )
@@ -120,11 +126,12 @@ fn main() {
         request["url"].as_str().unwrap(),
         &headers(&request["headers"]),
         &VerifyOptions {
-            max_age: keri["policy"]["max_age"].as_i64(),
+            max_age: MaxAge::seconds(keri["policy"]["max_age"].as_i64().unwrap()),
             skew: keri["policy"]["skew"].as_i64(),
             now: kase["now"].as_i64(),
             resolve: Some(resolve.clone()),
-            minimum: Some(minimum.clone()),
+            minimum: Minimum::of(REQUEST_MINIMUM),
+            authorities: Authorities::Unchecked,
             ..Default::default()
         },
     )
@@ -142,7 +149,7 @@ fn main() {
         &BTreeMap::new(),
         &SignOptions {
             keyid: Some(keyid.to_string()),
-            minimum: Some(minimum.clone()),
+            minimum: Some(signing_minimum),
             ..Default::default()
         },
     )
@@ -152,9 +159,10 @@ fn main() {
         url,
         &signed,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             resolve: Some(resolve),
-            minimum: Some(minimum),
+            minimum: Minimum::of(REQUEST_MINIMUM),
+            authorities: Authorities::served(["keria.example.com"]),
             ..Default::default()
         },
     )

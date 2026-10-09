@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use fiki::{
     sign_request, sign_response, verify_request, verify_response, Authorities, Error,
-    ExpectedKeyid, Key, Kind, Minimum, Request, Resolver, SignOptions, VerifyOptions,
+    ExpectedKeyid, Key, Kind, MaxAge, Minimum, Request, Resolver, SignOptions, VerifyOptions,
     REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };
 
@@ -75,7 +75,7 @@ fn plain() -> Outcome {
         url,
         &headers,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             body: Some(body.to_vec()),
             // Required, like max_age: the hosts this verifier serves, or Authorities::Unchecked.
             authorities: Authorities::served(["api.example.com"]),
@@ -122,10 +122,10 @@ fn keri_verify(headers: &BTreeMap<String, String>, table: &BTreeMap<String, [u8;
         "https://keria.example.com/identifiers",
         headers,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             body: Some(body.to_vec()),
             resolve: Some(resolve),
-            minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+            minimum: Minimum::of(REQUEST_MINIMUM),
             authorities: Authorities::served(["keria.example.com"]),
             ..Default::default()
         },
@@ -171,11 +171,11 @@ fn keri_verify_response(
         response_headers,
         Some(request),
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             body: Some(br#"{"done": true}"#.to_vec()),
             resolve: Some(resolve),
             expected_keyid: ExpectedKeyid::is("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"),
-            minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
+            minimum: Minimum::of(RESPONSE_MINIMUM),
             ..Default::default()
         },
     )?;
@@ -194,10 +194,10 @@ fn refusals(
 ) -> Outcome {
     let key_state = table.clone();
     let opts = |resolve: Resolver| VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         body: Some(BODY.to_vec()),
         resolve: Some(resolve),
-        minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::of(REQUEST_MINIMUM),
         authorities: Authorities::served(["keria.example.com"]),
         ..Default::default()
     };
@@ -237,13 +237,14 @@ fn refusals(
     let input = doubled["Signature-Input"].replacen("\"@path\"", "\"@path\" \"@path\"", 1);
     doubled.insert("Signature-Input".into(), input);
     let below = VerifyOptions {
-        minimum: Minimum::Of(vec!["@method".into()]),
+        minimum: Minimum::of(["@method"]),
         ..opts(known.clone())
     };
 
-    // A response verifier states its keyid decision; this one declines it.
+    // A response verifier states its keyid and freshness decisions; this one declines both.
     let any_signer = VerifyOptions {
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     };
     let results = [

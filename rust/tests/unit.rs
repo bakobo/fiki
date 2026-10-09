@@ -6,18 +6,21 @@ use std::collections::BTreeMap;
 
 use fiki::{
     content_digest, sign_request, signature_base, verify_request, verify_response, verifying_key,
-    Authorities, ExpectedKeyid, Key, Kind, Minimum, SignOptions, SignatureParams, VerifyOptions,
+    Authorities, ExpectedKeyid, Key, Kind, MaxAge, Minimum, SignOptions, SignatureParams,
+    VerifyOptions,
 };
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
-/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
-/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
-/// whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check, no
+/// expected keyid and no age check. Format 3 makes a minimum the default for requests and responses
+/// alike, and authorities and a response's expected keyid required decisions (`this.i` @524c8qgv),
+/// and 0.9.0 makes max_age one in Rust (@65u2932c), so a test whose subject is something else
+/// states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     }
 }
@@ -385,7 +388,7 @@ fn signing_without_a_created_uses_the_wall_clock() {
         URL_QUERY,
         &out,
         &VerifyOptions {
-            max_age: Some(300),
+            max_age: MaxAge::seconds(300),
             ..opted_out()
         },
     )
@@ -567,7 +570,7 @@ fn a_sha512_digest_is_computed_and_compared() {
 
 #[test]
 fn freshness() {
-    let check = |now: i64, max_age: Option<i64>, skew: Option<i64>| {
+    let check = |now: i64, max_age: MaxAge, skew: Option<i64>| {
         let (_, out) = signed(SignOptions::default());
         verify_request(
             "POST",
@@ -581,21 +584,27 @@ fn freshness() {
             },
         )
     };
-    check(SIGNED_AT + 299, Some(300), None).expect("inside max age");
-    check(SIGNED_AT + 303, Some(300), None).expect("skew is tolerated");
+    check(SIGNED_AT + 299, MaxAge::seconds(300), None).expect("inside max age");
+    check(SIGNED_AT + 303, MaxAge::seconds(300), None).expect("skew is tolerated");
     assert_eq!(
-        check(SIGNED_AT + 400, Some(300), None).unwrap_err().kind,
+        check(SIGNED_AT + 400, MaxAge::seconds(300), None)
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
     assert_eq!(
-        check(SIGNED_AT + 302, Some(300), Some(1)).unwrap_err().kind,
+        check(SIGNED_AT + 302, MaxAge::seconds(300), Some(1))
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
     assert_eq!(
-        check(SIGNED_AT - 60, Some(300), None).unwrap_err().kind,
+        check(SIGNED_AT - 60, MaxAge::seconds(300), None)
+            .unwrap_err()
+            .kind,
         Kind::SignatureTooOld
     );
-    check(SIGNED_AT + 1_000_000, None, None).expect("declining the check declines it");
+    check(SIGNED_AT + 1_000_000, MaxAge::Unchecked, None).expect("declining the check declines it");
 }
 
 #[test]
@@ -813,6 +822,79 @@ fn an_empty_expected_keyid_is_a_caller_error_in_both_verifiers() {
         Kind::MissingSignature
     );
     assert_eq!(ExpectedKeyid::is("B-x"), ExpectedKeyid::Is("B-x".into()));
+}
+
+#[test]
+fn an_unstated_max_age_is_a_caller_error_for_a_request() {
+    // `..Default::default()` cannot make a field mandatory, so the decision is checked when a
+    // verifier runs; reading a field nobody wrote as the decline is the silent skip @67shl6c5
+    // exists to prevent (`this.i` @65u2932c).
+    let (_, out) = signed(SignOptions::default());
+    let unstated = VerifyOptions {
+        max_age: MaxAge::Unstated,
+        now: Some(SIGNED_AT),
+        ..opted_out()
+    };
+    let refused = verify_request("POST", URL_QUERY, &out, &unstated).unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+    assert!(refused.message.contains("max_age"), "{}", refused.message);
+    assert!(
+        refused.message.contains("MaxAge::Unchecked"),
+        "{}",
+        refused.message
+    );
+    assert_eq!(VerifyOptions::default().max_age, MaxAge::Unstated);
+}
+
+#[test]
+fn an_unstated_max_age_is_a_caller_error_for_a_response() {
+    let unstated = VerifyOptions {
+        max_age: MaxAge::Unstated,
+        ..opted_out()
+    };
+    // Checked with the other options, before the message is read: an unsigned 401 is otherwise
+    // the first thing a response verifier reports.
+    for status in [200, 401] {
+        let refused = verify_response(status, &BTreeMap::new(), None, &unstated).unwrap_err();
+        assert_eq!(refused.kind, Kind::InvalidArgument, "{status}");
+        assert!(refused.message.contains("max_age"), "{}", refused.message);
+    }
+}
+
+#[test]
+fn the_explicit_decline_of_max_age_still_verifies() {
+    let (key, out) = signed(SignOptions::default());
+    let declined = VerifyOptions {
+        max_age: MaxAge::Unchecked,
+        now: Some(SIGNED_AT + 1_000_000),
+        ..opted_out()
+    };
+    let verdict = verify_request("POST", URL_QUERY, &out, &declined).unwrap();
+    assert_eq!(verdict.aid, key.aid());
+    assert_eq!(MaxAge::seconds(300), MaxAge::Seconds(300));
+    let refused = verify_request(
+        "POST",
+        URL_QUERY,
+        &out,
+        &VerifyOptions {
+            max_age: MaxAge::seconds(0),
+            ..declined
+        },
+    )
+    .unwrap_err();
+    assert_eq!(refused.kind, Kind::InvalidArgument);
+}
+
+#[test]
+fn minimum_of_takes_the_profile_constants_as_they_are() {
+    assert_eq!(
+        Minimum::of(fiki::REQUEST_MINIMUM),
+        Minimum::Of(vec!["@method".into(), "@path".into(), "@query".into()])
+    );
+    assert_eq!(
+        Minimum::of(vec![String::from("@status")]),
+        Minimum::Of(vec!["@status".into()])
+    );
 }
 
 #[test]

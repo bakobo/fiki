@@ -41,7 +41,7 @@ pub use errors::{Error, Kind, Result};
 pub use keys::{to_aid, verifying_key, Key};
 pub use messages::{
     content_digest, sign_request, sign_response, verify_request, verify_response, Authorities,
-    ExpectedKeyid, Minimum, Resolver, SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_MINIMUM,
-    DEFAULT_SKEW, MAX_DICTIONARY_MEMBERS, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS, REQUEST_MINIMUM,
-    RESPONSE_MINIMUM,
+    ExpectedKeyid, MaxAge, Minimum, Resolver, SignOptions, Verdict, VerifyOptions, ALG,
+    DEFAULT_MINIMUM, DEFAULT_SKEW, MAX_DICTIONARY_MEMBERS, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS,
+    REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };

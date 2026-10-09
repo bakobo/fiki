@@ -22,21 +22,23 @@ use std::sync::Arc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fiki::{
     response_signature_base, sign_request, signature_base, verify_request, verify_response,
-    verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind, Minimum, Request, Resolver,
-    SignOptions, SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
+    verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind, MaxAge, Minimum, Request,
+    Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
-/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
-/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
-/// whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check, no
+/// expected keyid and no age check. Format 3 makes a minimum the default for requests and responses
+/// alike, and authorities and a response's expected keyid required decisions (`this.i` @524c8qgv),
+/// and 0.9.0 makes max_age one in Rust (@65u2932c), so a test whose subject is something else
+/// states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     }
 }
@@ -314,7 +316,9 @@ fn verify(
     keys: &Value,
 ) -> fiki::Result<Verdict> {
     let options = |minimum: &str| VerifyOptions {
-        max_age: policy["max_age"].as_i64(),
+        max_age: policy["max_age"]
+            .as_i64()
+            .map_or(MaxAge::Unchecked, MaxAge::Seconds),
         skew: policy["skew"].as_i64(),
         now: Some(now),
         resolve: Some(resolver(keys)),

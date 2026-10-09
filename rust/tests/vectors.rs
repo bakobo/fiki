@@ -10,8 +10,8 @@ use std::fs;
 
 use fiki::{
     sign_request, sign_response, signature_base, verify_request, verify_response, verifying_key,
-    Authorities, ExpectedKeyid, Key, Kind, Minimum, Request, SignOptions, SignatureParams, Verdict,
-    VerifyOptions, VECTORS_FORMAT,
+    Authorities, ExpectedKeyid, Key, Kind, MaxAge, Minimum, Request, SignOptions, SignatureParams,
+    Verdict, VerifyOptions, VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -113,6 +113,12 @@ const REQUIRED: [&str; 10] = [
     "authorities",
     "expected_aid",
 ];
+
+/// A vector's `max_age`: null is the explicit decline, a number that tolerance in seconds. A
+/// vector never leaves the decision unstated (`this.i` @65u2932c).
+fn max_age(seconds: Option<i64>) -> MaxAge {
+    seconds.map_or(MaxAge::Unchecked, MaxAge::Seconds)
+}
 
 /// The raw cases of a file, which must hold at least five.
 fn raw_cases(name: &str) -> Vec<Value> {
@@ -260,7 +266,7 @@ impl ResponseCase {
             Some(aid) => ExpectedKeyid::Is(aid.clone()),
         };
         Ok(VerifyOptions {
-            max_age: self.max_age,
+            max_age: max_age(self.max_age),
             body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
             now: self.now,
             minimum,
@@ -386,7 +392,7 @@ impl RequestCase {
             ),
         };
         Ok(VerifyOptions {
-            max_age: self.max_age,
+            max_age: max_age(self.max_age),
             body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
             now: self.now,
             minimum,
