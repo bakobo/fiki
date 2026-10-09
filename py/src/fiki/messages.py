@@ -114,13 +114,22 @@ DEFAULT_MINIMUM = ("@method", "@authority", "@path", "@query")
 
 
 class _Default:
-    """The marker for an argument left to its default, so that None can mean "opt out"."""
+    """The marker for an argument left to its default, so that None can mean "opt out".
+
+    ``minimum`` needs three states, and neither None nor a tuple can be its default: None is the
+    explicit opt-out, and the floor differs by caller. So each verifier has its own marker, whose
+    repr names the floor it stands for in that function's signature.
+    """
+
+    def __init__(self, name: str) -> None:
+        self._name = name
 
     def __repr__(self) -> str:
-        return "DEFAULT_MINIMUM"
+        return self._name
 
 
-_DEFAULT = _Default()
+_DEFAULT_REQUEST = _Default("DEFAULT_MINIMUM")
+_DEFAULT_RESPONSE = _Default("RESPONSE_MINIMUM")
 
 # keyid -> the 32 raw bytes of the Ed25519 key it names, or None when it names no key the caller
 # knows. It may raise MalformedKey itself for a keyid that is not a well-formed identifier.
@@ -212,6 +221,10 @@ def _cover_body(items: list, sending: dict, body: bytes | None, chosen: bool) ->
 
 def _signed(key, base: bytes, label: str, sending: dict, given) -> dict[str, str]:
     signature = key.sign(base)
+    # The params are read back out of the base rather than serialized a second time, so the
+    # Signature-Input sent is byte for byte the line that was signed. The base always ends with
+    # that line, so the last occurrence of its prefix is in it, and the prefix cannot recur inside
+    # the params, where every string escapes its quotes.
     params = base.decode("utf-8").rsplit('"@signature-params": ', 1)[1]
     out = {
         "Signature-Input": f"{label}={params}",
@@ -364,7 +377,7 @@ def verify_request(
     now: int | None = None,
     authorities: Collection[str] | None,
     resolve: Resolver | None = None,
-    minimum: Sequence[str] | None | _Default = _DEFAULT,
+    minimum: Sequence[str] | None | _Default = _DEFAULT_REQUEST,
     expected_keyid: str | None = None,
 ) -> Verdict:
     """Verify a signed request, returning a :class:`Verdict` or raising.
@@ -412,7 +425,7 @@ def verify_request(
     _check_window(max_age, skew)
     _check_expected_keyid(expected_keyid)
     authorities = _check_authorities(authorities)
-    minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT else minimum, REQUEST_MINIMUM)
+    minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT_REQUEST else minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
     return _verify(
         request_message(method, url, headers, received=True), headers, body, response=False,
@@ -434,7 +447,7 @@ def verify_response(
     now: int | None = None,
     resolve: Resolver | None = None,
     expected_keyid: str | None,
-    minimum: Sequence[str] | None | _Default = _DEFAULT,
+    minimum: Sequence[str] | None | _Default = _DEFAULT_RESPONSE,
 ) -> Verdict:
     """Verify a signed response to ``request``, returning a :class:`Verdict` or raising.
 
@@ -456,7 +469,7 @@ def verify_response(
     """
     _check_window(max_age, skew)
     _check_expected_keyid(expected_keyid)
-    minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT else minimum, RESPONSE_MINIMUM)
+    minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT_RESPONSE else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
     # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -525,6 +538,9 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
             "cannot be treated as authentic."
         ) from ex
 
+    # AFTER the signature check, deliberately, for the reason given at the freshness check below:
+    # the authority is a covered value, and refusing it before the signature verifies would act
+    # on a value an attacker could still have chosen.
     if authorities is not None:
         for item in items:
             if item.value == "@authority" and value_of(item, message) not in authorities:
