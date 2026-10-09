@@ -20,15 +20,17 @@ use fiki::{
 };
 use sha2::{Digest, Sha256, Sha512};
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
-/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
-/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
-/// whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check, no
+/// expected keyid and no age check. Format 3 makes a minimum the default for requests and responses
+/// alike, and authorities and a response's expected keyid required decisions (`this.i` @524c8qgv),
+/// and 0.9.0 makes max_age one in Rust (@65u2932c), so a test whose subject is something else
+/// states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     }
 }
@@ -753,6 +755,7 @@ fn a_response_takes_the_response_minimum_and_needs_a_keyid_decision_but_no_autho
     });
     let declined = VerifyOptions {
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     };
     assert_eq!(

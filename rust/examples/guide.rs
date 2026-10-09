@@ -241,9 +241,10 @@ fn refusals(
         ..opts(known.clone())
     };
 
-    // A response verifier states its keyid decision; this one declines it.
+    // A response verifier states its keyid and freshness decisions; this one declines both.
     let any_signer = VerifyOptions {
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     };
     let results = [

@@ -603,8 +603,9 @@ pub fn sign_response(
 /// Verify a signed request, in the KERI profile's section 9 order so a message has exactly one
 /// correct refusal.
 ///
-/// `max_age` and `skew`, when given, are positive; anything else is `InvalidArgument`
-/// (`this.i` @5zrf8gjk), as is a method that is not an HTTP token, an [`Authorities::Unstated`], or
+/// `max_age` is a required decision ([`MaxAge`]), and left [`MaxAge::Unstated`] it is
+/// `InvalidArgument` (`this.i` @65u2932c). `max_age` and `skew`, when given, are positive; anything
+/// else is `InvalidArgument` (@5zrf8gjk), as is a method that is not an HTTP token, an [`Authorities::Unstated`], or
 /// an empty set of hosts. A target beginning with "/" is origin-form, whatever follows, and its
 /// `@authority` is the Host header, checked as any authority is; anything else must be a scheme,
 /// "://" and an authority. A target of any other shape, holding a "#", a space or a control
@@ -639,10 +640,11 @@ pub fn verify_request(
 /// server that refuses before it knows the agent cannot sign the refusal. A response's body is its
 /// content, never its `Content-Length`, so a HEAD or 304 response is bodiless whatever length it
 /// announces. `expected_keyid` is a required decision ([`ExpectedKeyid`]): the AID the client is
-/// talking to (profile R1), or [`ExpectedKeyid::Unchecked`]. Left at [`Minimum::Default`] the
-/// minimum is [`RESPONSE_MINIMUM`], so the `request` it answers must be supplied for its `req`
-/// components to be read, and a response verified without one is `MissingComponent` (`this.i`
-/// @524c8qgv); [`Minimum::Off`] is the explicit opt-out. A response covering
+/// talking to (profile R1), or [`ExpectedKeyid::Unchecked`]. So is `max_age` ([`MaxAge`]), as for
+/// a request, and it is checked before the 401. Left at [`Minimum::Default`] the minimum is
+/// [`RESPONSE_MINIMUM`], so the `request` it answers must be supplied for its `req` components to
+/// be read, and a response verified without one is `MissingComponent` (`this.i` @524c8qgv);
+/// [`Minimum::Off`] is the explicit opt-out. A response covering
 /// `"content-digest";req` verified against a `request` whose body is `None` is `InvalidArgument`:
 /// that digest is recomputed over the request body, and fiki cannot check a body it was not given.
 /// So is `authorities`, which a response has no use for.
@@ -1194,12 +1196,21 @@ fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> 
     Ok((public, keyid.to_string()))
 }
 
-/// A freshness window, when given, is a positive whole number of seconds (`this.i` @5zrf8gjk).
+/// `max_age` is a decision the caller made (`this.i` @65u2932c), and a freshness window, when
+/// given, is a positive whole number of seconds (@5zrf8gjk).
 ///
 /// The KERI profile's section 3 says so, and a zero or negative one would refuse every honest
 /// message or none. [`MaxAge::Unchecked`] declines the age check; a `skew` of `None` takes
 /// [`DEFAULT_SKEW`], since the expiry check uses a skew whatever `max_age` is.
 fn check_window(opts: &VerifyOptions) -> Result<()> {
+    if opts.max_age == MaxAge::Unstated {
+        return Err(Error::new(
+            Kind::InvalidArgument,
+            "max_age is a required decision: state the age this verifier tolerates, such as \
+             MaxAge::seconds(300), or MaxAge::Unchecked to decline the check. The signer's expires \
+             is enforced either way.",
+        ));
+    }
     let max_age = opts.max_age.seconds_or_none();
     for (name, value) in [("max_age", max_age), ("skew", opts.skew)] {
         if let Some(value) = value.filter(|v| *v <= 0) {
