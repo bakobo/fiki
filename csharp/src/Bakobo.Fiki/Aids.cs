@@ -39,7 +39,7 @@ namespace Bakobo.Fiki
 
         internal static FikiException Unusable(string keyId) => new FikiException(
             FikiErrorKind.MalformedKey,
-            $"The key that \"{keyId}\" names is not a usable Ed25519 public key: it is a point of small order, against which " +
+            $"The key that {PyText.Shown(keyId)} names is not a usable Ed25519 public key: it is a point of small order, against which " +
             "anyone can forge a signature, or no canonical point on the curve at all.",
             keyId: keyId);
 
@@ -96,7 +96,7 @@ namespace Bakobo.Fiki
                 throw new FikiException(
                     FikiErrorKind.MalformedKey,
                     $"A non-transferable AID is {Qb64Length} characters beginning with \"{Code}\"; this one " +
-                    $"is {aid.Length} characters and begins with \"{(aid.Length == 0 ? "" : aid.Substring(0, 1))}\".",
+                    $"is {aid.Length} characters and begins with {PyText.Shown(aid.Length == 0 ? "" : aid.Substring(0, 1))}.",
                     keyId: aid);
             }
             // py's base64 refuses a non-ASCII str with ValueError before binascii sees it, and
@@ -113,7 +113,7 @@ namespace Bakobo.Fiki
             {
                 if (UrlAlphabet.IndexOf(c) < 0 && "+/=".IndexOf(c) < 0)
                 {
-                    throw Malformed(aid, $"The AID \"{aid}\" is not valid base64url.");
+                    throw Malformed(aid, $"The AID {PyText.Shown(aid)} is not valid base64url.");
                 }
             }
             // "=" is in base64's alphabet, so a strict decoder accepts one or two of them at the end
@@ -122,10 +122,10 @@ namespace Bakobo.Fiki
             if (tail.IndexOf('=') >= 0)
             {
                 throw Malformed(aid, padding > 2 || tail.TrimEnd('=').IndexOf('=') >= 0
-                    ? $"The AID \"{aid}\" is not valid base64url."
-                    : $"The AID \"{aid}\" does not decode to a {RawLength}-byte key.");
+                    ? $"The AID {PyText.Shown(aid)} is not valid base64url."
+                    : $"The AID {PyText.Shown(aid)} does not decode to a {RawLength}-byte key.");
             }
-            var raw = Canonical(aid) ?? throw Malformed(aid, $"The AID \"{aid}\" is not the canonical spelling of its key.");
+            var raw = Canonical(aid) ?? throw Malformed(aid, $"The AID {PyText.Shown(aid)} is not the canonical spelling of its key.");
             return IsUsableKey(raw) ? raw : throw Unusable(aid);
         }
     }

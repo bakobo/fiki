@@ -125,6 +125,9 @@ namespace Bakobo.Fiki.Tests
             var caught = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
                 single.Invoke(VerifyOptions.DecliningFreshness(), new object[] { "api.example.com" }));
             Assert.IsType<ArgumentException>(caught.InnerException);
+            caught = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
+                single.Invoke(VerifyOptions.DecliningFreshness(), new object?[] { null }));
+            Assert.IsType<ArgumentException>(caught.InnerException);
         }
 
         [Fact]
@@ -241,6 +244,15 @@ namespace Bakobo.Fiki.Tests
             var straddling = new string('a', 63) + "\U0001F600" + "tail";
             Assert.Equal("\"" + new string('a', 63) + "\" (cut from 69 characters)", PyText.Shown(straddling));
             Assert.Equal("\"" + new string('a', 64) + "\" (cut from 65 characters)", PyText.Shown(new string('a', 65)));
+        }
+
+        [Fact]
+        public void NamedLeavesAShortPrintableNameBareAndQuotesAnythingElse()
+        {
+            // Bug fix (#18 Copilot): a component name is cut and escaped like any untrusted value.
+            Assert.Equal("\"@path\";req", PyText.Named("\"@path\";req"));
+            Assert.Equal("\"@pa\\x0ath\"", PyText.Named("@pa\nth"));
+            Assert.Equal("\"" + new string('q', 64) + "\" (cut from 65 characters)", PyText.Named(new string('q', 65)));
         }
 
         [Fact]

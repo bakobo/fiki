@@ -54,7 +54,7 @@ namespace Bakobo.Fiki
             if (!item.Value.Text.StartsWith("@", StringComparison.Ordinal) && !IsToken(item.Value.Text))
             {
                 throw new ArgumentException(
-                    $"\"{spec}\" is not a component fiki can name: a field is named by an HTTP field name, one or more " +
+                    $"{PyText.Shown(spec)} is not a component fiki can name: a field is named by an HTTP field name, one or more " +
                     "token characters, and a derived component by its @ name.");
             }
             return item;
@@ -86,7 +86,7 @@ namespace Bakobo.Fiki
             if (method == null || !IsToken(method))
             {
                 throw new ArgumentException(
-                    $"The method \"{method}\" is not an HTTP method: a method is one or more token characters, with no " +
+                    $"The method {PyText.Shown(method ?? "")} is not an HTTP method: a method is one or more token characters, with no " +
                     "spaces, line breaks or separators.",
                     nameof(method));
             }
@@ -117,7 +117,7 @@ namespace Bakobo.Fiki
                     if (c < ' ' || c > '~')
                     {
                         throw new ArgumentException(
-                            $"The {name} \"{value}\" holds a character outside printable ASCII, which an RFC 8941 string " +
+                            $"The {name} {PyText.Shown(value!)} holds a character outside printable ASCII, which an RFC 8941 string " +
                             "cannot carry; a line break there would forge a header line.",
                             name);
                     }
@@ -138,7 +138,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.UnsupportedComponent,
-                        $"fiki cannot read {spec} as a component identifier; name a component plainly, as \"@path\", " +
+                        $"fiki cannot read {PyText.Named(spec)} as a component identifier; name a component plainly, as \"@path\", " +
                         "or in its serialized form, as '\"@path\";req'.")
                     {
                         Component = spec,
@@ -246,7 +246,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.DuplicateComponent,
-                        $"The covered components name {SpecOf(item)} twice, so the signature base would not be " +
+                        $"The covered components name {PyText.Named(SpecOf(item))} twice, so the signature base would not be " +
                         "what either copy says it is.")
                     { Component = SpecOf(item) };
                 }
@@ -264,7 +264,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.UnsupportedComponent,
-                        $"fiki does not support the component {SpecOf(item)}: the only component parameter it supports " +
+                        $"fiki does not support the component {PyText.Named(SpecOf(item))}: the only component parameter it supports " +
                         $"is \"{ReqParam}\", and only in a response.")
                     { Component = SpecOf(item), Supported = ReqParam };
                 }
@@ -275,7 +275,7 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.UnsupportedComponent,
-                            $"fiki does not build the derived component {SpecOf(item)} in a {(response ? "response" : "request")}; " +
+                            $"fiki does not build the derived component {PyText.Named(SpecOf(item))} in a {(response ? "response" : "request")}; " +
                             $"it builds {string.Join(", ", supported)}.")
                         { Component = SpecOf(item), Supported = string.Join(", ", supported) };
                     }
@@ -538,7 +538,7 @@ namespace Bakobo.Fiki
             {
                 message = message.Request ?? throw new FikiException(
                     FikiErrorKind.MissingComponent,
-                    $"The signature covers {SpecOf(item)}, which is read from the request this response answers, and " +
+                    $"The signature covers {PyText.Named(SpecOf(item))}, which is read from the request this response answers, and " +
                     "no request was supplied.")
                 { Component = SpecOf(item) };
             }
@@ -575,7 +575,7 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.MissingComponent,
-                            $"The signature covers {SpecOf(item)}, but the message carries no value for it, so the " +
+                            $"The signature covers {PyText.Named(SpecOf(item))}, but the message carries no value for it, so the " +
                             "signature base cannot be built.")
                         { Component = SpecOf(item) };
                     }
@@ -611,7 +611,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.SignatureMismatch,
-                    $"The value of {spec} is over {HttpSignatures.MaxFieldBytes} bytes, so no signature base is built from it.");
+                    $"The value of {PyText.Named(spec)} is over {HttpSignatures.MaxFieldBytes} bytes, so no signature base is built from it.");
             }
             foreach (var c in value)
             {
@@ -619,7 +619,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.SignatureMismatch,
-                        $"The value of {spec} contains a line break, a control character or a non-ASCII " +
+                        $"The value of {PyText.Named(spec)} contains a line break, a control character or a non-ASCII " +
                         "character, so there is no signature base both sides would build from it.");
                 }
             }

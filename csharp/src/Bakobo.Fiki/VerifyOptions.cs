@@ -221,7 +221,7 @@ namespace Bakobo.Fiki
         /// <exception cref="ArgumentException">Always, when reached by reflection or dynamic dispatch.</exception>
         [Obsolete("authorities is a collection of hosts, such as new[] { \"api.example.com\" }, never a single string.", error: true)]
         public VerifyOptions WithAuthorities(string authorities) =>
-            throw new ArgumentException($"authorities is a collection of the hosts this verifier serves, such as new[] {{ \"{authorities}\" }}, never a single string.", nameof(authorities));
+            throw new ArgumentException($"authorities is a collection of the hosts this verifier serves, such as new[] {{ {PyText.Shown(authorities ?? "")} }}, never a single string.", nameof(authorities));
 
         /// <summary>
         /// Decline the served-authority check, because the host a request was signed for is

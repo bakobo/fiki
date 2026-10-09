@@ -478,5 +478,26 @@ namespace Bakobo.Fiki
             var shown = quoted.Append('"').ToString();
             return cut ? shown + " (cut from " + text.Length.ToString(CultureInfo.InvariantCulture) + " characters)" : shown;
         }
+
+        /// <summary>
+        /// A name an error message mentions, such as a component identifier: left bare when it is at
+        /// most <see cref="ShownLength"/> characters of printable ASCII, as a name a caller would
+        /// recognize, and otherwise quoted and cut by <see cref="Shown"/> (this.i @524c8qgv).
+        /// </summary>
+        internal static string Named(string text)
+        {
+            if (text.Length > ShownLength)
+            {
+                return Shown(text);
+            }
+            foreach (var c in text)
+            {
+                if (c < ' ' || c > '~')
+                {
+                    return Shown(text);
+                }
+            }
+            return text;
+        }
     }
 }
