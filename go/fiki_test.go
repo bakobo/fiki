@@ -487,3 +487,18 @@ func verifyOptedOut(method, rawURL string, headers map[string]string, opts Verif
 	}
 	return VerifyRequest(method, rawURL, headers, opts)
 }
+
+// verifyResponseOptedOut is VerifyResponse with 0.8's response policy stated explicitly: no
+// minimum unless the test names one, and no expected keyid unless the test names one. Format 3
+// part two makes ResponseMinimum the default and ExpectedKeyid a required decision (@524c8qgv);
+// these tests' subject is something else, and the new defaults are held by responses.json and
+// TestTheFormat3ResponsePolicy.
+func verifyResponseOptedOut(status int, request *Request, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.Minimum == nil {
+		opts.NoMinimum = true
+	}
+	if opts.ExpectedKeyid == "" {
+		opts.AnyKeyid = true
+	}
+	return VerifyResponse(status, request, headers, opts)
+}

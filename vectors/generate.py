@@ -1090,6 +1090,10 @@ def refusals():
     add("signature-header-of-spaces", "MalformedSignature", method="GET", body_text=None,
         headers={**ws, "Signature": "   "},
         note="Present but empty after OWS: malformed, as every port must say alike (review B7).")
+    add("signature-of-spaces-and-no-signature-input", "MissingSignatureInput", method="GET",
+        body_text=None, headers={"Signature": " \t "},
+        note="Profile section 9 order: a missing Signature-Input is found before the Signature "
+             "is parsed, so whitespace there is never reached (pinned after fiki-go diverged).")
     two = signed(method="GET", body=None)
     sig_value = two["Signature"].split("=", 1)[1]
     add("two-members-in-signature-one-in-signature-input", "MalformedSignatureLabel",
@@ -1599,6 +1603,10 @@ def responses():
     path = at_bound[len("https://api.example.com"):]
     longer = grown_base.replace(f'"@path";req: {path}'.encode(), f'"@path";req: {path}p'.encode(), 1)
     assert longer != grown_base
+    add("unsigned-401-with-a-whitespace-signature", status=401, expected_keyid=None,
+        minimum=None, presigned={"Signature": " \t "}, error="MissingSignatureInput",
+        note="Only an empty Signature makes a 401 unsigned (Unauthenticated); whitespace is a "
+             "header present, and with no Signature-Input that is MissingSignatureInput.")
     add("response-whose-request-url-is-over-8192-bytes", expected_keyid=mine,
         request={**plain, "url": padded_url(MAX_FIELD_BYTES + 1)}, error="SignatureMismatch",
         presigned={**twin_headers,

@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Derived lists the derived components fiki builds in a request, and that a response may name
@@ -176,7 +177,7 @@ func parseComponent(spec string) (componentID, error) {
 
 func readComponent(spec string) (componentID, error) {
 	if !strings.HasPrefix(spec, `"`) {
-		return componentID{Name: strings.ToLower(spec)}, nil
+		return componentID{Name: asciiLower(spec)}, nil
 	}
 	c := &cursor{text: spec}
 	name, err := c.parseString()
@@ -193,7 +194,7 @@ func readComponent(spec string) (componentID, error) {
 			Supported: strings.Join(append(append([]string{}, Derived...), responseDerived...), ", "),
 		}
 	}
-	return componentID{Name: strings.ToLower(name), Params: params}, nil
+	return componentID{Name: asciiLower(name), Params: params}, nil
 }
 
 func parseComponents(specs []string) ([]componentID, error) {
@@ -211,7 +212,7 @@ func parseComponents(specs []string) ([]componentID, error) {
 // Req is the spelling of a request component named from a response: Req("@path") is
 // `"@path";req`.
 func Req(name string) string {
-	return componentID{Name: strings.ToLower(name), Params: []param{{Key: reqParam, Value: true}}}.serialize()
+	return componentID{Name: asciiLower(name), Params: []param{{Key: reqParam, Value: true}}}.serialize()
 }
 
 // checkCovered refuses a covered list fiki cannot build faithfully: duplicates first, then the
@@ -283,6 +284,10 @@ type target struct {
 // authority. A space or an ASCII control anywhere is refused rather than stripped, since
 // stripping made "/\nx" verify as "/x", and so is a fragment, which no request target has.
 func splitURL(raw string) target {
+	// Bounded before it is read, size before shape (this.i @524c8qgv).
+	if len(raw) > MaxFieldBytes {
+		return target{unreadable: fmt.Sprintf("is over %d bytes", MaxFieldBytes)}
+	}
 	for i := 0; i < len(raw); i++ {
 		if raw[i] <= ' ' || raw[i] == 0x7f {
 			return target{unreadable: "contains a space or a control character"}
@@ -334,7 +339,7 @@ func (m *message) unbuildable(what, why string) error {
 // targetOf is the message's target, or the reason it has none.
 func targetOf(m *message) (target, error) {
 	if m.target.unreadable != "" {
-		return target{}, m.unbuildable(fmt.Sprintf("URL %q", m.url), m.target.unreadable)
+		return target{}, m.unbuildable("URL "+shown(m.url), m.target.unreadable)
 	}
 	return m.target, nil
 }
@@ -356,8 +361,12 @@ func authority(m *message) (string, error) {
 		return "", err
 	}
 	if t.netloc != "" {
-		// Userinfo, if any, ends at the last "@".
-		return hostport(m, "URL's authority", t.netloc[strings.LastIndexByte(t.netloc, '@')+1:], t.scheme)
+		if strings.IndexByte(t.netloc, '@') >= 0 {
+			// RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure the
+			// authority (this.i @524c8qgv). An empty one is userinfo too.
+			return "", m.unbuildable("URL "+shown(m.url), "carries user information in its authority")
+		}
+		return hostport(m, "URL's authority", t.netloc, t.scheme)
 	}
 	host, ok := m.headers["host"]
 	if !ok {
@@ -368,12 +377,13 @@ func authority(m *message) (string, error) {
 			Component: "@authority",
 		}
 	}
-	if err := checkVisible(host, "@authority"); err != nil {
+	// Host supplies a covered value, so it is bounded like one (this.i @524c8qgv).
+	if err := checkRaw(host, "@authority", true); err != nil {
 		return "", err
 	}
 	host = strings.Trim(host, " \t")
 	if strings.ContainsAny(host, "@,") {
-		return "", m.unbuildable(fmt.Sprintf("Host header %q", host), "is not a single host and optional port")
+		return "", m.unbuildable("Host header "+shown(host), "is not a single host and optional port")
 	}
 	return hostport(m, "Host header", host, "")
 }
@@ -381,7 +391,7 @@ func authority(m *message) (string, error) {
 // hostport is host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built.
 func hostport(m *message, where, hostinfo, scheme string) (string, error) {
 	unbuildable := func(why string) error {
-		return m.unbuildable(fmt.Sprintf("%s %q", where, hostinfo), why)
+		return m.unbuildable(where+" "+shown(hostinfo), why)
 	}
 	for i := 0; i < len(hostinfo); i++ {
 		if hostinfo[i] > '~' {
@@ -449,10 +459,10 @@ type message struct {
 func canonicalHeaders(headers map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(headers)+1)
 	for name, value := range headers {
-		lowered := strings.ToLower(name)
+		lowered := asciiLower(name)
 		if _, seen := out[lowered]; seen {
-			return nil, invalidOptions("The headers name %q more than once under different "+
-				"capitalizations, so there is no one value to sign or check; merge them first.", lowered)
+			return nil, invalidOptions("The headers name %s more than once under different "+
+				"capitalizations, so there is no one value to sign or check; merge them first.", shown(lowered))
 		}
 		out[lowered] = value
 	}
@@ -473,8 +483,8 @@ func requestMessage(method, rawURL string, headers map[string]string, received b
 // @5zrf8gjk, bakobo/fiki#6). Its case is kept as given (@22g0xkr8).
 func canonicalMessage(method, rawURL string, canonical map[string]string, received bool) (*message, error) {
 	if !isToken(method) {
-		return nil, invalidOptions("The method %q is not an HTTP method: a method is one or more token "+
-			"characters, with no spaces, line breaks or separators; pass it as it goes on the wire.", method)
+		return nil, invalidOptions("The method %s is not an HTTP method: a method is one or more token "+
+			"characters, with no spaces, line breaks or separators; pass it as it goes on the wire.", shown(method))
 	}
 	return &message{headers: canonical, method: method, url: rawURL, target: splitURL(rawURL), received: received}, nil
 }
@@ -564,22 +574,31 @@ func valueOf(item componentID, m *message) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := checkVisible(value, item.spec()); err != nil {
+	// Content-Digest keeps its own bound and its own kind, MalformedDigest, checked when it is
+	// parsed (this.i @5zrf8gjk); every other field value is bounded here (@524c8qgv).
+	field := !strings.HasPrefix(item.Name, "@")
+	if err := checkRaw(value, item.spec(), field && item.Name != ContentDigestHeader); err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(item.Name, "@") {
+	if field {
 		value = strings.Trim(value, " \t")
 	}
 	return value, nil
 }
 
-// checkVisible refuses a value holding anything but visible ASCII, SP and HTAB.
-func checkVisible(value, spec string) error {
+// checkRaw refuses a value holding anything but visible ASCII, SP and HTAB, and, when bounded, a
+// value over MaxFieldBytes as received, before anything is trimmed from it. Size is checked before
+// shape, so an oversized value is never scanned (this.i @524c8qgv).
+func checkRaw(value, spec string, bounded bool) error {
+	if bounded && len(value) > MaxFieldBytes {
+		return errorf(KindSignatureMismatch, "The value of %s is over %d bytes, so no signature base "+
+			"is built from it.", shown(spec), MaxFieldBytes)
+	}
 	for i := 0; i < len(value); i++ {
 		if value[i] != '\t' && (value[i] < ' ' || value[i] > '~') {
 			return errorf(KindSignatureMismatch,
 				"The value of %s contains a line break, a control character or a non-ASCII "+
-					"character, so there is no signature base both sides would build from it.", spec)
+					"character, so there is no signature base both sides would build from it.", shown(spec))
 		}
 	}
 	return nil
@@ -639,8 +658,8 @@ func (p SignatureParams) check() error {
 		{"keyid", p.Keyid}, {"alg", p.Alg}, {"nonce", p.Nonce}, {"tag", p.Tag},
 	} {
 		if !isSfString(s.value) {
-			return invalidOptions("The %s %q holds a character outside printable ASCII, which an "+
-				"RFC 8941 string cannot carry; a line break there would forge a header line.", s.name, s.value)
+			return invalidOptions("The %s %s holds a character outside printable ASCII, which an "+
+				"RFC 8941 string cannot carry; a line break there would forge a header line.", s.name, shown(s.value))
 		}
 	}
 	return nil
@@ -698,4 +717,38 @@ func ResponseSignatureBase(status int, request *Request, headers map[string]stri
 		return nil, err
 	}
 	return buildBase(items, m, true, params)
+}
+
+// asciiLower folds A-Z to a-z and nothing else (this.i @524c8qgv). strings.ToLower folds U+212A
+// KELVIN SIGN to an ASCII "k", so a field named with it would become a covered name it is not
+// (review A6, B5). Byte by byte, so a value that is not UTF-8 is never rewritten either.
+func asciiLower(text string) string {
+	raw := []byte(text)
+	for i, b := range raw {
+		if b >= 'A' && b <= 'Z' {
+			raw[i] = b + 'a' - 'A'
+		}
+	}
+	return string(raw)
+}
+
+// shownMax is the longest stretch of an untrusted value an error message quotes.
+const shownMax = 64
+
+// shown is an untrusted value as an error message may quote it: escaped, so no control character
+// reaches a log, and cut at 64 characters with its length said, so a 5 MB URL does not make a
+// 5 MB message (this.i @524c8qgv, review A9 and B9).
+func shown(text string) string {
+	count := utf8.RuneCountInString(text)
+	if count <= shownMax {
+		return strconv.Quote(text)
+	}
+	end, n := 0, 0
+	for end = range text {
+		if n == shownMax {
+			break
+		}
+		n++
+	}
+	return fmt.Sprintf("%s (cut from %d characters)", strconv.Quote(text[:end]), count)
 }
