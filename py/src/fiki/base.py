@@ -185,6 +185,8 @@ _OWS = " \t"
 # headers by messages, and a target URL and every covered field value here. One bound for all.
 MAX_FIELD_BYTES = 8192
 
+# Sizes are measured with surrogatepass, because a Python str can hold a lone surrogate, which
+# strict UTF-8 refuses to encode; the character checks after the size refuse it as non-ASCII.
 # Longest stretch of an untrusted value an error message quotes.
 _SHOWN = 64
 
@@ -296,7 +298,7 @@ def _split(message: _Message):
     rather than stripped, as urlsplit strips a tab, CR or LF, which made "/\nx" verify as "/x".
     """
     url = message.url
-    if len(url.encode("utf-8")) > MAX_FIELD_BYTES:
+    if len(url.encode("utf-8", "surrogatepass")) > MAX_FIELD_BYTES:
         raise _unreadable(message, f"it is over {MAX_FIELD_BYTES} bytes.")
     if any(c <= " " or c == "\x7f" for c in url):
         raise _unreadable(message, "it contains a space or a control character.")
@@ -469,7 +471,7 @@ def _check_raw(value: str, spec: str, *, bounded: bool = True) -> None:
     is encoded differently by different stacks. The KERI profile's draft 6 names such a base
     unbuildable, and so a signature-mismatch (@2f227n4r).
     """
-    if bounded and len(value.encode("utf-8")) > MAX_FIELD_BYTES:
+    if bounded and len(value.encode("utf-8", "surrogatepass")) > MAX_FIELD_BYTES:
         raise SignatureMismatch(
             f"The value of {spec} is over {MAX_FIELD_BYTES} bytes, so no signature base is built "
             "from it."

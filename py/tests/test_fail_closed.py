@@ -126,3 +126,19 @@ def test_field_names_fold_ascii_only():
 def test_an_expected_keyid_that_is_not_a_string_is_a_caller_error(expected_keyid):
     with pytest.raises(TypeError, match="AID or None"):
         verify_request(**_signed(), authorities=None, expected_keyid=expected_keyid)
+
+
+@pytest.mark.parametrize("where", ["url", "field"])
+def test_a_lone_surrogate_is_a_coded_refusal_not_a_unicode_error(where):
+    # #18 hostile pass: the UTF-8 size check encoded a value before its characters were checked,
+    # so a lone surrogate, which a Python str can hold, escaped as UnicodeEncodeError.
+    url = "https://api.example.com/x"
+    headers = sign_request(key=KEY, method="GET", url=url, headers={"X-Note": "v"},
+                           covered=["@method", "@authority", "@path", "@query", "x-note"])
+    if where == "url":
+        url = "https://api.example.com/\ud800"
+    else:
+        headers = {**headers, "X-Note": "\ud800"}
+    with pytest.raises(SignatureMismatch):
+        verify_request(method="GET", url=url, headers=headers, max_age=None, authorities=None,
+                       minimum=None)
