@@ -19,7 +19,6 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import {
-  FikiError,
   Key,
   MAX_DICTIONARY_MEMBERS,
   MAX_FIELD_BYTES,
@@ -30,6 +29,7 @@ import {
 } from '../src/index.js';
 import { parse } from '../src/messages.js';
 import { Decimal, SfvSyntaxError, Token, parseItem, parseList } from '../src/sfv.js';
+import { callerError } from './caller.js';
 
 const CORPUS = new URL('../../vectors/third_party/structured-field-tests/', import.meta.url);
 
@@ -254,9 +254,6 @@ const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const SERIAL = new URL('serialisation-tests/', CORPUS);
 const signWith = (overrides) => signRequest({ key: KEY, method: 'GET', url: 'https://example.com/', headers: {}, created: 1, ...overrides });
 
-/** A caller error carrying fiki's own message, never a FikiError. */
-const callerError = (fragment) => (err) =>
-  err instanceof TypeError && !(err instanceof FikiError) && err.message.includes(fragment);
 
 describe('the corpus serialisation cases, through signRequest', () => {
   const counts = { label: 0, param: 0, string: 0, number: 0 };

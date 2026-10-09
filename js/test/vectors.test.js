@@ -23,6 +23,7 @@ import {
   verifyResponse,
   verifyingKey,
 } from '../src/index.js';
+import { callerError } from './caller.js';
 
 const VECTORS = new URL('../../vectors/', import.meta.url);
 
@@ -166,6 +167,23 @@ function responseArgs(c) {
   return args;
 }
 
+// The fragment of fiki's own message each caller-error case must carry, so that a TypeError from a
+// bug inside fiki cannot pass for the refusal (tick 7xbw, T3). Keyed by case id, across misuse.json
+// and signs.json, whose ids are distinct.
+const CALLER = {
+  'authorities-holds-a-non-string': 'Every authority is a string',
+  'authorities-is-a-string': 'authorities is a collection of the hosts',
+  'authorities-is-a-string-containing-the-host': 'authorities is a collection of the hosts',
+  'authorities-is-empty': 'authorities is empty, which serves no host at all',
+  'authorities-omitted': 'verifyRequest requires authorities',
+  'minimum-below-the-profiles': "A minimum covered set must include the profile's own",
+  'minimum-empty': "A minimum covered set must include the profile's own",
+  'response-expected-keyid-empty': "verifyResponse's expectedKeyid is empty",
+  'response-expected-keyid-omitted': 'verifyResponse requires expectedKeyid',
+  'response-minimum-below-the-profiles': "A minimum covered set must include the profile's own",
+  'url-over-8192-bytes': 'cannot be read: it is over 8192 bytes',
+};
+
 /** Assert a FikiError of the named class, with a well-formed message. */
 const refusedAs = (name) => (err) => {
   assert.ok(err instanceof FikiError, `expected a FikiError, got ${err}`);
@@ -217,11 +235,7 @@ describe('what every signer emits, byte for byte', () => {
           ? signRequest({ method: c.method, url: c.url, ...args })
           : signResponse({ status: c.status, request: requestOf(c.request), ...args });
       if (c.error === 'caller') {
-        await assert.rejects(sign, (err) => {
-          assert.ok(err instanceof TypeError, `expected a TypeError, got ${err}`);
-          assert.ok(!(err instanceof FikiError), `expected no FikiError, got ${err}`);
-          return true;
-        });
+        await assert.rejects(sign, callerError(CALLER[c.id]));
       } else if (c.error !== undefined) {
         await assert.rejects(sign, refusedAs(c.error));
       } else {
@@ -322,14 +336,7 @@ describe('calls every implementation must refuse as a mistake in the call', () =
       // A mistake in the call is a TypeError, never a FikiError (@5zrf8gjk).
       assert.equal(c.error, 'caller');
       const call = c.kind === 'response' ? () => verifyResponse(responseArgs(c)) : () => verifyRequest(verifyArgs(c));
-      await assert.rejects(
-        call,
-        (err) => {
-          assert.ok(err instanceof TypeError, `expected a TypeError, got ${err}`);
-          assert.ok(!(err instanceof FikiError), `expected no FikiError, got ${err}`);
-          return true;
-        },
-      );
+      await assert.rejects(call, callerError(CALLER[c.id]));
     });
   }
 });

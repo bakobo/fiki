@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { FikiError, Key, errors, signRequest, verifyRequest } from '../src/index.js';
+import { callerError } from './caller.js';
 
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const AT = 1700000000;
@@ -34,12 +35,6 @@ const refused = (Class, fragment) => (err) => {
   return true;
 };
 
-/** A caller error: a TypeError carrying fiki's own message, never a FikiError. */
-const callerError = (fragment) => (err) => {
-  assert.ok(err instanceof TypeError && !(err instanceof FikiError), `expected a caller error, got ${err?.name}: ${err?.message}`);
-  assert.ok(err.message.includes(fragment), `expected "${fragment}" in: ${err.message}`);
-  return true;
-};
 
 const NON_ASCII = 'a line break, a control character or a non-ASCII character';
 const NO_UTF8 = 'holds a character that has no UTF-8 encoding';
