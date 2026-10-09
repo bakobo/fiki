@@ -204,7 +204,7 @@ A verdict carries the **AID that signed** and the **components the signature act
 
 From vectors format 3, a verifier refuses a signature that covers less than fiki's own signer does: the method, the host, the path and the query, plus a digest of the body whenever the request has one. A request counts as having a body when one is handed to fiki, or when its headers say so with a `Content-Length` above zero or any `Transfer-Encoding`, so a body you forgot to pass is still noticed. A signature without `created` is refused too, because an age that cannot be computed is a signature that replays forever. So is the empty covered list `sig=()`, which binds nothing. Each refusal is `InsufficientCoverage` or, for a missing `created`, `MalformedSignatureInput`, and each happens before the key is looked up.
 
-Before format 3, a verifier left at its defaults accepted all of these, and a signature that left out `@query` verified as readily as one that covered it, though it cannot tell `?limit=1` from `?limit=1000000`. The default is that floor, exported as `DEFAULT_MINIMUM` (Go: `DefaultMinimum`). A verifier that must accept a signer which covers less can name a smaller minimum of its own, as the KERI profile's verifiers do below, or opt out entirely: Python `minimum=None`, JavaScript `minimum: null`, Go `NoMinimum: true`, Rust `minimum: Minimum::Off`, C# `.WithoutMinimum()`. With no minimum, fiki checks what was signed and nothing more, and `verdict.covered` is the only place that shows what that was.
+Before format 3, a verifier left at its defaults accepted all of these, and a signature that left out `@query` verified as readily as one that covered it, though it cannot tell `?limit=1` from `?limit=1000000`. The default is that floor, exported as `DEFAULT_MINIMUM` (Go: `DefaultMinimum`). A verifier that must accept a signer which covers less can name a smaller minimum of its own, as the KERI profile's verifiers do below, or opt out entirely: Python `minimum=None`, JavaScript `minimum: null`, Go `NoMinimum: true`, Rust `minimum: Minimum::Off`, Java `.withoutMinimum()`, C# `.WithoutMinimum()`. With no minimum, fiki checks what was signed and nothing more, and `verdict.covered` is the only place that shows what that was.
 
 ### Stating the hosts you serve
 
@@ -216,6 +216,7 @@ Before format 3, a verifier left at its defaults accepted all of these, and a si
 | JavaScript | `authorities: ['api.example.com']` | `authorities: null` |
 | Go | `Authorities: []string{"api.example.com"}` | `AnyAuthority: true` |
 | Rust | `authorities: Authorities::served(["api.example.com"])` | `authorities: Authorities::Unchecked` |
+| Java | `.withAuthorities(Set.of("api.example.com"))` | `.withoutAuthorityCheck()` |
 | C# | `.WithAuthorities(new[] { "api.example.com" })` | `.DecliningAuthorityCheck()` |
 
 Leaving it out is a mistake in the call, not a default, and so is a single string where a collection belongs: Python's `in` and JavaScript's `includes` read a string as a sequence of characters, so `"api.example.com"` would have admitted `example.com`. An empty collection serves no host at all and is refused for the same reason.
