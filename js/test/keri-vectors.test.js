@@ -94,6 +94,7 @@ function run(request, response, { now, policy, keys }) {
     skew: policy.skew,
     now,
     resolve: resolver(keys),
+    // Absent from a policy means the explicit decline, which verifyResponse requires be stated.
     expectedKeyid: policy.expected_keyid ?? null,
   };
   if (response) {
@@ -147,7 +148,7 @@ describe('the KERI vectors format', () => {
       // The same guard @4fhrre0m gives the shared set, against its own number.
       const data = load(name);
       assert.equal(data.keri_vectors_format, KERI_VECTORS_FORMAT);
-      assert.equal(KERI_VECTORS_FORMAT, 4);
+      assert.equal(KERI_VECTORS_FORMAT, 5);
       assert.ok(!('vectors_format' in data));
       assert.ok(data.cases.length > 0);
     });

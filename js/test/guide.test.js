@@ -150,7 +150,7 @@ describe("the user guide's KERI-profile samples", async () => {
       'names @method twice',
     );
     assert.equal(
-      await classify(() => verifyResponse({ status: 401, headers: {}, request, maxAge: 300, resolve })),
+      await classify(() => verifyResponse({ status: 401, headers: {}, request, maxAge: 300, resolve, expectedKeyid: aid })),
       'an unsigned 401',
     );
   });
