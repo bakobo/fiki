@@ -13,7 +13,7 @@ The public half of an Ed25519 key is rendered as a non-transferable AID — a 44
 
 The AID is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has a DID, or is willing to make a dedicated SSH key, needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
 
-fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want [heti](https://github.com/bakobo/heti) instead; fiki is deliberately the floor.
+fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want a full KERI stack such as [keripy](https://github.com/WebOfTrust/keripy) instead; fiki is deliberately the floor.
 
 **To use fiki in your own project, read the [user guide](docs/user-guide.md).** What follows is about the repository.
 
@@ -43,7 +43,7 @@ A green run means that implementation reproduces every shared conformance vector
 
 ## What is covered, and the one thing that is not
 
-By default a fiki signature binds the method, the host, the path, the query string, and — whenever you hand it a body — a digest of that body. That is deliberately more than [heti](https://github.com/bakobo/heti)'s KERI dialect covers and more than it structurally can: RFC 9421 stops `@path` at the question mark, so a signature that omits `@query` cannot tell `?limit=1` from `?limit=1000000`, and a signature that omits `Content-Digest` cannot tell one request body from another. Verification recomputes the digest over the body it receives rather than trusting the header, even though the header is itself signed.
+By default a fiki signature binds the method, the host, the path, the query string, and — whenever you hand it a body — a digest of that body. That is deliberately more than the legacy KERI signed-HTTP dialect that KERIA and signify-ts deploy covers and more than it structurally can: RFC 9421 stops `@path` at the question mark, so a signature that omits `@query` cannot tell `?limit=1` from `?limit=1000000`, and a signature that omits `Content-Digest` cannot tell one request body from another. Verification recomputes the digest over the body it receives rather than trusting the header, even though the header is itself signed.
 
 A verifier holds a signature to the same standard by default. From vectors format 3 it refuses one that covers less than fiki's own signer does, one with no `created`, and a body that arrived without a covered digest; a verifier that must admit a signer covering less says so explicitly. It also states which hosts it serves, or that it declines to check, so that a request signed for one service cannot be replayed to another. The coverage policy has a fail-closed default that only an explicit opt-out relaxes; the hosts have no default at all, for the same reason as the freshness policy below.
 
@@ -69,7 +69,7 @@ dotnet add package Bakobo.Fiki --version 0.9.0
 
 For Java, build the port from a clone and install it into your local Maven repository, as [java/README.md](java/README.md#using-it-from-your-own-project) describes.
 
-Versions 0.0.1 on PyPI, npm, crates.io and NuGet are empty placeholders that reserved the names; do not depend on them. Its first consumer, [heti](https://github.com/bakobo/heti), pins fiki by commit rather than by version.
+Versions 0.0.1 on PyPI, npm, crates.io and NuGet are empty placeholders that reserved the names; do not depend on them.
 
 ## Layout
 
