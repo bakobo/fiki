@@ -193,8 +193,18 @@ function splitUrl(message) {
       'it is neither origin-form, beginning with a slash, nor an absolute URI with a scheme and an authority.',
     );
   }
-  const [, scheme, netloc, path, query = ''] = /^([^:]+):\/\/([^/?]*)([^?]*)(?:\?(.*))?$/.exec(url);
-  return { scheme: scheme.toLowerCase(), netloc, path, query };
+  // Split by index rather than by one regular expression: two adjacent classes that both match
+  // "." backtrack polynomially on a long run of them (CodeQL js/polynomial-redos on #17).
+  // ABSOLUTE has established scheme "://" authority, and a scheme holds no ":".
+  const sep = url.indexOf('://');
+  const rest = url.slice(sep + 3);
+  const slash = rest.search(/[/?]/);
+  const netloc = slash < 0 ? rest : rest.slice(0, slash);
+  const target = slash < 0 ? '' : rest.slice(slash);
+  const mark = target.indexOf('?');
+  const path = mark < 0 ? target : target.slice(0, mark);
+  const query = mark < 0 ? '' : target.slice(mark + 1);
+  return { scheme: url.slice(0, sep).toLowerCase(), netloc, path, query };
 }
 
 const partsOf = (message) => {

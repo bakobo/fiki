@@ -6,7 +6,9 @@ craft and check the signatures that tell the cofactorless equation from the cofa
 Its verify() is the cofactorless check. Not for production; the RFC says so itself.
 
 Extracted from https://www.rfc-editor.org/rfc/rfc8032.txt by removing page breaks and the
-three-space indent, nothing else. Copyright (c) 2017 IETF Trust and the persons identified as
+three-space indent, with one change: verify() instantiates Exception("Bad signature length")
+without raising it in the RFC text, and here it is raised (CodeQL py/unused-exception-object on
+bakobo/fiki#17). Every signature this file is given is 64 bytes, so no vector depends on it. Copyright (c) 2017 IETF Trust and the persons identified as
 the document authors. Code Components are licensed under the Simplified BSD License (RFC 8032,
 "Copyright Notice"; https://trustee.ietf.org/license-info).
 """
@@ -147,7 +149,7 @@ def verify(public, msg, signature):
  if len(public) != 32:
      raise Exception("Bad public key length")
  if len(signature) != 64:
-     Exception("Bad signature length")
+     raise Exception("Bad signature length")
  A = point_decompress(public)
  if not A:
      return False
