@@ -1943,24 +1943,9 @@ fn a_non_canonical_or_off_curve_key_is_malformed_on_every_path() {
 
 // --- hostile review of 19bb135 (bakobo/fiki#8) ---
 
-#[test]
-fn a_huge_covered_list_is_checked_in_linear_time() {
-    // Duplicate detection runs on an untrusted list before anything else rejects it.
-    let covered: Vec<String> = (0..50_000).map(|i| format!("x-{i}")).collect();
-    let started = std::time::Instant::now();
-    let err = signature_base(
-        "GET",
-        URL,
-        &BTreeMap::new(),
-        &covered,
-        &SignatureParams::default(),
-    );
-    assert_eq!(kind_of(err), Kind::MissingComponent);
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
-}
-
-// The parameter-list test that stood here lives in src/linear_tests.rs: it has to reach the parser
-// below the 8192-byte field bound, which only the crate can (review T5).
+// The two linear-time tests that stood here, over a covered list and a parameter list, live in
+// src/linear_tests.rs: the parameter one has to reach the parser below the 8192-byte field bound,
+// which only the crate can (review T5), and both compare times rather than read a clock (tick 7xbw).
 
 #[test]
 fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {

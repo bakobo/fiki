@@ -6,10 +6,14 @@
 //! list long enough to time is refused for its size before the parser sees it, so a quadratic
 //! parser passed the old test.
 
+use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use crate::base::signature_base;
+use crate::errors::Kind;
 use crate::sfv::parse_dictionary;
+use crate::SignatureParams;
 
 /// Fails unless doing the work once over 4n inputs takes about as long as doing it four times over
 /// n, which is what linear work does; quadratic work takes four times as long. It compares the two
@@ -45,6 +49,26 @@ fn scales_linearly<F: Fn()>(n: usize, prepare: impl Fn(usize) -> F) {
         4 * n,
         fastest[1]
     );
+}
+
+/// Duplicate detection runs on an untrusted covered list before anything else rejects it, and a
+/// list of distinct names is the one a quadratic check would be slowest on.
+#[test]
+fn a_huge_covered_list_is_checked_in_linear_time() {
+    scales_linearly(10_000, |n| {
+        let covered: Vec<String> = (0..n).map(|i| format!("x-{i}")).collect();
+        move || {
+            let err = signature_base(
+                "GET",
+                "https://api.example.com/x",
+                &BTreeMap::new(),
+                black_box(&covered),
+                &SignatureParams::default(),
+            )
+            .unwrap_err();
+            assert_eq!(err.kind, Kind::MissingComponent);
+        }
+    });
 }
 
 /// RFC 8941 gives a repeated parameter key its first place and its last value, and the parser
