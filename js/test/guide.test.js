@@ -51,7 +51,7 @@ describe("the user guide's samples", () => {
   });
 });
 
-// The KERI-profile samples in .ignored/parity/guide-js.md, run in the order the guide shows them.
+// The KERI-profile samples from docs/user-guide.md, run in the order the guide shows them.
 // A transferable AID does not contain its key, so the verifier's resolver stands in for the key
 // state a KERI stack would hold: here, a Map from the AID to its current 32-byte key.
 describe("the user guide's KERI-profile samples", async () => {

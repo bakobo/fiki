@@ -75,7 +75,7 @@ interview, the `why` rebuttal-surface standard, the gate ceremony, and adversari
 [`dev/methodology.md`](../dev/methodology.md), in the sibling `bakobo/dev` repo. Read it before
 making design decisions here.
 
-fiki's tree is at `this.i` in the repository root. The decision to carve fiki out of `bakobo/heti`
+fiki's tree is at `this.i` in the repository root. The decision to carve fiki out of heti
 lives in **heti's** tree, at `@3qewrm0p` under `@m4x7rc`; nodes here cite those by id rather than
 restating them.
 
