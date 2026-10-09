@@ -790,9 +790,46 @@ public final class Fiki {
     /** The UTF-8 length of a value, past {@link #MAX_FIELD_BYTES} or not. */
     private static boolean overBound(String value) {
         // No value of at most MAX_FIELD_BYTES / 3 characters can exceed the bound, so the common
-        // case never encodes anything.
-        return value.length() > MAX_FIELD_BYTES / 3
-            && value.getBytes(StandardCharsets.UTF_8).length > MAX_FIELD_BYTES;
+        // case never measures anything.
+        return value.length() > MAX_FIELD_BYTES / 3 && utf8Length(value) > MAX_FIELD_BYTES;
+    }
+
+    /**
+     * The UTF-8 length of a value as fiki-py measures it, {@code len(value.encode("utf-8",
+     * "surrogatepass"))} (tick 7us4): a lone surrogate is the three bytes its code point would take,
+     * where {@code getBytes(UTF_8)} replaces it with a one-byte "?" and so undercounts.
+     */
+    static int utf8Length(String value) {
+        int bytes = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch < 0x80) {
+                bytes += 1;
+            } else if (ch < 0x800) {
+                bytes += 2;
+            } else if (Character.isHighSurrogate(ch) && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                bytes += 4;
+                i++;
+            } else {
+                bytes += 3;
+            }
+        }
+        return bytes;
+    }
+
+    /** Whether a value holds a surrogate that is not half of a pair, which has no UTF-8 spelling. */
+    private static boolean loneSurrogate(String value) {
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (Character.isHighSurrogate(ch) && i + 1 < value.length()
+                    && Character.isLowSurrogate(value.charAt(i + 1))) {
+                i++;
+            } else if (Character.isSurrogate(ch)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String checked(String value, String spec, boolean bounded) {
@@ -1014,8 +1051,14 @@ public final class Fiki {
 
     /** host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built. */
     private static String hostport(String raw, String scheme, boolean received) {
-        // lower() touches ASCII only, so U+212A KELVIN SIGN stays what it is rather than becoming
-        // a "k", and the value check refuses it as it refuses any non-ASCII host (review B5).
+        // Checked as written, before lower() or anything else, as fiki-py checks it: U+212A KELVIN
+        // SIGN is not a "k" (review B5), and a host that is not ASCII is an unreadable target, the
+        // caller's mistake when signing (tick 7us4).
+        for (int i = 0; i < raw.length(); i++) {
+            if (raw.charAt(i) > 0x7f) {
+                throw unreadable("The authority " + shown(raw) + " cannot be read: its host is not ASCII.", received);
+            }
+        }
         String host;
         String port;
         if (raw.startsWith("[")) {
@@ -1692,23 +1735,11 @@ public final class Fiki {
     /**
      * Parse one signature-related header, bounded before it is read (@5zrf8gjk): its size in bytes
      * first, on the raw value, then its shape, then the counts of what parsed. Over any bound is
-     * the header's malformed class, never a crash or a slow parse.
+     * the header's malformed class, never a crash or a slow parse. Package-private so the httpwg
+     * corpus runs through it (@7fexwu3s).
      */
-    private static List<Sfv.Member> parse(String raw, String name, FikiException.Kind kind) {
-        // Never null: a covered digest header that is absent is already a MissingComponent.
-        int bytes = raw.getBytes(StandardCharsets.UTF_8).length;
-        if (bytes > MAX_FIELD_BYTES) {
-            throw new FikiException(kind,
-                "The " + name + " header is " + bytes + " bytes, and fiki reads one of at most "
-                    + MAX_FIELD_BYTES + ".");
-        }
-        List<Sfv.Member> members;
-        try {
-            members = Sfv.parseDictionary(raw);
-        } catch (Sfv.SyntaxException e) {
-            throw new FikiException(kind,
-                "I could not parse the " + name + " header; RFC 9421 spells it as an RFC 8941 dictionary.");
-        }
+    static List<Sfv.Member> parse(String raw, String name, FikiException.Kind kind) {
+        List<Sfv.Member> members = bounded(raw, name, kind, "dictionary", Sfv::parseDictionary);
         // A present header that holds no member, such as one of spaces, is malformed rather than
         // a dictionary of no signatures: absence was a different refusal, already made (review B7).
         if (members.isEmpty()) {
@@ -1716,26 +1747,81 @@ public final class Fiki {
                 "The " + name + " header is present and holds no member; RFC 9421 spells it as a non-empty "
                     + "RFC 8941 dictionary.");
         }
-        checkCounts(members, name, kind);
+        checkCount(members.size(), name, kind);
+        for (Sfv.Member member : members) {
+            checkMember(member.value(), member.params(), name, kind);
+        }
         return members;
     }
 
-    private static void checkCounts(List<Sfv.Member> members, String name, FikiException.Kind kind) {
-        if (members.size() > MAX_DICTIONARY_MEMBERS) {
+    /**
+     * An RFC 8941 list under the same four bounds as {@link #parse}, each member an {@link Sfv.Item}
+     * or an {@link Sfv.InnerList}. No header fiki reads is a list; this is internal API, so the
+     * httpwg corpus can run its list cases against the parser (@7fexwu3s).
+     */
+    static List<Object> parseList(String raw, String name, FikiException.Kind kind) {
+        List<Object> members = bounded(raw, name, kind, "list", Sfv::parseList);
+        checkCount(members.size(), name, kind);
+        for (Object member : members) {
+            if (member instanceof Sfv.InnerList inner) {
+                checkMember(inner, inner.params(), name, kind);
+            } else {
+                Sfv.Item item = (Sfv.Item) member;
+                checkMember(item.value(), item.params(), name, kind);
+            }
+        }
+        return members;
+    }
+
+    /** An RFC 8941 item under the same bounds, for the httpwg corpus as {@link #parseList} is. */
+    static Sfv.Item parseItem(String raw, String name, FikiException.Kind kind) {
+        Sfv.Item item = bounded(raw, name, kind, "item", Sfv::parseItem);
+        checkMember(item.value(), item.params(), name, kind);
+        return item;
+    }
+
+    private static <T> T bounded(String raw, String name, FikiException.Kind kind, String shape,
+            java.util.function.Function<String, T> parser) {
+        // Never null: a covered digest header that is absent is already a MissingComponent. A lone
+        // surrogate has no UTF-8 spelling, so no peer sent it, and it is refused before the size is
+        // measured, as fiki-py refuses it (tick 7us4).
+        if (loneSurrogate(raw)) {
+            throw new FikiException(kind,
+                "The " + name + " header holds a character that has no UTF-8 encoding, so it cannot be "
+                    + "read as an RFC 8941 " + shape + ".");
+        }
+        int bytes = utf8Length(raw);
+        if (bytes > MAX_FIELD_BYTES) {
+            throw new FikiException(kind,
+                "The " + name + " header is " + bytes + " bytes, and fiki reads one of at most "
+                    + MAX_FIELD_BYTES + ".");
+        }
+        try {
+            return parser.apply(raw);
+        } catch (Sfv.SyntaxException e) {
+            throw new FikiException(kind,
+                "I could not parse the " + name + " header; RFC 9421 spells it as an RFC 8941 " + shape + ".");
+        }
+    }
+
+    private static void checkCount(int members, String name, FikiException.Kind kind) {
+        if (members > MAX_DICTIONARY_MEMBERS) {
             throw overLimit(name, kind, MAX_DICTIONARY_MEMBERS, "members");
         }
-        for (Sfv.Member member : members) {
-            if (member.params().size() > MAX_PARAMETERS) {
-                throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
+    }
+
+    private static void checkMember(Object value, List<Map.Entry<String, Object>> params, String name,
+            FikiException.Kind kind) {
+        if (params.size() > MAX_PARAMETERS) {
+            throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
+        }
+        if (value instanceof Sfv.InnerList inner) {
+            if (inner.items().size() > MAX_INNER_LIST_ITEMS) {
+                throw overLimit(name, kind, MAX_INNER_LIST_ITEMS, "items in one inner list");
             }
-            if (member.value() instanceof Sfv.InnerList inner) {
-                if (inner.items().size() > MAX_INNER_LIST_ITEMS) {
-                    throw overLimit(name, kind, MAX_INNER_LIST_ITEMS, "items in one inner list");
-                }
-                for (Sfv.Item item : inner.items()) {
-                    if (item.params().size() > MAX_PARAMETERS) {
-                        throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
-                    }
+            for (Sfv.Item item : inner.items()) {
+                if (item.params().size() > MAX_PARAMETERS) {
+                    throw overLimit(name, kind, MAX_PARAMETERS, "parameters on one item");
                 }
             }
         }

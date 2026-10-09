@@ -19,7 +19,8 @@ import java.util.Map;
  * <p>Every bare item type the grammar has is READ — integers, decimals, strings, tokens, byte
  * sequences, booleans — so that a header carrying the wrong type is refused for its type by the
  * caller, as fiki-py's http_sfv does, rather than failing to parse at all. Lists and items as
- * top-level fields are not here, because RFC 9421 puts neither in the headers fiki reads.
+ * top-level fields are parsed too, though RFC 9421 puts neither in the headers fiki reads, so that
+ * the httpwg corpus runs against every part of the grammar (@7fexwu3s).
  */
 final class Sfv {
 
@@ -334,6 +335,29 @@ final class Sfv {
             }
         }
         return new ArrayList<>(out.values());
+    }
+
+    /**
+     * Parse an RFC 8941 list (section 4.2.1), members in order. No header fiki reads is a list; the
+     * httpwg corpus runs its list cases through this (@7fexwu3s).
+     */
+    static List<Object> parseList(String text) {
+        Cursor cursor = new Cursor(text);
+        List<Object> out = new ArrayList<>();
+        cursor.skipSpace();
+        while (!cursor.done()) {
+            out.add(cursor.peek() == '(' ? cursor.parseInnerList() : cursor.parseItem());
+            cursor.skipOws();
+            if (cursor.done()) {
+                break;
+            }
+            cursor.expect(',');
+            cursor.skipOws();
+            if (cursor.done()) {
+                throw new SyntaxException("a list ended with a trailing comma");
+            }
+        }
+        return out;
     }
 
     /** Parse one RFC 8941 item with its parameters, the whole of {@code text} and nothing else. */
