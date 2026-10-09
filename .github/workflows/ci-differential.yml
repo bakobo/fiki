@@ -1,0 +1,176 @@
+name: Differential
+
+# docs/user-guide.md and `this.i` @5zrf8gjk promise that every port gives the same answer to the
+# same input. The shared vectors check about two hundred chosen answers; on 2026-10-08 a hand-made
+# differential across the ports found the promise false on inputs nobody had chosen (tick 7xbw).
+# This runs that differential on every change: each port answers the 3,000 mutated requests in
+# differential/cases.json, and the last job fails if any case has more than one answer or any port
+# crashed. There is no allowlist; differential/README.md says what to do when it is red.
+on:
+  push:
+    branches: [main]
+    paths: ["py/**", "js/**", "go/**", "rust/**", "java/**", "csharp/**", "vectors/**", "differential/**",
+            ".github/workflows/ci-differential.yml"]
+  pull_request:
+    paths: ["py/**", "js/**", "go/**", "rust/**", "java/**", "csharp/**", "vectors/**", "differential/**",
+            ".github/workflows/ci-differential.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The committed cases are what the generator writes, as ci-vectors.yml checks for the vectors: a
+  # hand edit or a generator change committed without regenerating fails here.
+  drift:
+    name: differential-drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Regenerate the cases
+        run: python3 differential/generate.py
+      - name: Fail if cases.json changed
+        run: |
+          if ! git diff --exit-code --stat -- differential/cases.json; then
+            echo "::error::differential/cases.json differs from what differential/generate.py writes; regenerate and commit, or revert the hand edit."
+            exit 1
+          fi
+
+  # One job per port, each building the port as that port's own CI workflow does, with the same
+  # action pins and toolchain versions, and uploading its outcome map.
+
+  python:
+    name: differential-python
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: "3.11"
+      - name: Sync dependencies
+        working-directory: py
+        run: uv sync --frozen
+      - name: Answer every case
+        working-directory: py
+        run: uv run python ../differential/run_py.py ../differential/cases.json ../differential/out/py.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-py
+          path: differential/out/py.json
+          if-no-files-found: error
+
+  javascript:
+    name: differential-javascript
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Answer every case
+        run: node differential/run_js.mjs differential/cases.json differential/out/js.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-js
+          path: differential/out/js.json
+          if-no-files-found: error
+
+  go:
+    name: differential-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.22"
+      - name: Answer every case
+        working-directory: differential/go
+        run: go run . ../cases.json ../out/go.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-go
+          path: differential/out/go.json
+          if-no-files-found: error
+
+  rust:
+    name: differential-rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A debug build, as `cargo test` in ci-rust.yml is, so an integer overflow panics and is
+      # recorded as a crash rather than wrapping silently.
+      - name: Answer every case
+        working-directory: differential/rust
+        run: cargo run --locked -- ../cases.json ../out/rust.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-rust
+          path: differential/out/rust.json
+          if-no-files-found: error
+
+  java:
+    name: differential-java
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      # Maven builds the port and names the test-scope classpath, which holds the Jackson the port's
+      # own tests read the vectors with; the runner is compiled against both and run.
+      - name: Build the port and resolve its test classpath
+        working-directory: java
+        run: mvn -B -q compile dependency:build-classpath -Dmdep.includeScope=test -Dmdep.outputFile=target/differential.classpath
+      - name: Answer every case
+        working-directory: differential/java
+        run: |
+          classpath="$GITHUB_WORKSPACE/java/target/classes:$(cat "$GITHUB_WORKSPACE/java/target/differential.classpath")"
+          javac --release 17 -encoding UTF-8 -Xlint:all -Werror -d classes/runner -cp "$classpath" Runner.java
+          java -cp "classes/runner:$classpath" Runner ../cases.json ../out/java.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-java
+          path: differential/out/java.json
+          if-no-files-found: error
+
+  csharp:
+    name: differential-csharp
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: "10.0.x"
+      - name: Answer every case
+        working-directory: differential/csharp
+        run: dotnet run -c Release -- ../cases.json ../out/csharp.json
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: differential-csharp
+          path: differential/out/csharp.json
+          if-no-files-found: error
+
+  compare:
+    name: differential
+    needs: [python, javascript, go, rust, java, csharp]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: differential-*
+          path: differential/out/
+          merge-multiple: true
+      - name: Fail on any case the ports answer differently
+        run: python3 differential/compare.py differential/out
