@@ -40,6 +40,36 @@ const SF_INTEGER_MAX: i64 = 999_999_999_999_999;
 /// RFC 3986 section 3.2.3 reads a port as digits; RFC 9110's ports are 16-bit.
 const PORT_MAX: u32 = 65535;
 
+/// The most bytes fiki reads of any untrusted value, measured as received, before it is trimmed or
+/// parsed, so size is checked before shape (`this.i` @5zrf8gjk, @524c8qgv): the Signature,
+/// Signature-Input and Content-Digest headers, a target URL, a Host that supplies `@authority`, and
+/// every covered field value. Inclusive, and far above anything an honest sender needs.
+pub const MAX_FIELD_BYTES: usize = 8192;
+
+/// The longest stretch of an untrusted value an error quotes (`this.i` @524c8qgv).
+const SHOWN: usize = 64;
+
+/// An untrusted value as an error may quote it: escaped, quoted, and cut at 64 characters with a
+/// note of how long it was (review A9, B9), so a 5 MB URL is never a 5 MB message and a control
+/// character never reaches a log raw.
+pub(crate) fn shown(text: &str) -> String {
+    let length = text.chars().count();
+    if length <= SHOWN {
+        return format!("{text:?}");
+    }
+    let head: String = text.chars().take(SHOWN).collect();
+    format!("{head:?} (cut from {length} characters)")
+}
+
+/// A component name as a message names it, bare when it is short and printable, as a covered name
+/// almost always is, and [`shown`] otherwise.
+pub(crate) fn brief(text: &str) -> String {
+    if text.chars().count() <= SHOWN && text.chars().all(|c| (' '..='~').contains(&c)) {
+        return text.to_string();
+    }
+    shown(text)
+}
+
 /// RFC 9110 section 5.6.2: one or more tchar. A method is a token (section 9.1), and so is a field
 /// name (section 5.1), which fiki further requires lowercased in a covered list.
 pub(crate) fn is_token(text: &str) -> bool {
@@ -66,8 +96,9 @@ fn check_method(method: &str) -> Result<()> {
     Err(Error::detailed(
         Kind::InvalidArgument,
         format!(
-            "The method {method:?} is not an HTTP method: a method is one or more token \
-             characters, with no spaces, line breaks or separators."
+            "The method {} is not an HTTP method: a method is one or more token characters, with \
+             no spaces, line breaks or separators.",
+            shown(method)
         ),
         method,
     ))
@@ -82,8 +113,9 @@ pub(crate) fn check_label(label: &str) -> Result<()> {
     Err(Error::detailed(
         Kind::InvalidArgument,
         format!(
-            "The label {label:?} is not an RFC 8941 key: it starts with a lowercase letter or '*' \
-             and continues with lowercase letters, digits, '_', '-', '.' and '*'."
+            "The label {} is not an RFC 8941 key: it starts with a lowercase letter or '*' and \
+             continues with lowercase letters, digits, '_', '-', '.' and '*'.",
+            shown(label)
         ),
         label,
     ))
@@ -120,8 +152,9 @@ fn check_signer_params(params: &SignatureParams) -> Result<()> {
             return Err(Error::detailed(
                 Kind::InvalidArgument,
                 format!(
-                    "The {name} {value:?} holds a character outside printable ASCII, which an RFC \
-                     8941 string cannot carry; a line break there would forge a header line."
+                    "The {name} {} holds a character outside printable ASCII, which an RFC 8941 \
+                     string cannot carry; a line break there would forge a header line.",
+                    shown(value)
                 ),
                 value,
             ));
@@ -154,6 +187,8 @@ pub struct Request {
 
 /// The spelling of a request component named from a response: `req("@path")` is `"@path";req`.
 pub fn req(name: &str) -> String {
+    // A-Z folded to a-z and nothing else (`this.i` @524c8qgv): a Unicode fold would turn U+212A
+    // KELVIN SIGN into a "k", and so a field into a covered name it is not (review A6, B5).
     serialize_item(&Item {
         value: Value::Text(name.to_ascii_lowercase()),
         params: vec![(REQ.into(), Value::Boolean(true))],
@@ -173,8 +208,9 @@ pub(crate) fn component(spec: &str) -> Result<Item> {
         Some(name) if !name.starts_with('@') && !is_token(name) => Err(Error::detailed(
             Kind::InvalidArgument,
             format!(
-                "{spec:?} is not a component fiki can name: a field is named by an HTTP field \
-                 name, one or more token characters, and a derived component by its @ name."
+                "{} is not a component fiki can name: a field is named by an HTTP field name, one \
+                 or more token characters, and a derived component by its @ name.",
+                shown(spec)
             ),
             spec,
         )),
@@ -193,8 +229,9 @@ fn component_item(spec: &str) -> Result<Item> {
         Error::detailed(
             Kind::UnsupportedComponent,
             format!(
-                "fiki cannot read {spec} as a component identifier; name a component plainly, \
-                 as \"@path\", or in its serialized form, as '\"@path\";req'."
+                "fiki cannot read {} as a component identifier; name a component plainly, as \
+                 \"@path\", or in its serialized form, as '\"@path\";req'.",
+                brief(spec)
             ),
             spec,
         )
@@ -243,7 +280,7 @@ pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
                 format!(
                     "The covered components name {} twice, so the signature base would not be \
                      what either copy says it is.",
-                    spec_of(item)
+                    brief(&spec_of(item))
                 ),
                 spec_of(item),
             ));
@@ -259,7 +296,7 @@ pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
                 format!(
                     "fiki does not support the component {}: the only component parameter it \
                      supports is \"{REQ}\", and only in a response.",
-                    spec_of(item)
+                    brief(&spec_of(item))
                 ),
                 spec_of(item),
             ));
@@ -276,7 +313,7 @@ pub(crate) fn check_covered(items: &[Item], response: bool) -> Result<()> {
                     Kind::UnsupportedComponent,
                     format!(
                         "fiki does not build the derived component {} in a {}; it builds {}.",
-                        spec_of(item),
+                        brief(&spec_of(item)),
                         if response { "response" } else { "request" },
                         supported.join(", ")
                     ),
@@ -309,6 +346,12 @@ pub(crate) struct Target {
 /// stripped, so "/\nx" is never read as "/x", and so is a "#", since a request target has no
 /// fragment and a component one port strips and another keeps is a divergence.
 pub(crate) fn split_target(raw: &str) -> std::result::Result<Target, &'static str> {
+    // Size before shape (`this.i` @524c8qgv). The reason is spelled out because a &'static str
+    // cannot be formatted, and the assertion below keeps the two together.
+    const _: () = assert!(MAX_FIELD_BYTES == 8192);
+    if raw.len() > MAX_FIELD_BYTES {
+        return Err("it is over 8192 bytes.");
+    }
     if raw.chars().any(|c| c <= ' ' || c == '\x7f') {
         return Err("it contains a space or a control character.");
     }
@@ -371,7 +414,9 @@ pub(crate) struct Message {
 }
 
 impl Message {
-    /// `headers` are already canonical (`canonical`), so only their values are trimmed here.
+    /// `headers` are already canonical (`canonical`). Their values are kept as received, since a
+    /// value is bounded before its optional whitespace is trimmed (`this.i` @524c8qgv), and trimmed
+    /// where a component reads one.
     pub fn request(
         method: &str,
         url: &str,
@@ -380,7 +425,7 @@ impl Message {
     ) -> Result<Self> {
         check_method(method)?;
         Ok(Message {
-            headers: trimmed(headers),
+            headers: headers.clone(),
             method: Some(method.to_string()),
             url: url.to_string(),
             target: Some(split_target(url)),
@@ -397,7 +442,7 @@ impl Message {
         received: bool,
     ) -> Result<Self> {
         Ok(Message {
-            headers: trimmed(headers),
+            headers: headers.clone(),
             method: None,
             url: String::new(),
             target: None,
@@ -419,17 +464,17 @@ impl Message {
             return Error::detailed(
                 Kind::SignatureMismatch,
                 format!(
-                    "The URL {:?} cannot be read: {reason} So there is no signature base to check \
+                    "The URL {} cannot be read: {reason} So there is no signature base to check \
                      the signature against.",
-                    self.url
+                    shown(&self.url)
                 ),
-                &self.url,
+                shown(&self.url),
             );
         }
         Error::detailed(
             Kind::InvalidArgument,
-            format!("The URL {:?} cannot be read: {reason}", self.url),
-            &self.url,
+            format!("The URL {} cannot be read: {reason}", shown(&self.url)),
+            shown(&self.url),
         )
     }
 }
@@ -450,7 +495,8 @@ fn port(text: &str, message: &Message) -> Result<Option<u32>> {
         }
     }
     Err(message.unreadable(&format!(
-        "its port {text:?} is not a number from 0 to {PORT_MAX}."
+        "its port {} is not a number from 0 to {PORT_MAX}.",
+        shown(text)
     )))
 }
 
@@ -523,11 +569,12 @@ fn authority(target: &Target, message: &Message) -> Result<String> {
     // the Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier
     // actually holds.
     if let Some(raw) = &target.authority {
-        // Read as written, after any userinfo.
-        let hostport = raw
-            .rsplit_once('@')
-            .map_or(raw.as_str(), |(_, after)| after);
-        return host_and_port(hostport, target.scheme.as_deref(), message);
+        // RFC 9110 section 4.2.4: a recipient treats userinfo as an error, since it is used to
+        // obscure the authority (`this.i` @524c8qgv). Even an empty one, "https://@host".
+        if raw.contains('@') {
+            return Err(message.unreadable("its authority carries user information."));
+        }
+        return host_and_port(raw, target.scheme.as_deref(), message);
     }
     let host = message.headers.get("host").ok_or_else(|| {
         Error::detailed(
@@ -539,7 +586,14 @@ fn authority(target: &Target, message: &Message) -> Result<String> {
     })?;
     // Host is an origin-form request's authority, so it passes the same checks as an absolute
     // URL's, and with no scheme no port is a default one (`this.i`, "Host is validated like any
-    // authority"). Userinfo and a list of hosts have no place in it.
+    // authority"). Userinfo and a list of hosts have no place in it. Bounded as received, before
+    // its optional whitespace is trimmed (`this.i` @524c8qgv).
+    if host.len() > MAX_FIELD_BYTES {
+        return Err(
+            message.unreadable(&format!("its Host header is over {MAX_FIELD_BYTES} bytes."))
+        );
+    }
+    let host = ows_trimmed(host);
     if host.contains(['@', ',']) {
         return Err(message.unreadable("its Host header is not a single host and optional port."));
     }
@@ -588,7 +642,7 @@ fn host_and_port(hostport: &str, scheme: Option<&str>, message: &Message) -> Res
 fn missing(item: &Item, why: &str) -> Error {
     Error::detailed(
         Kind::MissingComponent,
-        format!("The signature covers {}, {why}", spec_of(item)),
+        format!("The signature covers {}, {why}", brief(&spec_of(item))),
         spec_of(item),
     )
 }
@@ -638,12 +692,30 @@ fn component_value(item: &Item, message: &Message) -> Result<String> {
         // Section 2.2.7: the whole query string including the leading "?", percent-encoding
         // preserved, and a bare "?" when the request carries no query at all.
         ("@query", Some(target)) => Ok(format!("?{}", target.query)),
-        _ => message.headers.get(name).cloned().ok_or_else(|| {
-            missing(
-                item,
-                "but the message carries no value for it, so the signature base cannot be built.",
-            )
-        }),
+        _ => {
+            let raw = message.headers.get(name).ok_or_else(|| {
+                missing(
+                    item,
+                    "but the message carries no value for it, so the signature base cannot be \
+                     built.",
+                )
+            })?;
+            // Bounded as received, before the optional whitespace is trimmed, so the bound is the
+            // same on both sides (`this.i` @524c8qgv). Content-Digest keeps its own bound and its
+            // own kind, MalformedDigest, checked where it is parsed (@5zrf8gjk).
+            if name != CONTENT_DIGEST && raw.len() > MAX_FIELD_BYTES {
+                return Err(Error::detailed(
+                    Kind::SignatureMismatch,
+                    format!(
+                        "The value of {} is over {MAX_FIELD_BYTES} bytes, so no signature base is \
+                         built from it.",
+                        brief(&spec_of(item))
+                    ),
+                    spec_of(item),
+                ));
+            }
+            Ok(ows_trimmed(raw).to_string())
+        }
     }
 }
 
@@ -663,7 +735,7 @@ pub(crate) fn value_of(item: &Item, message: &Message) -> Result<String> {
             format!(
                 "The value of {} contains a line break, a control character or a non-ASCII \
                  character, so there is no signature base both sides would build from it.",
-                spec_of(item)
+                brief(&spec_of(item))
             ),
             spec_of(item),
         ));
@@ -685,9 +757,10 @@ pub(crate) fn canonical(headers: &BTreeMap<String, String>) -> Result<BTreeMap<S
             return Err(Error::detailed(
                 Kind::InvalidArgument,
                 format!(
-                    "The headers name the field \"{lower}\" more than once in different case, so \
-                     it has two values and fiki cannot know which one was meant; combine them into \
-                     one entry before signing or verifying."
+                    "The headers name the field {} more than once in different case, so it has \
+                     two values and fiki cannot know which one was meant; combine them into one \
+                     entry before signing or verifying.",
+                    shown(&lower)
                 ),
                 lower,
             ));
@@ -720,15 +793,11 @@ pub(crate) fn canonical_request(request: Option<&Request>) -> Result<Option<Aske
         .transpose()
 }
 
-fn trimmed(headers: &BTreeMap<String, String>) -> BTreeMap<String, String> {
-    // The names are canonical already, lowercased once by `canonical` (@5zrf8gjk). Values lose
-    // leading and trailing SP and HTAB, the only optional whitespace RFC 9110 section 5.5 allows
-    // around a field value, and nothing else: str::trim would also strip a CR or LF, and value_of
-    // must see those to refuse them (`this.i` @56qu7gyw).
-    headers
-        .iter()
-        .map(|(name, value)| (name.clone(), value.trim_matches([' ', '\t']).to_string()))
-        .collect()
+/// A field value without its leading and trailing SP and HTAB, the only optional whitespace RFC
+/// 9110 section 5.5 allows around one, and nothing else: str::trim would also strip a CR or LF,
+/// and value_of must see those to refuse them (`this.i` @56qu7gyw).
+fn ows_trimmed(value: &str) -> &str {
+    value.trim_matches([' ', '\t'])
 }
 
 /// Every line of the signature base except the trailing `@signature-params`.

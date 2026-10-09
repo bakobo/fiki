@@ -14,19 +14,21 @@ use std::sync::Arc;
 
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
-    verify_request, verify_response, verifying_key, Authorities, Error, Key, Kind, Minimum,
-    Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
-    RESPONSE_MINIMUM,
+    verify_request, verify_response, verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind,
+    Minimum, Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions,
+    REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };
 use sha2::{Digest, Sha256, Sha512};
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
-/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
-/// so a test whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
+/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
+/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
+/// whose subject is something else states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     }
 }
@@ -740,20 +742,39 @@ fn served_authorities_are_a_caller_error_on_a_response() {
 }
 
 #[test]
-fn a_response_keeps_no_minimum_and_needs_no_authorities_when_none_is_stated() {
-    // verify_response keeps its 0.8 default for now (`this.i` @524c8qgv's first child): an
-    // unstated minimum there is no minimum, and authorities do not apply to a response, so the
-    // required decision is verify_request's alone.
+fn a_response_takes_the_response_minimum_and_needs_a_keyid_decision_but_no_authorities() {
+    // Format 3 part two (`this.i` @524c8qgv): verify_response fails closed as verify_request does.
+    // Left unstated its minimum is RESPONSE_MINIMUM, and its expected keyid is a required decision.
+    // Authorities still do not apply to a response, so that decision is verify_request's alone.
+    // Until part two this test pinned the 0.8 default, under which this response verified.
     let sent = respond(SignOptions {
         covered: Some(strings(&["@status", "content-digest"])),
         ..Default::default()
     });
-    assert!(check(&sent, VerifyOptions::default()).is_ok());
-    let unchecked = VerifyOptions {
-        authorities: Authorities::Unchecked,
+    let declined = VerifyOptions {
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     };
+    assert_eq!(
+        kind_of(check(&sent, declined.clone())),
+        Kind::InsufficientCoverage
+    );
+    assert_eq!(
+        kind_of(check(&sent, VerifyOptions::default())),
+        Kind::InvalidArgument
+    );
+    let opted = VerifyOptions {
+        minimum: Minimum::Off,
+        ..declined.clone()
+    };
+    assert!(check(&sent, opted.clone()).is_ok());
+    let unchecked = VerifyOptions {
+        authorities: Authorities::Unchecked,
+        ..opted
+    };
     assert!(check(&sent, unchecked).is_ok());
+    // What sign_response emits by default meets the default minimum.
+    assert!(check(&respond(SignOptions::default()), declined).is_ok());
 }
 
 // --- the covered list, as received ---
@@ -1229,7 +1250,7 @@ fn a_response_signer_given_a_minimum_refuses_a_covered_list_below_it() {
 fn a_response_from_an_aid_other_than_the_expected_one_is_an_unknown_key() {
     let headers = respond(under_aid());
     let expecting = |keyid: String| VerifyOptions {
-        expected_keyid: Some(keyid),
+        expected_keyid: ExpectedKeyid::Is(keyid),
         ..resolving(table(&[(&aid(), raw(&key()))]))
     };
     assert_eq!(
@@ -1242,7 +1263,7 @@ fn a_response_from_an_aid_other_than_the_expected_one_is_an_unknown_key() {
     // A signature with no keyid at all is not from the expected one either.
     let unnamed = mangled(headers, &format!(";keyid=\"{}\"", aid()), "");
     let opts = VerifyOptions {
-        expected_keyid: Some(aid()),
+        expected_keyid: ExpectedKeyid::Is(aid()),
         expected_aid: Some(key().aid()),
         ..opted_out()
     };
@@ -1757,7 +1778,7 @@ fn a_small_order_key_is_malformed_through_a_resolver() {
 #[test]
 fn a_small_order_key_is_malformed_as_an_aid() {
     for small in small_order_keys() {
-        let aid = fiki::to_aid(&small);
+        let aid = fiki::to_aid(&small).unwrap();
         assert_eq!(
             verifying_key(&aid).unwrap_err().kind,
             Kind::MalformedKey,
@@ -1908,7 +1929,7 @@ fn a_non_canonical_or_off_curve_key_is_malformed_on_every_path() {
             .unwrap_err();
         assert_eq!(err.kind, Kind::MalformedKey, "{bytes:02x?}");
 
-        let as_aid = fiki::to_aid(&bytes);
+        let as_aid = fiki::to_aid(&bytes).unwrap();
         assert_eq!(
             verifying_key(&as_aid).unwrap_err().kind,
             Kind::MalformedKey,

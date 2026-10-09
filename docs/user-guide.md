@@ -627,7 +627,7 @@ let verdict = verify_response(
         max_age: Some(300),
         body: Some(br#"{"done": true}"#.to_vec()),
         resolve: Some(resolve),
-        expected_keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
+        expected_keyid: ExpectedKeyid::is("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"),
         minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
         ..Default::default()
     },

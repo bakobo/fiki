@@ -6,8 +6,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use fiki::{
-    sign_request, sign_response, verify_request, verify_response, Authorities, Error, Key, Kind,
-    Minimum, Request, Resolver, SignOptions, VerifyOptions, REQUEST_MINIMUM, RESPONSE_MINIMUM,
+    sign_request, sign_response, verify_request, verify_response, Authorities, Error,
+    ExpectedKeyid, Key, Kind, Minimum, Request, Resolver, SignOptions, VerifyOptions,
+    REQUEST_MINIMUM, RESPONSE_MINIMUM,
 };
 
 type Outcome = Result<(), Box<dyn std::error::Error>>;
@@ -173,7 +174,7 @@ fn keri_verify_response(
             max_age: Some(300),
             body: Some(br#"{"done": true}"#.to_vec()),
             resolve: Some(resolve),
-            expected_keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
+            expected_keyid: ExpectedKeyid::is("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"),
             minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
             ..Default::default()
         },
@@ -240,12 +241,17 @@ fn refusals(
         ..opts(known.clone())
     };
 
+    // A response verifier states its keyid decision; this one declines it.
+    let any_signer = VerifyOptions {
+        expected_keyid: ExpectedKeyid::Unchecked,
+        ..Default::default()
+    };
     let results = [
         verify(headers, &opts(nobody)), // the resolver knows no such keyid
         verify(headers, &opts(group)),  // the resolver refuses the key state
         verify(&narrow, &opts(known.clone())), // signed over less than the minimum
         verify(&doubled, &opts(known.clone())), // a component listed twice
-        verify_response(401, &BTreeMap::new(), None, &VerifyOptions::default()), // unsigned 401
+        verify_response(401, &BTreeMap::new(), None, &any_signer), // unsigned 401
         verify(headers, &below),        // a minimum below the profile's own
     ];
     let mut seen = Vec::new();

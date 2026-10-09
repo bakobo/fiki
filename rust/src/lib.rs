@@ -25,7 +25,7 @@ pub const VECTORS_FORMAT: u32 = 3;
 /// A separate number from [`VECTORS_FORMAT`], because the two sets answer to different authorities
 /// and move independently: the shared vectors to fiki's own decisions, these to a profile fiki does
 /// not own.
-pub const KERI_VECTORS_FORMAT: u32 = 4;
+pub const KERI_VECTORS_FORMAT: u32 = 5;
 
 mod base;
 mod errors;
@@ -35,13 +35,13 @@ mod sfv;
 
 pub use base::{
     req, response_signature_base, signature_base, Request, SignatureParams, CONTENT_DIGEST,
-    DEFAULT_COVERED, DERIVED, RESPONSE_DERIVED,
+    DEFAULT_COVERED, DERIVED, MAX_FIELD_BYTES, RESPONSE_DERIVED,
 };
 pub use errors::{Error, Kind, Result};
 pub use keys::{to_aid, verifying_key, Key};
 pub use messages::{
     content_digest, sign_request, sign_response, verify_request, verify_response, Authorities,
-    Minimum, Resolver, SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_MINIMUM, DEFAULT_SKEW,
-    MAX_DICTIONARY_MEMBERS, MAX_FIELD_BYTES, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS, REQUEST_MINIMUM,
+    ExpectedKeyid, Minimum, Resolver, SignOptions, Verdict, VerifyOptions, ALG, DEFAULT_MINIMUM,
+    DEFAULT_SKEW, MAX_DICTIONARY_MEMBERS, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS, REQUEST_MINIMUM,
     RESPONSE_MINIMUM,
 };

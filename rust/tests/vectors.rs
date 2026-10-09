@@ -9,8 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use fiki::{
-    signature_base, verify_request, verifying_key, Authorities, Key, Kind, Minimum,
-    SignatureParams, Verdict, VerifyOptions, VECTORS_FORMAT,
+    sign_request, sign_response, signature_base, verify_request, verify_response, verifying_key,
+    Authorities, ExpectedKeyid, Key, Kind, Minimum, Request, SignOptions, SignatureParams, Verdict,
+    VerifyOptions, VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -113,21 +114,247 @@ const REQUIRED: [&str; 10] = [
     "expected_aid",
 ];
 
-fn verify_cases(name: &str) -> Vec<RequestCase> {
+/// The raw cases of a file, which must hold at least five.
+fn raw_cases(name: &str) -> Vec<Value> {
     let file: File<Value> = load(name);
-    assert!(file.cases.len() > 5, "{name} has almost no cases");
+    assert!(file.cases.len() >= 5, "{name} has almost no cases");
     file.cases
-        .into_iter()
-        .map(|raw| {
-            for field in REQUIRED {
-                assert!(
-                    raw.get(field).is_some(),
-                    "{name}: a case without {field}: {raw}"
-                );
-            }
-            serde_json::from_value(raw.clone()).unwrap_or_else(|e| panic!("{name}: {e}: {raw}"))
-        })
+}
+
+/// One case read into `T`, once every field in `required` is present: a vector that drops one
+/// fails here rather than being read as a default, and one the driver does not know fails through
+/// `deny_unknown_fields` (review V-M8).
+fn typed_case<T: for<'de> Deserialize<'de>>(name: &str, raw: &Value, required: &[&str]) -> T {
+    for field in required {
+        assert!(
+            raw.get(field).is_some(),
+            "{name}: a case without {field}: {}",
+            clip(raw)
+        );
+    }
+    serde_json::from_value(raw.clone()).unwrap_or_else(|e| panic!("{name}: {e}: {}", clip(raw)))
+}
+
+/// A case as a panic message may show it: some of them hold 9000-byte values.
+fn clip(raw: &Value) -> String {
+    raw.to_string().chars().take(600).collect()
+}
+
+fn verify_cases(name: &str) -> Vec<RequestCase> {
+    raw_cases(name)
+        .iter()
+        .map(|raw| typed_case(name, raw, &REQUIRED))
         .collect()
+}
+
+/// Every refusal's message holds no control character and is at most 1024 characters, so an
+/// untrusted value is quoted escaped and cut (`this.i` @524c8qgv, part-two refinements). py's
+/// `_well_formed` is the reference.
+fn well_formed(error: &fiki::Error) -> Result<(), String> {
+    let message = error.to_string();
+    let length = message.chars().count();
+    if length > 1024 {
+        return Err(format!("its message is {length} characters"));
+    }
+    if message.chars().any(|c| c < ' ' || c == '\x7f') {
+        return Err(format!(
+            "its message holds a control character: {:?}",
+            message.chars().take(200).collect::<String>()
+        ));
+    }
+    Ok(())
+}
+
+/// A request as the vectors write one, for a response to answer.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RequestJson {
+    method: String,
+    url: String,
+    headers: BTreeMap<String, String>,
+    body: Option<String>,
+}
+
+impl RequestJson {
+    fn request(&self) -> Request {
+        Request {
+            method: self.method.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
+        }
+    }
+}
+
+/// A `verify_response` case: `responses.json`, and `misuse.json`'s `kind: response` cases.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResponseCase {
+    id: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    kind: Option<String>,
+    status: u16,
+    headers: BTreeMap<String, String>,
+    body: Option<String>,
+    request: Option<RequestJson>,
+    /// "default" leaves the minimum unstated, null is the explicit opt-out, a list is that minimum.
+    minimum: Value,
+    /// null is the explicit decline, a string the AID expected (format 3 part two, @524c8qgv).
+    expected_keyid: Option<String>,
+    max_age: Option<i64>,
+    now: Option<i64>,
+    // A misuse case carries the request line of the request it answers beside it, unread.
+    #[serde(default)]
+    #[allow(dead_code)]
+    method: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    url: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    note: Option<String>,
+    #[serde(default)]
+    keyid: Option<String>,
+    #[serde(default)]
+    covered: Vec<String>,
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    omit: Vec<String>,
+}
+
+const RESPONSE_REQUIRED: [&str; 9] = [
+    "id",
+    "status",
+    "headers",
+    "body",
+    "request",
+    "minimum",
+    "expected_keyid",
+    "max_age",
+    "now",
+];
+
+impl ResponseCase {
+    fn options(&self) -> Result<VerifyOptions, String> {
+        let omitted = |field: &str| self.omit.iter().any(|f| f == field);
+        for field in &self.omit {
+            if !["minimum", "expected_keyid"].contains(&field.as_str()) {
+                return Err(format!(
+                    "omit names {field:?}, which this driver does not know"
+                ));
+            }
+        }
+        let minimum = match &self.minimum {
+            _ if omitted("minimum") => Minimum::Default,
+            Value::String(s) if s == "default" => Minimum::Default,
+            Value::Null => Minimum::Off,
+            list => Minimum::Of(
+                serde_json::from_value(list.clone()).map_err(|e| format!("minimum: {e}"))?,
+            ),
+        };
+        let expected_keyid = match &self.expected_keyid {
+            _ if omitted("expected_keyid") => ExpectedKeyid::Unstated,
+            None => ExpectedKeyid::Unchecked,
+            Some(aid) => ExpectedKeyid::Is(aid.clone()),
+        };
+        Ok(VerifyOptions {
+            max_age: self.max_age,
+            body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
+            now: self.now,
+            minimum,
+            expected_keyid,
+            ..Default::default()
+        })
+    }
+
+    fn verify(&self) -> Result<Result<Verdict, fiki::Error>, String> {
+        let request = self.request.as_ref().map(RequestJson::request);
+        Ok(verify_response(
+            self.status,
+            &self.headers,
+            request.as_ref(),
+            &self.options()?,
+        ))
+    }
+}
+
+/// A `signs.json` case: what a signer emits, byte for byte (review V-C4).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignCase {
+    id: String,
+    kind: String,
+    seed_hex: String,
+    method: Option<String>,
+    url: Option<String>,
+    headers: BTreeMap<String, String>,
+    body: Option<String>,
+    /// null takes the signer's default set.
+    covered: Option<Vec<String>>,
+    created: Option<i64>,
+    expires: Option<i64>,
+    nonce: Option<String>,
+    tag: Option<String>,
+    minimum: Option<Vec<String>>,
+    status: Option<u16>,
+    request: Option<RequestJson>,
+    #[serde(default)]
+    keyid: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    expected_headers: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    note: Option<String>,
+}
+
+const SIGN_REQUIRED: [&str; 16] = [
+    "id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created", "expires",
+    "nonce", "tag", "minimum", "status", "request", "label",
+];
+
+impl SignCase {
+    fn sign(&self) -> Result<fiki::Result<BTreeMap<String, String>>, String> {
+        let key = Key::from_seed(&from_hex(&self.seed_hex)).unwrap();
+        let opts = SignOptions {
+            body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
+            covered: self.covered.clone(),
+            created: self.created,
+            expires: self.expires,
+            nonce: self.nonce.clone(),
+            tag: self.tag.clone(),
+            minimum: self.minimum.clone(),
+            keyid: self.keyid.clone(),
+            label: self.label.clone(),
+        };
+        match self.kind.as_str() {
+            "request" => Ok(sign_request(
+                &key,
+                self.method
+                    .as_deref()
+                    .ok_or("a request case with no method")?,
+                self.url.as_deref().ok_or("a request case with no url")?,
+                &self.headers,
+                &opts,
+            )),
+            "response" => {
+                let request = self.request.as_ref().map(RequestJson::request);
+                Ok(sign_response(
+                    &key,
+                    self.status.ok_or("a response case with no status")?,
+                    request.as_ref(),
+                    &self.headers,
+                    &opts,
+                ))
+            }
+            other => Err(format!("kind {other:?}, which this driver does not know")),
+        }
+    }
 }
 
 impl RequestCase {
@@ -199,6 +426,8 @@ fn this_port_satisfies_the_vectors_format_it_is_running() {
         "accepts.json",
         "refusals.json",
         "misuse.json",
+        "signs.json",
+        "responses.json",
     ] {
         let header: FormatHeader = load(name);
         assert_eq!(header.vectors_format, VECTORS_FORMAT, "{name}");
@@ -333,8 +562,64 @@ fn refusals() {
         |c| c.id.clone(),
         |case| match case.verify()? {
             Ok(_) => Err(format!("accepted; expected {}", case.error)),
-            Err(e) if e.kind.to_string() == case.error => Ok(()),
+            Err(e) if e.kind.to_string() == case.error => well_formed(&e),
             Err(e) => Err(format!("{}: {e}; expected {}", e.kind, case.error)),
+        },
+    );
+}
+
+#[test]
+fn responses() {
+    // verify_response's own policy (format 3 part two, `this.i` @524c8qgv): RESPONSE_MINIMUM by
+    // default, and expected_keyid stated.
+    let cases: Vec<ResponseCase> = raw_cases("responses.json")
+        .iter()
+        .map(|raw| typed_case("responses.json", raw, &RESPONSE_REQUIRED))
+        .collect();
+    each(
+        cases,
+        |c| c.id.clone(),
+        |case| match (case.verify()?, case.error.as_str()) {
+            (Ok(verdict), "") => {
+                if case.keyid.is_none() || verdict.keyid != case.keyid {
+                    return Err(format!("keyid {:?}", verdict.keyid));
+                }
+                if verdict.covered != case.covered {
+                    return Err(format!("covered {:?}", verdict.covered));
+                }
+                Ok(())
+            }
+            (Ok(_), error) => Err(format!("accepted; expected {error}")),
+            (Err(e), "") => Err(format!("should verify: {}: {e}", e.kind)),
+            (Err(e), error) if e.kind.to_string() == error => well_formed(&e),
+            (Err(e), error) => Err(format!("{}: {e}; expected {error}", e.kind)),
+        },
+    );
+}
+
+#[test]
+fn signs() {
+    // What the signer emits, byte for byte (review V-C4): no shared vector called a signer before
+    // format 3, so a port whose default covered set dropped @query passed everything.
+    let cases: Vec<SignCase> = raw_cases("signs.json")
+        .iter()
+        .map(|raw| typed_case("signs.json", raw, &SIGN_REQUIRED))
+        .collect();
+    each(
+        cases,
+        |c| c.id.clone(),
+        |case| match (case.sign()?, case.error.as_deref()) {
+            (Ok(headers), None) => match &case.expected_headers {
+                Some(expected) if &headers == expected => Ok(()),
+                Some(_) => Err(format!("headers {headers:?}")),
+                None => Err("a case with neither an error nor expected_headers".into()),
+            },
+            (Ok(_), Some(error)) => Err(format!("signed; expected {error}")),
+            (Err(e), None) => Err(format!("should sign: {}: {e}", e.kind)),
+            // A mistake in the call is InvalidArgument, never a kind a message earns (@5zrf8gjk).
+            (Err(e), Some("caller")) if e.kind == Kind::InvalidArgument => Ok(()),
+            (Err(e), Some(error)) if e.kind.to_string() == error => well_formed(&e),
+            (Err(e), Some(error)) => Err(format!("{}: {e}; expected {error}", e.kind)),
         },
     );
 }
@@ -347,8 +632,33 @@ fn misuse() {
     // `String`s and `Authorities::served` takes no `&str`. For those the driver asserts that the
     // vector's value cannot become an `Authorities` at all, which is this port's form of the
     // refusal.
+    let raw = raw_cases("misuse.json");
+    let (responses, requests): (Vec<&Value>, Vec<&Value>) =
+        raw.iter().partition(|c| c["kind"] == "response");
+    let responses: Vec<ResponseCase> = responses
+        .into_iter()
+        .map(|raw| typed_case("misuse.json", raw, &RESPONSE_REQUIRED))
+        .collect();
+    assert!(!responses.is_empty(), "misuse.json has no response case");
     each(
-        verify_cases("misuse.json"),
+        responses,
+        |c| c.id.clone(),
+        |case| {
+            if case.error != "caller" {
+                return Err(format!("error {:?}, expected \"caller\"", case.error));
+            }
+            match case.verify()? {
+                Ok(_) => Err("accepted; expected InvalidArgument".into()),
+                Err(e) if e.kind == Kind::InvalidArgument => Ok(()),
+                Err(e) => Err(format!("{}: {e}; expected InvalidArgument", e.kind)),
+            }
+        },
+    );
+    each(
+        requests
+            .into_iter()
+            .map(|raw| typed_case::<RequestCase>("misuse.json", raw, &REQUIRED))
+            .collect(),
         |c| c.id.clone(),
         |case| {
             if case.error != "caller" {

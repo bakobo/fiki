@@ -8,17 +8,19 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fiki::{
-    content_digest, sign_response, verify_response, Authorities, Key, Minimum, Request,
-    SignOptions, VerifyOptions,
+    content_digest, sign_response, verify_response, Authorities, ExpectedKeyid, Key, Minimum,
+    Request, SignOptions, VerifyOptions,
 };
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
-/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
-/// so a test whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
+/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
+/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
+/// whose subject is something else states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     }
 }

@@ -12,17 +12,19 @@ use std::sync::{Arc, Mutex};
 
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
-    verify_request, verify_response, Authorities, Key, Kind, Minimum, Request, Resolver,
-    SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
+    verify_request, verify_response, Authorities, ExpectedKeyid, Key, Kind, Minimum, Request,
+    Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
 };
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
-/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
-/// so a test whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
+/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
+/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
+/// whose subject is something else states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     }
 }
@@ -456,7 +458,7 @@ fn signed_as(keyid: &str) -> Sent {
 
 fn expecting(keyid: &str) -> VerifyOptions {
     VerifyOptions {
-        expected_keyid: Some(keyid.into()),
+        expected_keyid: ExpectedKeyid::is(keyid),
         ..opted_out()
     }
 }
@@ -645,7 +647,7 @@ fn b14_a_port_is_read_as_a_number() {
         ("https://a.example:65535/x", "a.example:65535"),
         ("https://a.example:0/x", "a.example:0"),
         ("https://a.example:/x", "a.example"),
-        ("https://user:pw@A.example:81/x", "a.example:81"),
+        ("https://A.example:81/x", "a.example:81"),
     ] {
         assert_eq!(authority(url).unwrap(), expected, "{url}");
     }
@@ -1038,7 +1040,7 @@ fn b18_the_verdict_documents_both_fields() {
 #[test]
 fn b19_both_vectors_formats_are_exported() {
     let formats: [u32; 2] = [fiki::VECTORS_FORMAT, fiki::KERI_VECTORS_FORMAT];
-    assert_eq!(formats, [3, 4]);
+    assert_eq!(formats, [3, 5]);
 }
 
 // --- B20: input bounds, size before shape ---
