@@ -22,19 +22,21 @@ use std::sync::Arc;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use fiki::{
     response_signature_base, sign_request, signature_base, verify_request, verify_response,
-    verifying_key, Authorities, Error, Key, Kind, Minimum, Request, Resolver, SignOptions,
-    SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
+    verifying_key, Authorities, Error, ExpectedKeyid, Key, Kind, Minimum, Request, Resolver,
+    SignOptions, SignatureParams, Verdict, VerifyOptions, KERI_VECTORS_FORMAT,
 };
 use serde::Deserialize;
 use serde_json::Value;
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
-/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
-/// so a test whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
+/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
+/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
+/// whose subject is something else states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
+        expected_keyid: ExpectedKeyid::Unchecked,
         ..Default::default()
     }
 }
@@ -316,7 +318,12 @@ fn verify(
         skew: policy["skew"].as_i64(),
         now: Some(now),
         resolve: Some(resolver(keys)),
-        expected_keyid: policy["expected_keyid"].as_str().map(str::to_string),
+        // Where a policy names no keyid the decline is explicit, since a response verifier must
+        // state one (`this.i` @524c8qgv).
+        expected_keyid: match policy["expected_keyid"].as_str() {
+            Some(keyid) => ExpectedKeyid::is(keyid),
+            None => ExpectedKeyid::Unchecked,
+        },
         minimum: Minimum::Of(strings(&policy[minimum])),
         ..opted_out()
     };
@@ -439,7 +446,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 4);
+    assert_eq!(KERI_VECTORS_FORMAT, 5);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");

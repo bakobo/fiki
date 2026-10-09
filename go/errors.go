@@ -22,11 +22,12 @@ const VectorsFormat = 3
 // KeriVectorsFormat is the KERI profile's conformance contract this port satisfies, the
 // keri_vectors_format of vectors/keri/ (this.i @8vwrexxc, @9z57sejw). A separate number from
 // VectorsFormat, because the two sets answer to different authorities and move independently.
-const KeriVectorsFormat = 4
+const KeriVectorsFormat = 5
 
 // ErrInvalidOptions marks a mistake in the call rather than a defect in the message: a minimum
 // covered set smaller than the profile's, ExpectedAID together with Resolve, a request verified
-// with no decision about Authorities, Authorities on a response, or a response binding
+// with no decision about Authorities, a response verified with no decision about ExpectedKeyid,
+// Authorities on a response, or a response binding
 // "content-digest";req verified against a Request with no Body.
 // Such an error wraps this one and is never an *Error, so a caller matching on Kind cannot take
 // its own bug for a bad message (this.i @9z57sejw).

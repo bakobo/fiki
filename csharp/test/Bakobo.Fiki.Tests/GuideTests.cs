@@ -233,7 +233,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal("the covered list names @method twice", Refusal(Verify(twice, known)));
 
             Assert.Equal("an unsigned 401; its body is not to be trusted", Refusal(() =>
-                HttpSignatures.VerifyResponse(401, new Dictionary<string, string>(), VerifyOptions.MaxAge(300))));
+                HttpSignatures.VerifyResponse(401, new Dictionary<string, string>(), VerifyOptions.MaxAge(300).DecliningKeyidCheck().WithoutMinimum())));
             Assert.Equal("MissingSignature", Refusal(Verify(new Dictionary<string, string>(), known)));
 
             // A mistake in the call is not a refusal of the message, so it is never a FikiException.

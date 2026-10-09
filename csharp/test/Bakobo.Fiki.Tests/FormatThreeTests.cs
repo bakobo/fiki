@@ -56,13 +56,44 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void AResponseIsStillHeldToNoMinimumUnlessOneIsStated()
+        public void AResponseIsHeldToTheResponseMinimumUnlessItOptsOut()
         {
-            // The default minimum is a request's (@524c8qgv); a response states its own or has none.
+            // Part two of format 3 (this.i @524c8qgv): a response's unstated minimum is
+            // ResponseMinimum, as a request's is DefaultMinimum, and WithoutMinimum opts out. Before
+            // it, a response was held to none; this test's subject is that default, so its
+            // expectation changed.
             var headers = HttpSignatures.SignResponse(TheKey, 200, covered: new[] { "@status" });
-            Assert.Equal(new[] { "@status" }, HttpSignatures.VerifyResponse(200, headers, VerifyOptions.DecliningFreshness()).Covered);
+            var options = VerifyOptions.DecliningFreshness().DecliningKeyidCheck();
+            var caught = Assert.Throws<FikiException>(() => HttpSignatures.VerifyResponse(200, headers, options));
+            Assert.Equal(FikiErrorKind.InsufficientCoverage, caught.Kind);
+            Assert.Equal(new[] { "@status" }, HttpSignatures.VerifyResponse(200, headers, options.WithoutMinimum()).Covered);
             Assert.Equal(new[] { "@status" },
-                HttpSignatures.VerifyResponse(200, headers, VerifyOptions.DecliningFreshness().DecliningAuthorityCheck()).Covered);
+                HttpSignatures.VerifyResponse(200, headers, options.WithoutMinimum().DecliningAuthorityCheck()).Covered);
+        }
+
+        [Fact]
+        public void AResponseNeedsADecisionAboutItsSigner()
+        {
+            var request = new Request("GET", "https://api.example.com/x");
+            var headers = HttpSignatures.SignResponse(TheKey, 200, request, created: 1_700_000_000);
+            var unstated = Assert.Throws<ArgumentException>(() =>
+                HttpSignatures.VerifyResponse(200, headers, VerifyOptions.DecliningFreshness().WithRequest(request)));
+            Assert.Contains("DecliningKeyidCheck", unstated.Message, StringComparison.Ordinal);
+            // Checked before anything about the message, an unsigned 401 included.
+            Assert.Throws<ArgumentException>(() =>
+                HttpSignatures.VerifyResponse(401, new Dictionary<string, string>(), VerifyOptions.DecliningFreshness()));
+
+            Assert.Throws<ArgumentNullException>(() => VerifyOptions.DecliningFreshness().WithExpectedKeyId(null!));
+            Assert.Throws<ArgumentException>(() => VerifyOptions.DecliningFreshness().WithExpectedKeyId(""));
+
+            var declined = VerifyOptions.DecliningFreshness().WithRequest(request).DecliningKeyidCheck();
+            var keyId = HttpSignatures.VerifyResponse(200, headers, declined).KeyId!;
+            Assert.Equal(TheKey.Aid, HttpSignatures.VerifyResponse(200, headers, declined.WithExpectedKeyId(keyId)).Aid);
+            // The later statement wins: a decline after an expected keyid drops it.
+            var other = Key.FromSeed(new byte[32]).Aid;
+            Assert.Equal(FikiErrorKind.UnknownKey, Assert.Throws<FikiException>(() =>
+                HttpSignatures.VerifyResponse(200, headers, declined.WithExpectedKeyId(other))).Kind);
+            Assert.Equal(TheKey.Aid, HttpSignatures.VerifyResponse(200, headers, declined.WithExpectedKeyId(other).DecliningKeyidCheck()).Aid);
         }
 
         [Fact]
@@ -93,6 +124,9 @@ namespace Bakobo.Fiki.Tests
             Assert.True(obsolete.IsError);
             var caught = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
                 single.Invoke(VerifyOptions.DecliningFreshness(), new object[] { "api.example.com" }));
+            Assert.IsType<ArgumentException>(caught.InnerException);
+            caught = Assert.Throws<System.Reflection.TargetInvocationException>(() =>
+                single.Invoke(VerifyOptions.DecliningFreshness(), new object?[] { null }));
             Assert.IsType<ArgumentException>(caught.InnerException);
         }
 
@@ -168,6 +202,128 @@ namespace Bakobo.Fiki.Tests
             var origin = Signed("/x", Host("key.example"));
             origin["Host"] = kelvin;
             Assert.Equal(FikiErrorKind.SignatureMismatch, Refused("/x", origin, served).Kind);
+        }
+
+        // --- format 3 part two (this.i @524c8qgv) ---
+
+        [Theory]
+        [InlineData("https://user@api.example.com/x")]
+        [InlineData("https://@api.example.com/x")]
+        [InlineData("https://user:pw@api.example.com/x")]
+        public void UserinfoIsABaseThatCannotBeBuilt(string url)
+        {
+            Assert.Throws<ArgumentException>(() => Signed(url));
+            Assert.Equal(FikiErrorKind.SignatureMismatch, Refused(url, Signed("https://api.example.com/x")).Kind);
+        }
+
+        [Fact]
+        public void AnErrorQuotesAtMost64CharactersOfAnUntrustedUrlAndEscapesControls()
+        {
+            // Review A9, B9: a 5 MB URL made a 10 MB error message, and js echoed controls raw.
+            var headers = Signed("https://api.example.com/x");
+            var url = "https://api.example.com/" + new string('p', 9000);
+            var caught = Refused(url, headers);
+            Assert.True(caught.Message.Length < 400, caught.Message);
+            Assert.Contains("cut from 9024 characters", caught.Message, StringComparison.Ordinal);
+            var mistake = Assert.Throws<ArgumentException>(() => Signed(url));
+            Assert.Contains("cut from 9024 characters", mistake.Message, StringComparison.Ordinal);
+
+            caught = Refused("https://api.example.com/a\u001bb", headers);
+            Assert.DoesNotContain("\u001b", caught.Message, StringComparison.Ordinal);
+            Assert.Contains("\\x1b", caught.Message, StringComparison.Ordinal);
+
+            var port = Refused("https://api.example.com:" + new string('9', 100) + "/x", headers);
+            Assert.Contains("cut from 100 characters", port.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void ShownEscapesAndCutsWithoutSplittingACharacter()
+        {
+            Assert.Equal("\"a\\\"b\\\\c\\x7f\"", PyText.Shown("a\"b\\c\u007f"));
+            // A pair straddling the cut is left out whole rather than halved.
+            var straddling = new string('a', 63) + "\U0001F600" + "tail";
+            Assert.Equal("\"" + new string('a', 63) + "\" (cut from 69 characters)", PyText.Shown(straddling));
+            Assert.Equal("\"" + new string('a', 64) + "\" (cut from 65 characters)", PyText.Shown(new string('a', 65)));
+        }
+
+        [Fact]
+        public void NamedLeavesAShortPrintableNameBareAndQuotesAnythingElse()
+        {
+            // Bug fix (#18 Copilot): a component name is cut and escaped like any untrusted value.
+            Assert.Equal("\"@path\";req", PyText.Named("\"@path\";req"));
+            Assert.Equal("\"@pa\\x0ath\"", PyText.Named("@pa\nth"));
+            Assert.Equal("\"" + new string('q', 64) + "\" (cut from 65 characters)", PyText.Named(new string('q', 65)));
+        }
+
+        [Fact]
+        public void FieldNamesFoldAsciiOnly()
+        {
+            // Never ToLowerInvariant, which folds U+212A to "k" on .NET 10 and not on .NET Framework.
+            Assert.Equal("x-note", PyText.AsciiLower("X-Note"));
+            Assert.Equal("\u212Aey", PyText.AsciiLower("\u212Aey"));
+            Assert.Equal("\u00C9", PyText.AsciiLower("\u00C9"));
+            // Two names that differ only by a Kelvin sign are two fields, never one twice.
+            var signed = HttpSignatures.SignRequest(TheKey, "GET", "https://api.example.com/x",
+                new Dictionary<string, string> { { "Key-Id", "real" }, { "\u212Aey-Id", "decoy" } }, covered: new[] { "@method", "Key-Id" });
+            Assert.Contains("\"key-id\"", signed["Signature-Input"], StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData(0, true)]
+        [InlineData(-1, false)]
+        public void CreatedAndExpiresAreNotNegativeAndZeroIsATime(long value, bool accepted)
+        {
+            var url = "https://api.example.com/x";
+            var signed = HttpSignatures.SignRequest(TheKey, "GET", url, created: 1_700_000_000);
+            foreach (var name in new[] { "created", "expires" })
+            {
+                var headers = signed.ToDictionary(p => p.Key, p => p.Value);
+                headers["Signature-Input"] = headers["Signature-Input"].Replace(";created=1700000000",
+                    name == "created" ? ";created=" + value : ";created=1700000000;expires=" + value);
+                var options = VerifyOptions.DecliningFreshness().WithoutMinimum().DecliningAuthorityCheck().WithNow(0);
+                var kind = Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest("GET", url, headers, options)).Kind;
+                // Zero passes the parameter check and reaches the signature, which it no longer
+                // matches; a negative value is refused before the signature is examined.
+                Assert.Equal(accepted ? FikiErrorKind.SignatureMismatch : FikiErrorKind.MalformedSignatureInput, kind);
+            }
+        }
+
+        [Fact]
+        public void AFieldValueIsBoundedAsReceivedAndContentDigestKeepsItsOwnBound()
+        {
+            var url = "https://api.example.com/x";
+            var exact = new string('v', HttpSignatures.MaxFieldBytes);
+            var note = new Dictionary<string, string> { { "X-Note", exact } };
+            var signed = HttpSignatures.SignRequest(TheKey, "GET", url, note, covered: new[] { "@method", "x-note" });
+            foreach (var header in signed)
+            {
+                note[header.Key] = header.Value;
+            }
+            // Exactly the bound is accepted; one byte over, even of trailing whitespace, is not.
+            Assert.Equal(TheKey.Aid, HttpSignatures.VerifyRequest("GET", url, note, Verifying.DecliningFreshness()).Aid);
+            note["X-Note"] = exact + " ";
+            Assert.Equal(FikiErrorKind.SignatureMismatch, Refused(url, note).Kind);
+            Assert.Equal(FikiErrorKind.SignatureMismatch, Assert.Throws<FikiException>(() =>
+                HttpSignatures.SignRequest(TheKey, "GET", url, new Dictionary<string, string> { { "X-Note", exact + "v" } },
+                    covered: new[] { "@method", "x-note" })).Kind);
+
+            // A Content-Digest over the bound is MalformedDigest, from its own parse.
+            var body = Bytes.Utf8("{}");
+            var digest = HttpSignatures.ContentDigest(body) + ", " + new string('x', HttpSignatures.MaxFieldBytes);
+            var bodySigned = HttpSignatures.SignRequest(TheKey, "POST", url, new Dictionary<string, string> { { "Content-Digest", digest } },
+                covered: new[] { "@method", "content-digest" });
+            var all = bodySigned.ToDictionary(p => p.Key, p => p.Value);
+            all["Content-Digest"] = digest;
+            Assert.Equal(FikiErrorKind.MalformedDigest, Assert.Throws<FikiException>(() =>
+                HttpSignatures.VerifyRequest("POST", url, all, Verifying.DecliningFreshness().WithBody(body))).Kind);
+        }
+
+        [Fact]
+        public void ShownIsTotalSoAMissingKeyidNeverCrashesTheMessageOfItsRefusal()
+        {
+            // #18 hostile fix pass: fiki-py's shown() received a missing keyid and raised before
+            // the coded refusal. A message helper must never be the thing that throws.
+            Assert.Equal("nothing", PyText.Shown(null!));
         }
     }
 }

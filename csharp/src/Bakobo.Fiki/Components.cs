@@ -54,7 +54,7 @@ namespace Bakobo.Fiki
             if (!item.Value.Text.StartsWith("@", StringComparison.Ordinal) && !IsToken(item.Value.Text))
             {
                 throw new ArgumentException(
-                    $"\"{spec}\" is not a component fiki can name: a field is named by an HTTP field name, one or more " +
+                    $"{PyText.Shown(spec)} is not a component fiki can name: a field is named by an HTTP field name, one or more " +
                     "token characters, and a derived component by its @ name.");
             }
             return item;
@@ -86,7 +86,7 @@ namespace Bakobo.Fiki
             if (method == null || !IsToken(method))
             {
                 throw new ArgumentException(
-                    $"The method \"{method}\" is not an HTTP method: a method is one or more token characters, with no " +
+                    $"The method {PyText.Shown(method ?? "")} is not an HTTP method: a method is one or more token characters, with no " +
                     "spaces, line breaks or separators.",
                     nameof(method));
             }
@@ -117,7 +117,7 @@ namespace Bakobo.Fiki
                     if (c < ' ' || c > '~')
                     {
                         throw new ArgumentException(
-                            $"The {name} \"{value}\" holds a character outside printable ASCII, which an RFC 8941 string " +
+                            $"The {name} {PyText.Shown(value!)} holds a character outside printable ASCII, which an RFC 8941 string " +
                             "cannot carry; a line break there would forge a header line.",
                             name);
                     }
@@ -138,26 +138,26 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.UnsupportedComponent,
-                        $"fiki cannot read {spec} as a component identifier; name a component plainly, as \"@path\", " +
+                        $"fiki cannot read {PyText.Named(spec)} as a component identifier; name a component plainly, as \"@path\", " +
                         "or in its serialized form, as '\"@path\";req'.")
                     {
                         Component = spec,
                         Supported = string.Join(", ", Derived) + ", " + string.Join(", ", ResponseDerived),
                     };
                 }
-                var lowered = new SfItem(SfValue.OfString(PyText.Lower(parsed.Value.Text)));
+                var lowered = new SfItem(SfValue.OfString(PyText.AsciiLower(parsed.Value.Text)));
                 foreach (var parameter in parsed.Params)
                 {
                     lowered.Params.Set(parameter.Key, parameter.Value);
                 }
                 return lowered;
             }
-            return new SfItem(SfValue.OfString(PyText.Lower(spec)));
+            return new SfItem(SfValue.OfString(PyText.AsciiLower(spec)));
         }
 
         internal static string Req(string name)
         {
-            var item = new SfItem(SfValue.OfString(PyText.Lower(name)));
+            var item = new SfItem(SfValue.OfString(PyText.AsciiLower(name)));
             item.Params.Set(ReqParam, SfValue.True);
             return item.Serialize();
         }
@@ -246,7 +246,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.DuplicateComponent,
-                        $"The covered components name {SpecOf(item)} twice, so the signature base would not be " +
+                        $"The covered components name {PyText.Named(SpecOf(item))} twice, so the signature base would not be " +
                         "what either copy says it is.")
                     { Component = SpecOf(item) };
                 }
@@ -264,7 +264,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.UnsupportedComponent,
-                        $"fiki does not support the component {SpecOf(item)}: the only component parameter it supports " +
+                        $"fiki does not support the component {PyText.Named(SpecOf(item))}: the only component parameter it supports " +
                         $"is \"{ReqParam}\", and only in a response.")
                     { Component = SpecOf(item), Supported = ReqParam };
                 }
@@ -275,7 +275,7 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.UnsupportedComponent,
-                            $"fiki does not build the derived component {SpecOf(item)} in a {(response ? "response" : "request")}; " +
+                            $"fiki does not build the derived component {PyText.Named(SpecOf(item))} in a {(response ? "response" : "request")}; " +
                             $"it builds {string.Join(", ", supported)}.")
                         { Component = SpecOf(item), Supported = string.Join(", ", supported) };
                     }
@@ -332,6 +332,11 @@ namespace Bakobo.Fiki
             private PyUrl Split()
             {
                 var url = Url!;
+                // Bounded before it is read, size before shape (this.i @524c8qgv).
+                if (Encoding.UTF8.GetByteCount(url) > HttpSignatures.MaxFieldBytes)
+                {
+                    throw Unreadable($"it is over {HttpSignatures.MaxFieldBytes} bytes.");
+                }
                 foreach (var c in url)
                 {
                     if (c <= ' ' || c == '\x7f')
@@ -372,9 +377,9 @@ namespace Bakobo.Fiki
                 {
                     return new FikiException(
                         FikiErrorKind.SignatureMismatch,
-                        $"The URL \"{Url}\" cannot be read: {reason} So there is no signature base to check the signature against.");
+                        $"The URL {PyText.Shown(Url!)} cannot be read: {reason} So there is no signature base to check the signature against.");
                 }
-                return new ArgumentException($"The URL \"{Url}\" cannot be read: {reason}");
+                return new ArgumentException($"The URL {PyText.Shown(Url!)} cannot be read: {reason}");
             }
 
             internal int? Status { get; }
@@ -382,14 +387,16 @@ namespace Bakobo.Fiki
             internal Message? Request { get; }
         }
 
-        // Field names are case-insensitive and appear lowercased in the base (section 2.1); values
-        // are stripped of leading and trailing whitespace. A later name wins, as in a Python dict.
+        // Field names are case-insensitive and appear lowercased in the base (section 2.1), folded
+        // A-Z only (this.i @524c8qgv). Values are kept as received, so their bound and their
+        // characters are checked before the optional whitespace is trimmed. A later name wins, as in
+        // a Python dict.
         private static Dictionary<string, string> Lowered(IEnumerable<KeyValuePair<string, string>> headers)
         {
             var lowered = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var header in headers)
             {
-                lowered[PyText.Lower(header.Key)] = OwsTrimmed(header.Value);
+                lowered[PyText.AsciiLower(header.Key)] = header.Value;
             }
             return lowered;
         }
@@ -424,8 +431,13 @@ namespace Bakobo.Fiki
             var parts = message.Parts;
             if (parts.Netloc.Length > 0)
             {
-                var netloc = parts.Netloc;
-                return HostPort(netloc.Substring(netloc.LastIndexOf('@') + 1), parts.Scheme, message);
+                if (parts.Netloc.IndexOf('@') >= 0)
+                {
+                    // RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure
+                    // the authority (this.i @524c8qgv).
+                    throw message.Unreadable("its authority carries user information.");
+                }
+                return HostPort(parts.Netloc, parts.Scheme, message);
             }
             if (!message.Headers.TryGetValue("host", out var host))
             {
@@ -435,8 +447,9 @@ namespace Bakobo.Fiki
                     "header, so there is nothing to derive it from.")
                 { Component = "@authority" };
             }
-            // As any covered value is, and before it is lowercased (review B5).
-            CheckRaw(host, "@authority");
+            // As any covered value is, as received and before it is lowercased (review B5).
+            CheckRaw(host, "@authority", bounded: true);
+            host = OwsTrimmed(host);
             if (host.IndexOf('@') >= 0 || host.IndexOf(',') >= 0)
             {
                 throw message.Unreadable("its Host header is not a single host and optional port.");
@@ -482,7 +495,7 @@ namespace Bakobo.Fiki
                 }
             }
             var port = Port(portText, message);
-            host = AsciiLower(host);
+            host = PyText.AsciiLower(host);
             if (port == null || (DefaultPorts.TryGetValue(scheme, out var standard) && standard == port))
             {
                 return host;
@@ -513,20 +526,9 @@ namespace Bakobo.Fiki
             var digits = text.TrimStart('0');
             if (!plain || digits.Length > 5 || (digits.Length > 0 && int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture) > 65535))
             {
-                throw message.Unreadable($"its port \"{text}\" is not a number from 0 to 65535.");
+                throw message.Unreadable($"its port {PyText.Shown(text)} is not a number from 0 to 65535.");
             }
             return digits.Length == 0 ? 0 : int.Parse(digits, NumberStyles.None, CultureInfo.InvariantCulture);
-        }
-
-        /// <summary>ASCII letters lowered and nothing else, for text already checked to be visible ASCII.</summary>
-        private static string AsciiLower(string text)
-        {
-            var lowered = new StringBuilder(text.Length);
-            foreach (var c in text)
-            {
-                lowered.Append(c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c);
-            }
-            return lowered.ToString();
         }
 
         private static string ComponentValue(SfItem item, Message message)
@@ -536,7 +538,7 @@ namespace Bakobo.Fiki
             {
                 message = message.Request ?? throw new FikiException(
                     FikiErrorKind.MissingComponent,
-                    $"The signature covers {SpecOf(item)}, which is read from the request this response answers, and " +
+                    $"The signature covers {PyText.Named(SpecOf(item))}, which is read from the request this response answers, and " +
                     "no request was supplied.")
                 { Component = SpecOf(item) };
             }
@@ -573,11 +575,14 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.MissingComponent,
-                            $"The signature covers {SpecOf(item)}, but the message carries no value for it, so the " +
+                            $"The signature covers {PyText.Named(SpecOf(item))}, but the message carries no value for it, so the " +
                             "signature base cannot be built.")
                         { Component = SpecOf(item) };
                     }
-                    return value;
+                    // Checked as received, before the optional whitespace is trimmed, so a value over
+                    // the bound only before trimming is refused (this.i @524c8qgv).
+                    CheckRaw(value, SpecOf(item), bounded: name != ContentDigest);
+                    return OwsTrimmed(value);
             }
         }
 
@@ -590,19 +595,31 @@ namespace Bakobo.Fiki
         internal static string ValueOf(SfItem item, Message message)
         {
             var value = ComponentValue(item, message);
-            CheckRaw(value, SpecOf(item));
+            CheckRaw(value, SpecOf(item), bounded: item.Value.Text != ContentDigest);
             return value;
         }
 
-        private static void CheckRaw(string value, string spec)
+        /// <summary>
+        /// Refuse a value no signature base can be built from: over <see cref="HttpSignatures.MaxFieldBytes"/>
+        /// UTF-8 bytes, checked first (size before shape, this.i @524c8qgv), or holding a line break,
+        /// a control character or a non-ASCII character. Content-Digest is not bounded here: it has
+        /// its own bound and its own kind, MalformedDigest, when it is parsed (@5zrf8gjk).
+        /// </summary>
+        private static void CheckRaw(string value, string spec, bool bounded)
         {
+            if (bounded && Encoding.UTF8.GetByteCount(value) > HttpSignatures.MaxFieldBytes)
+            {
+                throw new FikiException(
+                    FikiErrorKind.SignatureMismatch,
+                    $"The value of {PyText.Named(spec)} is over {HttpSignatures.MaxFieldBytes} bytes, so no signature base is built from it.");
+            }
             foreach (var c in value)
             {
                 if (c != '\t' && (c < ' ' || c > '~'))
                 {
                     throw new FikiException(
                         FikiErrorKind.SignatureMismatch,
-                        $"The value of {spec} contains a line break, a control character or a non-ASCII " +
+                        $"The value of {PyText.Named(spec)} contains a line break, a control character or a non-ASCII " +
                         "character, so there is no signature base both sides would build from it.");
                 }
             }

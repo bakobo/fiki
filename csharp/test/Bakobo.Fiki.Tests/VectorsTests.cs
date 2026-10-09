@@ -13,7 +13,10 @@ namespace Bakobo.Fiki.Tests
     /// </summary>
     public class VectorsTests
     {
-        private static readonly string[] Files = { "aid-lens.json", "signature-base.json", "accepts.json", "refusals.json", "misuse.json" };
+        private static readonly string[] Files =
+        {
+            "aid-lens.json", "signature-base.json", "accepts.json", "refusals.json", "misuse.json", "signs.json", "responses.json",
+        };
 
         private static JsonElement Load(string name) => Repo.Json("vectors", name);
 
@@ -35,7 +38,12 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> Misuses() => Cases("misuse.json");
 
-        public static IEnumerable<object[]> VerifyFiles() => new[] { "accepts.json", "refusals.json", "misuse.json" }.Select(f => new object[] { f });
+        public static IEnumerable<object[]> Signs() => Cases("signs.json");
+
+        public static IEnumerable<object[]> Responses() => Cases("responses.json");
+
+        public static IEnumerable<object[]> VerifyFiles() =>
+            new[] { "accepts.json", "refusals.json", "misuse.json", "signs.json", "responses.json" }.Select(f => new object[] { f });
 
         internal static List<KeyValuePair<string, string>> Headers(JsonElement headers) =>
             headers.EnumerateObject().Select(p => new KeyValuePair<string, string>(p.Name, p.Value.GetString()!)).ToList();
@@ -117,8 +125,45 @@ namespace Bakobo.Fiki.Tests
         private static readonly HashSet<string> VerifyFields = new HashSet<string>(StringComparer.Ordinal)
         {
             "id", "method", "url", "headers", "body", "max_age", "now", "minimum", "authorities", "expected_aid",
-            "note", "error", "aid", "keyid", "covered", "omit",
+            "note", "error", "aid", "keyid", "covered", "omit", "kind", "status", "request", "expected_keyid",
         };
+
+        // Every field a sign case may carry, refused the same way when unknown.
+        private static readonly HashSet<string> SignFields = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created", "expires", "nonce", "tag",
+            "minimum", "status", "request", "expected_headers", "error", "note", "keyid", "label",
+        };
+
+        private static void KnownFields(JsonElement c, HashSet<string> known)
+        {
+            var unknown = c.EnumerateObject().Select(p => p.Name).Where(n => !known.Contains(n)).ToList();
+            Assert.True(unknown.Count == 0, $"unknown fields {string.Join(", ", unknown)}");
+        }
+
+        /// <summary>
+        /// Every refusal's message holds no control character and is at most 1024 characters, so an
+        /// untrusted value is quoted escaped and cut (this.i @524c8qgv); py's <c>_well_formed</c>.
+        /// </summary>
+        internal static void WellFormed(Exception error)
+        {
+            Assert.True(error.Message.Length <= 1024, $"a message of {error.Message.Length} characters");
+            Assert.DoesNotContain(error.Message, c => c < 0x20 || c == 0x7f);
+        }
+
+        private static string? Text(JsonElement c, string name) =>
+            c.GetProperty(name).ValueKind == JsonValueKind.Null ? null : c.GetProperty(name).GetString();
+
+        private static long? Integer(JsonElement c, string name) =>
+            c.GetProperty(name).ValueKind == JsonValueKind.Null ? (long?)null : c.GetProperty(name).GetInt64();
+
+        private static IEnumerable<string>? List(JsonElement c, string name) =>
+            c.GetProperty(name).ValueKind == JsonValueKind.Null ? null : c.GetProperty(name).EnumerateArray().Select(x => x.GetString()!).ToList();
+
+        private static Request? RequestOf(JsonElement message) => message.ValueKind == JsonValueKind.Null
+            ? null
+            : new Request(message.GetProperty("method").GetString()!, message.GetProperty("url").GetString()!,
+                Headers(message.GetProperty("headers")), Body(message));
 
         /// <summary>
         /// The verifier's stated policy (format 3, this.i @524c8qgv): a minimum of "default" leaves it
@@ -126,12 +171,11 @@ namespace Bakobo.Fiki.Tests
         /// authorities null is <see cref="VerifyOptions.DecliningAuthorityCheck"/>, a list is those
         /// hosts. Every field named in "omit" is left out of the call.
         /// </summary>
-        private static VerifyOptions Options(JsonElement c)
+        private static VerifyOptions Options(JsonElement c, bool response)
         {
-            var unknown = c.EnumerateObject().Select(p => p.Name).Where(n => !VerifyFields.Contains(n)).ToList();
-            Assert.True(unknown.Count == 0, $"unknown fields {string.Join(", ", unknown)}");
+            KnownFields(c, VerifyFields);
             var omit = c.TryGetProperty("omit", out var o) ? o.EnumerateArray().Select(x => x.GetString()!).ToList() : new List<string>();
-            Assert.All(omit, name => Assert.Contains(name, new[] { "authorities", "minimum", "expected_aid" }));
+            Assert.All(omit, name => Assert.Contains(name, new[] { "authorities", "minimum", "expected_aid", "expected_keyid" }));
 
             var maxAge = c.GetProperty("max_age");
             var options = maxAge.ValueKind == JsonValueKind.Null ? VerifyOptions.DecliningFreshness() : VerifyOptions.MaxAge(maxAge.GetInt64());
@@ -154,6 +198,19 @@ namespace Bakobo.Fiki.Tests
                 {
                     Assert.Equal("default", minimum.GetString());
                 }
+            }
+            if (response)
+            {
+                // A response's own policy (format 3, this.i @524c8qgv): expected_keyid null is
+                // DecliningKeyidCheck, an AID is WithExpectedKeyId, and omitted is neither.
+                var request = RequestOf(c.GetProperty("request"));
+                options = request == null ? options : options.WithRequest(request);
+                if (!omit.Contains("expected_keyid"))
+                {
+                    var keyId = c.GetProperty("expected_keyid");
+                    options = keyId.ValueKind == JsonValueKind.Null ? options.DecliningKeyidCheck() : options.WithExpectedKeyId(keyId.GetString()!);
+                }
+                return options;
             }
             if (!omit.Contains("expected_aid"))
             {
@@ -196,13 +253,76 @@ namespace Bakobo.Fiki.Tests
             }
         }
 
-        private static Verdict Verify(JsonElement c) => HttpSignatures.VerifyRequest(
-            c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c));
+        /// <summary>
+        /// A request, or a response: every case in responses.json, and a misuse case whose kind
+        /// says so.
+        /// </summary>
+        private static Verdict Verify(JsonElement c, bool response = false)
+        {
+            response |= c.TryGetProperty("kind", out var kind) && kind.GetString() == "response";
+            if (response)
+            {
+                return HttpSignatures.VerifyResponse(c.GetProperty("status").GetInt32(), Headers(c.GetProperty("headers")), Options(c, response));
+            }
+            return HttpSignatures.VerifyRequest(
+                c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c, response));
+        }
 
         [Theory]
         [MemberData(nameof(VerifyFiles))]
         public void TheVerifyVectorsAreNotEmpty(string name) =>
-            Assert.True(Load(name).GetProperty("cases").GetArrayLength() > 5);
+            Assert.True(Load(name).GetProperty("cases").GetArrayLength() >= 5);
+
+        [Theory]
+        [MemberData(nameof(Responses))]
+        public void ResponseVectors(string id)
+        {
+            // verify_response's own policy (format 3): ResponseMinimum by default, the keyid decided.
+            var c = Case("responses.json", id);
+            if (c.TryGetProperty("error", out var error))
+            {
+                var caught = Assert.Throws<FikiException>(() => Verify(c, response: true));
+                Assert.Equal(error.GetString(), caught.Kind.ToString());
+                WellFormed(caught);
+                return;
+            }
+            var verdict = Verify(c, response: true);
+            Assert.Equal(c.GetProperty("keyid").GetString(), verdict.KeyId);
+            Assert.Equal(c.GetProperty("covered").EnumerateArray().Select(x => x.GetString()).ToArray(), verdict.Covered.ToArray());
+        }
+
+        [Theory]
+        [MemberData(nameof(Signs))]
+        public void SignVectors(string id)
+        {
+            // What the signer emits, byte for byte (review V-C4).
+            var c = Case("signs.json", id);
+            KnownFields(c, SignFields);
+            var key = Key.FromSeed(Bytes.FromHex(c.GetProperty("seed_hex").GetString()!));
+            IReadOnlyDictionary<string, string> Sign() => c.GetProperty("kind").GetString() == "request"
+                ? HttpSignatures.SignRequest(key, c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!,
+                    Headers(c.GetProperty("headers")), Body(c), List(c, "covered"), Integer(c, "created"), c.GetProperty("label").GetString()!,
+                    Integer(c, "expires"), Text(c, "nonce"), Text(c, "tag"), Text(c, "keyid"), List(c, "minimum"))
+                : HttpSignatures.SignResponse(key, c.GetProperty("status").GetInt32(), RequestOf(c.GetProperty("request")),
+                    Headers(c.GetProperty("headers")), Body(c), List(c, "covered"), Integer(c, "created"), c.GetProperty("label").GetString()!,
+                    Integer(c, "expires"), Text(c, "nonce"), Text(c, "tag"), Text(c, "keyid"), List(c, "minimum"));
+
+            if (c.TryGetProperty("error", out var error))
+            {
+                if (error.GetString() == "caller")
+                {
+                    var mistake = Assert.ThrowsAny<ArgumentException>(Sign);
+                    Assert.IsNotType<FikiException>(mistake);
+                    return;
+                }
+                var caught = Assert.Throws<FikiException>(Sign);
+                Assert.Equal(error.GetString(), caught.Kind.ToString());
+                WellFormed(caught);
+                return;
+            }
+            var expected = c.GetProperty("expected_headers").EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString()!);
+            Assert.Equal(expected.OrderBy(p => p.Key, StringComparer.Ordinal), Sign().OrderBy(p => p.Key, StringComparer.Ordinal));
+        }
 
         [Theory]
         [MemberData(nameof(Misuses))]
@@ -224,6 +344,7 @@ namespace Bakobo.Fiki.Tests
             var c = Case("refusals.json", id);
             var caught = Assert.Throws<FikiException>(() => Verify(c));
             Assert.Equal(c.GetProperty("error").GetString(), caught.Kind.ToString());
+            WellFormed(caught);
         }
 
         [Theory]

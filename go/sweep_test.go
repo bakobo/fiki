@@ -25,7 +25,7 @@ func TestTwoSpellingsOfOneHeaderAreTheCallersMistake(t *testing.T) {
 	isInvalidOptions(t, err)
 	_, err = SignResponse(key, 200, &Request{Method: "GET", URL: urlQuery, Headers: twice}, nil, SignOptions{})
 	isInvalidOptions(t, err)
-	_, err = VerifyResponse(200, &Request{Method: "GET", URL: urlQuery, Headers: twice}, nil, VerifyOptions{})
+	_, err = verifyResponseOptedOut(200, &Request{Method: "GET", URL: urlQuery, Headers: twice}, nil, VerifyOptions{})
 	isInvalidOptions(t, err)
 }
 
@@ -135,7 +135,7 @@ func TestAnUnreadableAuthorityIsTheSignersMistake(t *testing.T) {
 		t.Errorf("an uncovered authority is not read: %v", err)
 	}
 	// And a received one is a base that cannot be built.
-	_, err = VerifyResponse(200, &Request{Method: "GET", URL: "https://example.com:65536/"},
+	_, err = verifyResponseOptedOut(200, &Request{Method: "GET", URL: "https://example.com:65536/"},
 		map[string]string{"Signature-Input": `sig=("@authority";req);keyid="k"`, "Signature": zeroSignature},
 		VerifyOptions{ExpectedAID: seedAID})
 	if kindOf(t, err) != KindSignatureMismatch {
@@ -207,7 +207,7 @@ func TestAFreshnessWindowIsPositiveAndSaturates(t *testing.T) {
 			opts.Body = testBody
 			_, err := verifyOptedOut("POST", urlQuery, headers, opts)
 			isInvalidOptions(t, err)
-			_, err = VerifyResponse(200, nil, headers, opts)
+			_, err = verifyResponseOptedOut(200, nil, headers, opts)
 			isInvalidOptions(t, err)
 		})
 	}
@@ -285,7 +285,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 
 // B19 and E3: both vectors formats and the four bounds are exported.
 func TestTheFormatsAndBoundsAreExported(t *testing.T) {
-	if VectorsFormat != 3 || KeriVectorsFormat != 4 {
+	if VectorsFormat != 3 || KeriVectorsFormat != 5 {
 		t.Errorf("formats %d and %d", VectorsFormat, KeriVectorsFormat)
 	}
 	if MaxFieldBytes != 8192 || MaxDictionaryMembers != 16 || MaxInnerListItems != 64 || MaxParameters != 16 {

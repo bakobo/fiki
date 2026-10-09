@@ -12,6 +12,7 @@
 
 import { fromBase64Url, toBase64Url } from './bytes.js';
 import { MalformedKey } from './errors.js';
+import { quoted } from './base.js';
 
 // CESR's Ed25519N (non-transferable Ed25519 verification key). fiki decodes this code and no
 // other: a parser that handles one fixed-length code can only ever be narrower than a full CESR
@@ -83,14 +84,14 @@ function canonicalPoint(raw) {
 export function checkKey(raw, keyid) {
   if (!canonicalPoint(raw)) {
     throw new MalformedKey(
-      `The key for "${keyid}" is not the canonical encoding of a point on the Ed25519 curve, so ` +
+      `The key for ${quoted(keyid)} is not the canonical encoding of a point on the Ed25519 curve, so ` +
         'it is not a key fiki will verify with.',
       { keyid },
     );
   }
   if (smallOrder(raw)) {
     throw new MalformedKey(
-      `The key for "${keyid}" is a small-order Ed25519 point, under which a signature can be ` +
+      `The key for ${quoted(keyid)} is a small-order Ed25519 point, under which a signature can be ` +
         'forged for any message, so it is not a key fiki will verify with.',
       { keyid },
     );
@@ -103,7 +104,7 @@ export function verifyingKey(aid) {
   if (typeof aid !== 'string' || aid.length !== QB64_LEN || !aid.startsWith(CODE)) {
     throw new MalformedKey(
       `A non-transferable AID is ${QB64_LEN} characters beginning with "${CODE}"; this one is ` +
-        `${typeof aid === 'string' ? aid.length : 0} characters and begins with "${String(aid).slice(0, 1)}".`,
+        `${typeof aid === 'string' ? aid.length : 0} characters and begins with ${quoted(String(aid).slice(0, 1))}.`,
       { keyid: aid },
     );
   }
@@ -111,7 +112,7 @@ export function verifyingKey(aid) {
   // right shape can still decode short, and a decoder is exactly the place a quiet shortfall
   // turns into somebody else's exception.
   if (!/^[A-Za-z0-9\-_]{44}$/.test(aid)) {
-    throw new MalformedKey(`The AID "${aid}" is not valid base64url.`, { keyid: aid });
+    throw new MalformedKey(`The AID ${quoted(aid)} is not valid base64url.`, { keyid: aid });
   }
   // No length check after this, and the asymmetry with the Python port is deliberate: there,
   // base64's alphabet includes "=", so a 44-character AID can be padded and still decode short.
@@ -122,7 +123,7 @@ export function verifyingKey(aid) {
   // would give one key two spellings. Only the canonical one, the one toAid produces, is the AID
   // (bakobo/fiki#4).
   if (decoded[0] !== 0) {
-    throw new MalformedKey(`The AID "${aid}" is not the canonical spelling of its key.`, { keyid: aid });
+    throw new MalformedKey(`The AID ${quoted(aid)} is not the canonical spelling of its key.`, { keyid: aid });
   }
   return checkKey(decoded.slice(1), aid);
 }

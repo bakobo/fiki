@@ -57,7 +57,7 @@ from fiki.messages import content_digest  # noqa: E402
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m). Format 4
 # is the 0.8.0 cross-port sweep (@5zrf8gjk): the keyid order, the empty-Signature 401,
 # Content-Length's whitespace, weak and aliased B keyids, and the request-digest response case.
-KERI_VECTORS_FORMAT = 4
+KERI_VECTORS_FORMAT = 5
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -828,6 +828,26 @@ def refusals():
         unchecked=True),
         note="sha-256 matches and sha-512 does not; every recognized member must match.")
 
+    # keri_vectors_format 5: the review's remaining profile cases (V-S1, V-S5).
+    with_created = signature_base(method="GET", url=f"{HOST}/identifiers", headers={},
+                                  covered=DEFAULT_COVERED, created=AT, keyid=CONTROLLER_AID,
+                                  alg="ed25519", nonce=nonce("absent-created"))
+    stripped = with_created.replace(b";created=%d" % AT, b"")
+    assert stripped != with_created
+    bare = {}
+    attach(bare, stripped, CONTROLLER.sign(stripped))
+    add("absent-created", "malformed-signature-input",
+        {"method": "GET", "url": f"{HOST}/identifiers", "headers": bare, "body": None},
+        note="created is REQUIRED in the profile (section 4); refused before the signature is "
+             "examined.")
+    for name, value in (("content-length", "52"), ("transfer-encoding", "chunked")):
+        # Signed with no minimum: the profile's signer would itself refuse a body it cannot cover.
+        announced = signed_request(f"lowercase-{name}", body=None, headers={name: value},
+                                   minimum=None)
+        add(f"lowercase-{name}-body-without-digest", "insufficient-coverage", announced,
+            note="Field names match case-insensitively; a verifier that looks this header up by "
+                 "its capitalized spelling sees no body and fails open.")
+
     # Responses.
     asked = signed_request("refusal:asked", url=f"{HOST}/identifiers/alice/events")
     answer = signed_response("refusal:answer", asked)
@@ -867,6 +887,12 @@ def refusals():
         "response-from-an-unexpected-aid", asked, keyid=CONTROLLER_AID), policy=agent,
         note="Validly signed by a key the client knows, but not by the AID it is talking to "
              "(profile R1, section 9).")
+    add("response-from-an-unexpected-non-transferable-aid", "unknown-key", asked,
+        signed_response("response-from-an-unexpected-non-transferable-aid", asked, keyid=B_AID),
+        policy=agent,
+        note="Validly signed by a self-certifying B key while the client expects the agent's AID "
+             "(profile R1). A verifier that waives expected_keyid for keys that carry themselves "
+             "accepts any stranger (review V-C3; keri_vectors_format 5).")
     respond("unsigned-401", "unauthenticated", asked,
             {"status": 401, "headers": {"Content-Type": "application/json"},
              "body": '{"title": "401 Unauthorized"}'},

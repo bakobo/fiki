@@ -54,7 +54,7 @@ public final class Fiki {
      * separate number from {@link #VECTORS_FORMAT}, because the two sets answer to different
      * authorities and move independently.
      */
-    public static final int KERI_VECTORS_FORMAT = 4;
+    public static final int KERI_VECTORS_FORMAT = 5;
 
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";
@@ -143,8 +143,16 @@ public final class Fiki {
     // low enough that no parse is slow. Each applies to Signature-Input, Signature and
     // Content-Digest alike, and over any of them is that header's malformed class.
 
-    /** The most bytes fiki reads in one Signature-Input, Signature or Content-Digest value. */
+    /**
+     * The most bytes fiki reads in any one untrusted value, measured in UTF-8 on the value as
+     * received (@524c8qgv): a Signature-Input, Signature or Content-Digest, which over it are that
+     * header's malformed class, and a target URL, a Host that supplies {@code @authority}, and every
+     * other covered field value, which over it are a base that cannot be built. Inclusive.
+     */
     public static final int MAX_FIELD_BYTES = 8192;
+
+    // The longest stretch of an untrusted value an error message quotes (@524c8qgv).
+    private static final int SHOWN = 64;
 
     /** The most members fiki reads in one of those dictionaries. */
     public static final int MAX_DICTIONARY_MEMBERS = 16;
@@ -368,18 +376,39 @@ public final class Fiki {
     }
 
     /**
+     * The keyid a verifier expects, or {@link #DECLINED} (@524c8qgv). Required for
+     * {@link #verifyResponse}, like {@link Authorities} for a request: a client states the AID it is
+     * talking to (profile R1), or says explicitly that it accepts any signer and reads it from the
+     * verdict. Never empty, which names no AID and is not the decline.
+     */
+    public record ExpectedKeyid(String aid) {
+        /** The keyid check, explicitly declined: any signer, named in the verdict. */
+        public static final ExpectedKeyid DECLINED = new ExpectedKeyid(null);
+
+        public ExpectedKeyid {
+            if (aid != null && aid.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "expected keyid is empty, which names no AID; to accept any signer and read it from "
+                        + "the verdict, say so with withoutKeyidCheck().");
+            }
+        }
+    }
+
+    /**
      * The verifier's policy and the body it has in hand.
      *
      * <p>There is no default freshness: {@link #maxAge(long)} or {@link #decliningFreshness()},
      * and the canonical constructor refuses a null {@link Freshness}. Both defaults would be wrong
      * (this.i @67shl6c5). A request verifier must also state its authorities, with
      * {@link #withAuthorities} or {@link #withoutAuthorityCheck()}, and {@link #verifyRequest}
-     * refuses options that do neither (@524c8qgv). The minimum may be left unstated, which for a
-     * request is {@link #DEFAULT_MINIMUM} and for a response is none.
+     * refuses options that do neither (@524c8qgv). A response verifier must state its expected
+     * keyid, with {@link #withExpectedKeyid} or {@link #withoutKeyidCheck()}, and
+     * {@link #verifyResponse} refuses options that do neither. The minimum may be left unstated,
+     * which for a request is {@link #DEFAULT_MINIMUM} and for a response {@link #RESPONSE_MINIMUM}.
      */
     public record VerifyOptions(
             Freshness freshness, byte[] body, String expectedAid, Long skew, Long now, Resolver resolver,
-            Minimum minimum, String expectedKeyid, Authorities authorities) {
+            Minimum minimum, ExpectedKeyid expectedKeyid, Authorities authorities) {
 
         public VerifyOptions {
             if (freshness == null) {
@@ -452,9 +481,27 @@ public final class Fiki {
                 expectedKeyid, authorities);
         }
 
-        /** Refuse a signature by any other keyid, as {@code UnknownKey} (profile R1). */
+        /**
+         * Refuse a signature by any other keyid, as {@code UnknownKey} (profile R1): the AID this
+         * client is talking to. Never null or empty; to accept any signer, say so with
+         * {@link #withoutKeyidCheck()}.
+         */
         public VerifyOptions withExpectedKeyid(String keyid) {
-            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, keyid, authorities);
+            if (keyid == null) {
+                throw new IllegalArgumentException(
+                    "An expected keyid is an AID; to accept any signer, say so with withoutKeyidCheck().");
+            }
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum,
+                new ExpectedKeyid(keyid), authorities);
+        }
+
+        /**
+         * Decline the keyid check, explicitly (@524c8qgv): any signer is accepted, and the verdict's
+         * {@code keyid} names it.
+         */
+        public VerifyOptions withoutKeyidCheck() {
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum,
+                ExpectedKeyid.DECLINED, authorities);
         }
 
         /**
@@ -560,7 +607,7 @@ public final class Fiki {
             if (!seen.add(identity(item))) {
                 throw new FikiException(
                     FikiException.Kind.DuplicateComponent,
-                    "The covered components name " + specOf(item) + " twice, so the signature base "
+                    "The covered components name " + shown(specOf(item)) + " twice, so the signature base "
                         + "would not be what either copy says it is.",
                     specOf(item));
             }
@@ -571,7 +618,7 @@ public final class Fiki {
             if (otherParams || (item.has(REQ) && !(req && response))) {
                 throw new FikiException(
                     FikiException.Kind.UnsupportedComponent,
-                    "fiki does not support the component " + specOf(item) + ": the only component "
+                    "fiki does not support the component " + shown(specOf(item)) + ": the only component "
                         + "parameter it supports is \"" + REQ + "\", and only in a response.",
                     specOf(item));
             }
@@ -580,7 +627,7 @@ public final class Fiki {
                 if (!supported.contains(name(item))) {
                     throw new FikiException(
                         FikiException.Kind.UnsupportedComponent,
-                        "fiki does not build the derived component " + specOf(item) + " in a "
+                        "fiki does not build the derived component " + shown(specOf(item)) + " in a "
                             + (response ? "response" : "request") + "; it builds "
                             + String.join(", ", supported) + ".",
                         specOf(item));
@@ -729,16 +776,39 @@ public final class Fiki {
      * signature mismatch (@2f227n4r).
      */
     private static String valueOf(Sfv.Item item, Message message) {
-        return checked(componentValue(item, message), specOf(item));
+        return checked(componentValue(item, message), specOf(item), bounded(item));
     }
 
-    private static String checked(String value, String spec) {
+    /**
+     * Content-Digest has its own bound and its own class, {@code MalformedDigest}, checked when it
+     * is parsed (@5zrf8gjk); every other covered value is bounded here (@524c8qgv).
+     */
+    private static boolean bounded(Sfv.Item item) {
+        return !name(item).equals(CONTENT_DIGEST);
+    }
+
+    /** The UTF-8 length of a value, past {@link #MAX_FIELD_BYTES} or not. */
+    private static boolean overBound(String value) {
+        // No value of at most MAX_FIELD_BYTES / 3 characters can exceed the bound, so the common
+        // case never encodes anything.
+        return value.length() > MAX_FIELD_BYTES / 3
+            && value.getBytes(StandardCharsets.UTF_8).length > MAX_FIELD_BYTES;
+    }
+
+    private static String checked(String value, String spec, boolean bounded) {
+        // Size before shape (@524c8qgv): the bound is measured on the value as received.
+        if (bounded && overBound(value)) {
+            throw new FikiException(
+                FikiException.Kind.SignatureMismatch,
+                "The value of " + shown(spec) + " is over " + MAX_FIELD_BYTES + " bytes, so no signature "
+                    + "base is built from it.");
+        }
         for (int i = 0; i < value.length(); i++) {
             char ch = value.charAt(i);
             if (!(ch == '\t' || (ch >= ' ' && ch <= '~'))) {
                 throw new FikiException(
                     FikiException.Kind.SignatureMismatch,
-                    "The value of " + spec + " contains a line break, a control character or a "
+                    "The value of " + shown(spec) + " contains a line break, a control character or a "
                         + "non-ASCII character, so there is no signature base both sides would build from it.");
             }
         }
@@ -750,8 +820,8 @@ public final class Fiki {
      * trailing spaces and tabs only (RFC 9421 section 2.1). Checking after trimming would let a
      * value ending in CR LF verify as the value without it (@3cceqvg3).
      */
-    private static String fieldValue(String raw, String spec) {
-        checked(raw, spec);
+    private static String fieldValue(String raw, String spec, boolean bounded) {
+        checked(raw, spec, bounded);
         return trimOws(raw);
     }
 
@@ -774,7 +844,7 @@ public final class Fiki {
             if (message.request() == null) {
                 throw new FikiException(
                     FikiException.Kind.MissingComponent,
-                    "The signature covers " + specOf(item) + ", which is read from the request this "
+                    "The signature covers " + shown(specOf(item)) + ", which is read from the request this "
                         + "response answers, and no request was supplied.",
                     specOf(item));
             }
@@ -814,11 +884,11 @@ public final class Fiki {
         if (value == null) {
             throw new FikiException(
                 FikiException.Kind.MissingComponent,
-                "The signature covers " + specOf(item) + ", but the message carries no value for it, "
+                "The signature covers " + shown(specOf(item)) + ", but the message carries no value for it, "
                     + "so the signature base cannot be built.",
                 specOf(item));
         }
-        return fieldValue(value, specOf(item));
+        return fieldValue(value, specOf(item), bounded(item));
     }
 
     // A scheme, "://", and at least one character of authority (RFC 3986 section 3), in ASCII: a
@@ -839,24 +909,31 @@ public final class Fiki {
      * since stripping made "/\nx" verify as "/x", and so is a fragment, which no request target
      * has.
      */
-    record Target(String scheme, String authority, String path, String query) {
+    record Target(String url, String scheme, String authority, String path, String query) {
         static Target split(String url, boolean received) {
+            // Size before shape (@524c8qgv).
+            if (overBound(url)) {
+                throw unreadable("The URL " + shown(url) + " cannot be read: it is over " + MAX_FIELD_BYTES
+                    + " bytes.", received);
+            }
             for (int i = 0; i < url.length(); i++) {
                 char ch = url.charAt(i);
                 if (ch <= ' ' || ch == 0x7f) {
-                    throw unreadable("The URL contains a space or a control character.", received);
+                    throw unreadable("The URL " + shown(url) + " cannot be read: it contains a space or a "
+                        + "control character.", received);
                 }
             }
             if (url.indexOf('#') >= 0) {
-                throw unreadable("The URL carries a fragment, which no request target has.", received);
+                throw unreadable("The URL " + shown(url) + " cannot be read: it carries a fragment, which no "
+                    + "request target has.", received);
             }
             String scheme = null;
             String authority = null;
             String rest = url;
             if (!url.startsWith("/")) {
                 if (!ABSOLUTE.matcher(url).lookingAt()) {
-                    throw unreadable("The URL is neither origin-form, beginning with a slash, nor an absolute "
-                        + "URI with a scheme and an authority.", received);
+                    throw unreadable("The URL " + shown(url) + " is neither origin-form, beginning with a slash, "
+                        + "nor an absolute URI with a scheme and an authority.", received);
                 }
                 int at = url.indexOf("://");
                 scheme = lower(url.substring(0, at));
@@ -874,7 +951,7 @@ public final class Fiki {
             int question = rest.indexOf('?');
             String path = question >= 0 ? rest.substring(0, question) : rest;
             String query = question >= 0 ? rest.substring(question + 1) : "";
-            return new Target(scheme, authority, path.isEmpty() ? "/" : path, query);
+            return new Target(url, scheme, authority, path.isEmpty() ? "/" : path, query);
         }
     }
 
@@ -919,14 +996,20 @@ public final class Fiki {
                         + "request has no Host header, so there is nothing to derive it from.",
                     "@authority");
             }
-            host = fieldValue(host, "@authority");
+            host = fieldValue(host, "@authority", true);
             if (host.indexOf('@') >= 0 || host.indexOf(',') >= 0) {
-                throw unreadable("The Host header " + host + " is not a single host and optional port.", received);
+                throw unreadable("The Host header " + shown(host) + " is not a single host and optional port.", received);
             }
             return hostport(host, null, received);
         }
         String raw = target.authority();
-        return hostport(raw.substring(raw.lastIndexOf('@') + 1), target.scheme(), received);
+        if (raw.indexOf('@') >= 0) {
+            // RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure the
+            // authority (@524c8qgv).
+            throw unreadable("The URL " + shown(target.url()) + " cannot be read: its authority carries user "
+                + "information.", received);
+        }
+        return hostport(raw, target.scheme(), received);
     }
 
     /** host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built. */
@@ -938,17 +1021,17 @@ public final class Fiki {
         if (raw.startsWith("[")) {
             int close = raw.indexOf(']');
             if (close < 0) {
-                throw unreadable("The URL's IPv6 literal " + raw + " has no closing bracket.", received);
+                throw unreadable("The URL's IPv6 literal " + shown(raw) + " has no closing bracket.", received);
             }
             // Checked before lowercasing: IPvFuture's "v" is lowercase only, as urlsplit reads it.
             if (!IP_LITERAL.matcher(raw.substring(1, close)).matches()) {
-                throw unreadable("The URL's IP-literal " + raw + " is not an IPv6 address or IPvFuture.", received);
+                throw unreadable("The URL's IP-literal " + shown(raw) + " is not an IPv6 address or IPvFuture.", received);
             }
             raw = lower(raw);
             host = raw.substring(0, close + 1);
             String after = raw.substring(close + 1);
             if (!after.isEmpty() && !after.startsWith(":")) {
-                throw unreadable("The URL's authority " + raw + " has text after its IPv6 literal.", received);
+                throw unreadable("The URL's authority " + shown(raw) + " has text after its IPv6 literal.", received);
             }
             port = after.isEmpty() ? "" : after.substring(1);
         } else {
@@ -959,7 +1042,7 @@ public final class Fiki {
             host = colon < 0 ? raw : raw.substring(0, colon);
             port = colon < 0 ? "" : raw.substring(colon + 1);
             if (host.indexOf('[') >= 0 || host.indexOf(']') >= 0) {
-                throw unreadable("The URL's authority " + raw + " has a bracket outside an IP-literal.", received);
+                throw unreadable("The URL's authority " + shown(raw) + " has a bracket outside an IP-literal.", received);
             }
         }
         if (port.isEmpty()) {
@@ -970,7 +1053,7 @@ public final class Fiki {
         String digits = port.replaceFirst("^0+(?=.)", "");
         if (!port.matches("[0-9]+") || digits.length() > 5 || Integer.parseInt(digits) > 65535) {
             throw unreadable(
-                "The URL's port " + port + " is not a number from 0 to 65535.", received);
+                "The URL's port " + shown(port) + " is not a number from 0 to 65535.", received);
         }
         int number = Integer.parseInt(digits);
         // A Host header has no scheme, so no port of its is a default one.
@@ -1015,6 +1098,36 @@ public final class Fiki {
             });
         }
         return out;
+    }
+
+    /**
+     * An untrusted value as an error message may quote it (@524c8qgv): in double quotes, with every
+     * character outside printable ASCII, and the quote and backslash, escaped, and cut at 64
+     * characters with the length it was cut from. A 5 MB URL made a 10 MB message, and a raw
+     * control character in one forges a log line (review A9, B9).
+     */
+    static String shown(String text) {
+        if (text == null) {
+            return "nothing";
+        }
+        int length = text.codePointCount(0, text.length());
+        String kept = length <= SHOWN ? text : text.substring(0, text.offsetByCodePoints(0, SHOWN));
+        StringBuilder out = new StringBuilder("\"");
+        for (int i = 0; i < kept.length(); i++) {
+            char ch = kept.charAt(i);
+            if (ch == '"' || ch == '\\') {
+                out.append('\\').append(ch);
+            } else if (ch < 0x20 || ch > 0x7e) {
+                out.append(String.format("\\u%04x", (int) ch));
+            } else {
+                out.append(ch);
+            }
+        }
+        out.append('"');
+        if (length > SHOWN) {
+            out.append(" (cut from ").append(length).append(" characters)");
+        }
+        return out.toString();
     }
 
     /**
@@ -1250,6 +1363,11 @@ public final class Fiki {
     /**
      * Verify a signed response to {@code request}, returning a {@link Verdict} or throwing.
      *
+     * <p>The expected keyid is a required decision (@524c8qgv): the AID the client is talking to, or
+     * {@link VerifyOptions#withoutKeyidCheck()}; options stating neither are the caller's mistake.
+     * A minimum left unstated is {@link #RESPONSE_MINIMUM}, and {@link VerifyOptions#withoutMinimum()}
+     * opts out.
+     *
      * <p>An unsigned 401 is {@code Unauthenticated}, checked before anything else in the message,
      * because a server that refuses before it knows the agent cannot sign the refusal. A response
      * covering {@code "content-digest";req} verified against a request whose body is null is the
@@ -1258,7 +1376,13 @@ public final class Fiki {
      */
     public static Verdict verifyResponse(
             int status, Map<String, String> headers, Request request, VerifyOptions opts) {
-        List<String> minimum = opts.minimum() == null ? null : opts.minimum().components();
+        // A required decision, enforced here because a builder cannot make it at compile time.
+        if (opts.expectedKeyid() == null) {
+            throw new IllegalArgumentException(
+                "State the AID this client expects the response to be signed by, with withExpectedKeyid(aid), "
+                    + "or accept any signer with withoutKeyidCheck().");
+        }
+        List<String> minimum = (opts.minimum() == null ? new Minimum(RESPONSE_MINIMUM) : opts.minimum()).components();
         floored(minimum, RESPONSE_MINIMUM);
         if (opts.authorities() != null && opts.authorities().hosts() != null) {
             throw new IllegalArgumentException(
@@ -1314,10 +1438,11 @@ public final class Fiki {
         // keyid, and only then the resolver, which is never asked about a keyid already refused.
         String keyid = (String) inner.param("keyid");
         Resolved local = localKey(opts.expectedAid(), keyid, opts.resolver());
-        if (opts.expectedKeyid() != null && !opts.expectedKeyid().equals(keyid)) {
+        String expected = opts.expectedKeyid() == null ? null : opts.expectedKeyid().aid();
+        if (expected != null && !expected.equals(keyid)) {
             throw new FikiException(
                 FikiException.Kind.UnknownKey,
-                "This message is signed by \"" + keyid + "\", and the one expected is \"" + opts.expectedKeyid() + "\".",
+                "This message is signed by " + shown(keyid) + ", and the one expected is " + shown(expected) + ".",
                 keyid);
         }
         Resolved resolved = local != null ? local : resolved(keyid, opts.resolver());
@@ -1325,7 +1450,7 @@ public final class Fiki {
         if (alg != null && !ALG.equals(alg)) {
             throw new FikiException(
                 FikiException.Kind.UnsupportedAlgorithm,
-                "This signature is made with \"" + alg + "\", and fiki verifies only " + ALG + " signatures.",
+                "This signature is made with " + shown(String.valueOf(alg)) + ", and fiki verifies only " + ALG + " signatures.",
                 (String) alg);
         }
 
@@ -1342,7 +1467,7 @@ public final class Fiki {
                 if (name(item).equals("@authority") && !authorities.contains(valueOf(item, message))) {
                     throw new FikiException(
                         FikiException.Kind.SignatureMismatch,
-                        "The signature covers the authority \"" + valueOf(item, message) + "\", which this "
+                        "The signature covers the authority " + shown(valueOf(item, message)) + ", which this "
                             + "verifier does not serve, so it was signed for somebody else.");
                 }
             }
@@ -1438,7 +1563,7 @@ public final class Fiki {
             if (!have.contains(identity(item))) {
                 throw new FikiException(
                     FikiException.Kind.InsufficientCoverage,
-                    "The signature does not cover " + specOf(item) + ", which this verifier requires, so "
+                    "The signature does not cover " + shown(specOf(item)) + ", which this verifier requires, so "
                         + "it is refused even though it may be valid: a signature over too little is a "
                         + "signature over what an intermediary is free to change.",
                     specOf(item));
@@ -1490,7 +1615,7 @@ public final class Fiki {
         if (!signatures.get(0).key().equals(label)) {
             throw new FikiException(
                 FikiException.Kind.MissingSignatureLabel,
-                "The Signature header carries no entry labelled \"" + label + "\", so the covered "
+                "The Signature header carries no entry labelled " + shown(label) + ", so the covered "
                     + "components describe a signature that is not here.",
                 label);
         }
@@ -1516,12 +1641,12 @@ public final class Fiki {
             if (!(item.value() instanceof String text)) {
                 throw new FikiException(
                     FikiException.Kind.MalformedSignatureInput,
-                    "Every covered component is named by a quoted string; " + Sfv.serializeItem(item) + " is not one.");
+                    "Every covered component is named by a quoted string; " + shown(Sfv.serializeItem(item)) + " is not one.");
             }
             if (!text.startsWith("@") && !text.equals(lower(text))) {
                 throw new FikiException(
                     FikiException.Kind.MalformedSignatureInput,
-                    "The covered field " + Sfv.serializeItem(item) + " is not lowercase, and RFC 9421 "
+                    "The covered field " + shown(Sfv.serializeItem(item)) + " is not lowercase, and RFC 9421 "
                         + "section 2.1 requires field names in the covered list to be lowercased by the signer.");
             }
         }
@@ -1545,14 +1670,21 @@ public final class Fiki {
             if (expected == null) {
                 throw new FikiException(
                     FikiException.Kind.MalformedSignatureInput,
-                    "The signature parameter \"" + param.getKey() + "\" is not one fiki understands; it "
+                    "The signature parameter " + shown(param.getKey()) + " is not one fiki understands; it "
                         + "accepts " + String.join(", ", SIGNATURE_PARAMS.keySet()) + ".");
             }
             if (!expected.isInstance(param.getValue())) {
                 throw new FikiException(
                     FikiException.Kind.MalformedSignatureInput,
-                    "The signature parameter \"" + param.getKey() + "\" must be "
+                    "The signature parameter " + shown(param.getKey()) + " must be "
                         + (expected == Long.class ? "an integer" : "a quoted string") + ".");
+            }
+            if ((param.getKey().equals("created") || param.getKey().equals("expires")) && (Long) param.getValue() < 0) {
+                // A time before 1970 is no time a signer could have meant (@524c8qgv). Zero is one.
+                throw new FikiException(
+                    FikiException.Kind.MalformedSignatureInput,
+                    "The signature parameter \"" + param.getKey() + "\" is " + param.getValue()
+                        + ", and a UNIX time is not negative.");
             }
         }
     }
@@ -1576,6 +1708,13 @@ public final class Fiki {
         } catch (Sfv.SyntaxException e) {
             throw new FikiException(kind,
                 "I could not parse the " + name + " header; RFC 9421 spells it as an RFC 8941 dictionary.");
+        }
+        // A present header that holds no member, such as one of spaces, is malformed rather than
+        // a dictionary of no signatures: absence was a different refusal, already made (review B7).
+        if (members.isEmpty()) {
+            throw new FikiException(kind,
+                "The " + name + " header is present and holds no member; RFC 9421 spells it as a non-empty "
+                    + "RFC 8941 dictionary.");
         }
         checkCounts(members, name, kind);
         return members;
@@ -1631,7 +1770,7 @@ public final class Fiki {
             if (Key.misspelledAid(keyid)) {
                 throw new FikiException(
                     FikiException.Kind.MalformedKey,
-                    "The keyid \"" + keyid + "\" is shaped like an AID and is not its canonical spelling, "
+                    "The keyid " + shown(keyid) + " is shaped like an AID and is not its canonical spelling, "
                         + "so it is not an AID at all.",
                     keyid);
             }
@@ -1643,7 +1782,7 @@ public final class Fiki {
         if (!RAW_KEYID.matcher(keyid).matches()) {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
-                "The keyid \"" + keyid + "\" is not a base64url-encoded 32-byte Ed25519 public key: that is "
+                "The keyid " + shown(keyid) + " is not a base64url-encoded 32-byte Ed25519 public key: that is "
                     + "exactly 43 characters from the base64url alphabet, unpadded.",
                 keyid);
         }
@@ -1651,7 +1790,7 @@ public final class Fiki {
         if (!Key.URL.encodeToString(raw).equals(keyid)) {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
-                "The keyid \"" + keyid + "\" is not the canonical base64url spelling of any key.",
+                "The keyid " + shown(keyid) + " is not the canonical base64url spelling of any key.",
                 keyid);
         }
         return new Resolved(Key.trusted(raw, keyid), Key.toAid(raw));
@@ -1665,13 +1804,13 @@ public final class Fiki {
         if (raw == null) {
             throw new FikiException(
                 FikiException.Kind.UnknownKey,
-                "No key is known for the keyid \"" + keyid + "\", so the signature cannot be checked.",
+                "No key is known for the keyid " + shown(keyid) + ", so the signature cannot be checked.",
                 keyid);
         }
         if (raw.length != Key.RAW_LEN) {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
-                "The key resolved for \"" + keyid + "\" is not a 32-byte Ed25519 public key.",
+                "The key resolved for " + shown(keyid) + " is not a 32-byte Ed25519 public key.",
                 keyid);
         }
         return new Resolved(Key.trusted(raw.clone(), keyid), keyid);
@@ -1757,7 +1896,7 @@ public final class Fiki {
             if (!(member.value() instanceof byte[] expected)) {
                 throw new FikiException(
                     FikiException.Kind.MalformedDigest,
-                    "The " + member.key() + " Content-Digest is not an RFC 8941 byte sequence, so it "
+                    "The " + shown(member.key()) + " Content-Digest is not an RFC 8941 byte sequence, so it "
                         + "cannot be compared with anything.");
             }
             recognized.add(new Digest(member.key(), algorithm, expected));

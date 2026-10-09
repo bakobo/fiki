@@ -267,9 +267,9 @@ describe('A10: keyid well-formedness, then the expected keyid, then the resolver
 
 describe('A11: a 401 whose Signature header is empty is an unsigned 401', () => {
   it('is Unauthenticated, with or without a Signature-Input', async () => {
-    await assert.rejects(verifyResponse({ status: 401, headers: { Signature: '' }, maxAge: null }), errors.Unauthenticated);
+    await assert.rejects(verifyResponse({ status: 401, headers: { Signature: '' }, maxAge: null, expectedKeyid: null, minimum: null }), errors.Unauthenticated);
     await assert.rejects(
-      verifyResponse({ status: 401, headers: { Signature: '', 'Signature-Input': 'sig=()' }, maxAge: null }),
+      verifyResponse({ status: 401, headers: { Signature: '', 'Signature-Input': 'sig=()' }, maxAge: null, expectedKeyid: null, minimum: null }),
       errors.Unauthenticated,
     );
   });
@@ -328,7 +328,7 @@ describe('B13: the method is a token, wherever a request message is built', () =
         callerError,
       );
       await assert.rejects(
-        verifyResponse({ status: 200, headers: {}, maxAge: null, request: { method, url: URL_ } }),
+        verifyResponse({ status: 200, headers: {}, maxAge: null, expectedKeyid: null, minimum: null, request: { method, url: URL_ } }),
         callerError,
       );
     });
@@ -358,7 +358,7 @@ describe('B14: a port is a run of ASCII digits, read as a number, in 0..65535', 
     ['https://a.example:65535/x', 'a.example:65535'],
     ['https://a.example:0/x', 'a.example:0'],
     ['https://a.example:/x', 'a.example'],
-    ['https://user:pw@A.example:81/x', 'a.example:81'],
+    ['https://A.example:81/x', 'a.example:81'],
   ]) {
     it(`${url.slice(0, 60)} has the authority ${expected}`, () => assert.equal(authority(url), expected));
   }
@@ -380,7 +380,10 @@ describe('B14: a port is a run of ASCII digits, read as a number, in 0..65535', 
     const asked = { method: 'GET', url: 'https://a.example/x' };
     const headers = await signResponse({ key: KEY, status: 200, request: asked, created: AT, covered: ['@status', req('@authority')] });
     await assert.rejects(
-      verifyResponse({ status: 200, headers, maxAge: null, request: { method: 'GET', url: 'https://a.example:99999/x' } }),
+      verifyResponse({
+        status: 200, headers, maxAge: null, expectedKeyid: null, minimum: null,
+        request: { method: 'GET', url: 'https://a.example:99999/x' },
+      }),
       errors.SignatureMismatch,
     );
   });
@@ -491,7 +494,7 @@ describe('B17: maxAge and skew are positive integers when given', () => {
       it(`${field}=${String(value)} is a caller error`, async () => {
         const [request, headers] = await sign();
         await assert.rejects(verify(request, headers, { [field]: value }), callerError);
-        await assert.rejects(verifyResponse({ status: 200, headers: {}, maxAge: null, [field]: value }), callerError);
+        await assert.rejects(verifyResponse({ status: 200, headers: {}, maxAge: null, expectedKeyid: null, minimum: null, [field]: value }), callerError);
       });
     }
   }
@@ -685,5 +688,111 @@ describe('E, superseded by @524c8qgv: a target holding a space or a control is r
 
   it('builds the base of the same target without them', () => {
     assert.deepEqual(linesOf('https://a.example/xy?q=12'), ['"@authority": a.example', '"@path": /xy', '"@query": ?q=12']);
+  });
+});
+
+// Format 3 part two (@524c8qgv): what the shared vectors cannot pin portably.
+describe('format 3 part two', () => {
+  it('quotes at most 64 characters of an untrusted URL, and escapes its controls', async () => {
+    // Review A9, B9: a 5 MB URL made a 10 MB error message, and this port echoed controls raw.
+    const [, headers] = await sign();
+    const refusal = async (url) => {
+      try {
+        await verify({ method: 'GET', url }, headers);
+      } catch (err) {
+        assert.ok(err instanceof errors.SignatureMismatch, String(err));
+        return err.message;
+      }
+      throw new Error('accepted');
+    };
+    const long = await refusal(`https://api.example.com/${'p'.repeat(9000)}`);
+    assert.ok(long.length < 400, long);
+    assert.ok(long.includes('(cut from 9024 characters)'), long);
+    for (const [control, escaped] of [['\x1b', '\\u001b'], ['\x7f', '\\u007f']]) {
+      const message = await refusal(`https://api.example.com/a${control}b`);
+      assert.ok(!message.includes(control) && message.includes(escaped), message);
+    }
+    // A C1 control never reaches a quoted value through a URL, whose non-ASCII is refused unquoted,
+    // so the escaping is checked where it is defined.
+    const { quoted } = await import('../src/base.js');
+    assert.equal(quoted('a\x85b'), '"a\\u0085b"');
+  });
+
+  it('quotes at most 64 characters of a label or a covered name from Signature-Input (#18)', async () => {
+    // Copilot on bakobo/fiki#18: labels and component names reached messages unbounded.
+    const [request, headers] = await sign();
+    const refusal = async (input, Class) => {
+      try {
+        await verify(request, { ...headers, 'Signature-Input': input });
+      } catch (err) {
+        assert.ok(err instanceof Class, String(err));
+        return err.message;
+      }
+      throw new Error('accepted');
+    };
+    const params = headers['Signature-Input'].slice(headers['Signature-Input'].indexOf(')') + 1);
+    const label = `l${'x'.repeat(3000)}`;
+    const cases = [
+      [`${label}=("@method")${params}`, errors.MissingSignatureLabel],
+      [`sig=("X-${'Y'.repeat(3000)}")${params}`, errors.MalformedSignatureInput],
+      [`sig=("x-${'y'.repeat(3000)}")${params}`, errors.MissingComponent],
+    ];
+    for (const [input, Class] of cases) {
+      const message = await refusal(input, Class);
+      assert.ok(message.length <= 1024 && message.includes('(cut from 30'), message);
+    }
+    // A non-string is bounded too, unquoted: String() of an array can be as long as any string.
+    const { quoted } = await import('../src/base.js');
+    assert.equal(quoted(['a'.repeat(70)]), `${'a'.repeat(64)} (cut from 70 characters)`);
+  });
+
+  it('names a null keyid plainly when it is not the one expected', async () => {
+    // Without a minimum, expectedAid alone decides the key, so a signature may carry no keyid.
+    const [request, headers] = await sign({ keyid: null });
+    const bare = { ...headers, 'Signature-Input': headers['Signature-Input'].replace(/;keyid="[^"]*"/, '') };
+    await assert.rejects(
+      verify(request, bare, { expectedAid: KEY.aid, expectedKeyid: KEY.aid }),
+      (err) => err instanceof errors.UnknownKey && err.message.includes('signed by null'),
+    );
+  });
+
+  for (const value of [42, new Uint8Array(4), '']) {
+    it(`refuses an expectedKeyid of ${Object.prototype.toString.call(value)} ${String(value)} as a mistake in the call`, async () => {
+      // "" names no AID, and reading it as the decline would turn a missing value into "any signer".
+      const [request, headers] = await sign();
+      const callerError = (err) => err instanceof TypeError && !(err instanceof FikiError);
+      await assert.rejects(verify(request, headers, { expectedKeyid: value }), callerError);
+      await assert.rejects(
+        verifyResponse({ status: 200, headers: {}, maxAge: null, minimum: null, expectedKeyid: value }),
+        callerError,
+      );
+    });
+  }
+
+  it('requires an expectedKeyid decision, and applies RESPONSE_MINIMUM when no minimum is stated', async () => {
+    const asked = { method: 'GET', url: URL_, headers: {} };
+    const headers = await signResponse({ key: KEY, status: 200, request: asked, created: AT, covered: ['@status'] });
+    const args = { status: 200, headers, request: asked, maxAge: null };
+    await assert.rejects(verifyResponse(args), (err) => err instanceof TypeError && !(err instanceof FikiError));
+    await assert.rejects(verifyResponse({ ...args, expectedKeyid: null }), errors.InsufficientCoverage);
+    assert.deepEqual((await verifyResponse({ ...args, expectedKeyid: KEY.keyid, minimum: null })).covered, ['@status']);
+  });
+
+  it('folds field names A-Z only, so U+212A KELVIN SIGN stays itself', async () => {
+    const { asciiLower, canonicalHeaders } = await import('../src/base.js');
+    assert.equal(asciiLower('X-Note'), 'x-note');
+    assert.equal(asciiLower('Key'), 'Key');
+    assert.deepEqual(Object.keys(canonicalHeaders({ 'Key-Id': 'v', 'Key-Id': 'w' })).sort(), ['key-id', 'Key-id']);
+  });
+
+  it('bounds a covered value as received, Content-Digest by its own class', async () => {
+    // Exactly the bound is accepted; one byte more, before any whitespace is trimmed, is not.
+    const at = (size) => ({ 'X-Note': 'n'.repeat(size) });
+    const covered = ['@method', '@path', 'x-note'];
+    const [request, headers] = await sign({ headers: at(8192), covered });
+    assert.ok(await verify(request, headers));
+    await assert.rejects(sign({ headers: { 'X-Note': `${'n'.repeat(8192)} ` }, covered }), errors.SignatureMismatch);
+    // An oversized Content-Digest builds into a base, and is refused when parsed, as MalformedDigest.
+    await assert.rejects(verify(...(await withDigest(`sha-256=:${'A'.repeat(8200)}=:`))), errors.MalformedDigest);
   });
 });

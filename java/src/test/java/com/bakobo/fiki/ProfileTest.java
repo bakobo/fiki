@@ -1370,7 +1370,7 @@ class ProfileTest {
 
     @Test
     void theAuthorityIsSplitAsSent() {
-        assertEquals("\"@authority\": example.com", authority("https://user:pw@Example.COM/f"));
+        assertEquals("\"@authority\": example.com", authority("https://Example.COM/f"));
         assertEquals("\"@authority\": example.com", authority("https://example.com:0443/f"));
         assertEquals("\"@authority\": example.com", authority("https://example.com:/f"));
         assertEquals("\"@authority\": example.com:80", authority("https://example.com:80/f"));

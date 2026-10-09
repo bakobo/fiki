@@ -30,14 +30,14 @@ namespace Bakobo.Fiki
                 if (header.Key == null || header.Value == null)
                 {
                     throw new ArgumentException(
-                        $"A header is a name and a value, neither of them null; this one is {header.Key ?? "null"}: {header.Value ?? "null"}.",
+                        $"A header is a name and a value, neither of them null; this one is {(header.Key == null ? "null" : PyText.Shown(header.Key))}: {(header.Value == null ? "null" : PyText.Shown(header.Value))}.",
                         nameof(headers));
                 }
-                var name = PyText.Lower(header.Key);
+                var name = PyText.AsciiLower(header.Key);
                 if (!seen.Add(name))
                 {
                     throw new ArgumentException(
-                        $"The headers name the field \"{name}\" more than once, so it has two values and fiki cannot know " +
+                        $"The headers name the field {PyText.Shown(name)} more than once, so it has two values and fiki cannot know " +
                         "which one was meant; combine them into one entry before signing or verifying.");
                 }
             }

@@ -20,12 +20,12 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256, Sha512};
 
 use crate::base::{
-    base_for, canonical, canonical_request, check_covered, check_label, component, components,
-    identity, lines_for, req, spec_of, Asked, Message, Request, SignatureParams, CONTENT_DIGEST,
-    DEFAULT_COVERED,
+    base_for, brief, canonical, canonical_request, check_covered, check_label, component,
+    components, identity, lines_for, req, shown, spec_of, Asked, Message, Request, SignatureParams,
+    CONTENT_DIGEST, DEFAULT_COVERED, MAX_FIELD_BYTES,
 };
 use crate::errors::{Error, Kind, Result};
-use crate::keys::{b64std, misspelled_aid, public_key, raw_keyid, to_aid, verifying_key, Key};
+use crate::keys::{aid_of, b64std, misspelled_aid, public_key, raw_keyid, verifying_key, Key};
 use crate::sfv::{parse_dictionary, serialize_inner_list, InnerList, Item, Member, Value};
 
 /// The only signature algorithm fiki produces or accepts.
@@ -57,12 +57,11 @@ pub const DEFAULT_MINIMUM: [&str; 4] = ["@method", "@authority", "@path", "@quer
 /// The verifier's covered-set policy, [`VerifyOptions::minimum`].
 ///
 /// Three states rather than an `Option`, because "not stated" and "opted out" must differ: left
-/// at [`Minimum::Default`], [`verify_request`] applies [`DEFAULT_MINIMUM`] (`this.i` @524c8qgv),
-/// and only [`Minimum::Off`] applies none. [`verify_response`] keeps its own default for now,
-/// which is no minimum, so there `Default` and `Off` are the same.
+/// at [`Minimum::Default`], [`verify_request`] applies [`DEFAULT_MINIMUM`] and [`verify_response`]
+/// applies [`RESPONSE_MINIMUM`] (`this.i` @524c8qgv), and only [`Minimum::Off`] applies none.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Minimum {
-    /// Not stated: [`DEFAULT_MINIMUM`] for a request, no minimum for a response.
+    /// Not stated: [`DEFAULT_MINIMUM`] for a request, [`RESPONSE_MINIMUM`] for a response.
     #[default]
     Default,
     /// The explicit opt-out: no minimum, and so no body rule and no required `created`. A body
@@ -105,13 +104,38 @@ impl Authorities {
     }
 }
 
+/// The keyid a verifier expects, [`VerifyOptions::expected_keyid`] (`this.i` @524c8qgv).
+///
+/// [`verify_response`] has no default for it, as [`verify_request`] has none for `authorities`: a
+/// client states the AID it believes it is talking to (profile R1), or explicitly declines the
+/// check and reads the signer from the verdict. Left [`ExpectedKeyid::Unstated`], a response is
+/// `InvalidArgument`; a request verifier, which has `expected_aid` and `resolve` to decide its
+/// key, reads `Unstated` as `Unchecked`. An empty keyid names no AID, so `Is("")` is
+/// `InvalidArgument` in both, never the decline.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ExpectedKeyid {
+    /// No decision was made, which [`verify_response`] refuses as `InvalidArgument`.
+    #[default]
+    Unstated,
+    /// The explicit decision to accept any signer, whose keyid the verdict carries.
+    Unchecked,
+    /// The keyid the signature must carry; any other is `UnknownKey`.
+    Is(String),
+}
+
+impl ExpectedKeyid {
+    /// The keyid the signature must carry: `ExpectedKeyid::is(aid)`.
+    pub fn is(keyid: impl Into<String>) -> Self {
+        ExpectedKeyid::Is(keyid.into())
+    }
+}
+
 const SIGNATURE_LENGTH: usize = 64;
 
-/// The most bytes fiki reads of a Signature, Signature-Input or Content-Digest field value, measured
-/// before it is parsed, so size is checked before shape (`this.i` @5zrf8gjk, ticks 65q7 and 6mhg).
-/// Over this, or any limit below, is that header's malformed kind. They are far above anything an
-/// honest signer sends and low enough that no parse is slow.
-pub const MAX_FIELD_BYTES: usize = 8192;
+// MAX_FIELD_BYTES, in base, bounds the Signature, Signature-Input and Content-Digest headers too,
+// measured before each is parsed (`this.i` @5zrf8gjk, ticks 65q7 and 6mhg). Over it, or any limit
+// below, is that header's malformed kind. They are far above anything an honest signer sends and
+// low enough that no parse is slow.
 
 /// The most members fiki reads in any of those three dictionaries.
 pub const MAX_DICTIONARY_MEMBERS: usize = 16;
@@ -203,7 +227,8 @@ pub struct Verdict {
 /// must cover [`DEFAULT_MINIMUM`]; a stated one is [`REQUEST_MINIMUM`] or [`RESPONSE_MINIMUM`] or
 /// a superset of it. Any minimum also requires `created`, a `keyid` even beside `expected_aid`,
 /// and applies the profile's body rule; [`Minimum::Off`] applies none of it. `expected_keyid`
-/// refuses a signature by any other keyid as `UnknownKey`.
+/// ([`ExpectedKeyid`]) refuses a signature by any other keyid as `UnknownKey`, and is a required
+/// decision for [`verify_response`].
 #[derive(Default, Clone)]
 pub struct VerifyOptions {
     pub max_age: Option<i64>,
@@ -213,7 +238,7 @@ pub struct VerifyOptions {
     pub now: Option<i64>,
     pub resolve: Option<Resolver>,
     pub minimum: Minimum,
-    pub expected_keyid: Option<String>,
+    pub expected_keyid: ExpectedKeyid,
     pub authorities: Authorities,
 }
 
@@ -246,6 +271,26 @@ fn stated(
         }
         Minimum::Off => Ok(None),
         Minimum::Of(given) => floored(Some(given), floor),
+    }
+}
+
+/// `expected_keyid` is a decision the caller made where it is required, and never an empty keyid
+/// (`this.i` @524c8qgv, part-two refinements): "" names no AID, and reading it as the decline would
+/// turn a caller's missing value into "accept any signer".
+fn check_expected_keyid(expected: &ExpectedKeyid, required: bool) -> Result<()> {
+    match expected {
+        ExpectedKeyid::Unstated if required => Err(Error::new(
+            Kind::InvalidArgument,
+            "expected_keyid is a required decision: state the AID this client is talking to, \
+             such as ExpectedKeyid::is(aid), or ExpectedKeyid::Unchecked to accept any signer and \
+             read it from the verdict.",
+        )),
+        ExpectedKeyid::Is(keyid) if keyid.is_empty() => Err(Error::new(
+            Kind::InvalidArgument,
+            "expected_keyid is empty, which names no AID; pass ExpectedKeyid::Unchecked to accept \
+             any signer and read it from the verdict.",
+        )),
+        _ => Ok(()),
     }
 }
 
@@ -528,6 +573,7 @@ pub fn verify_request(
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
     check_window(opts)?;
+    check_expected_keyid(&opts.expected_keyid, false)?;
     check_authorities(&opts.authorities)?;
     let minimum = stated(&opts.minimum, Some(&DEFAULT_MINIMUM), &REQUEST_MINIMUM)?;
     let headers = &canonical(headers)?;
@@ -545,7 +591,11 @@ pub fn verify_request(
 /// An unsigned 401 is `Unauthenticated`, checked before anything else in the message, because a
 /// server that refuses before it knows the agent cannot sign the refusal. A response's body is its
 /// content, never its `Content-Length`, so a HEAD or 304 response is bodiless whatever length it
-/// announces. A client should pass `expected_keyid`, the AID it is talking to. A response covering
+/// announces. `expected_keyid` is a required decision ([`ExpectedKeyid`]): the AID the client is
+/// talking to (profile R1), or [`ExpectedKeyid::Unchecked`]. Left at [`Minimum::Default`] the
+/// minimum is [`RESPONSE_MINIMUM`], so the `request` it answers must be supplied for its `req`
+/// components to be read, and a response verified without one is `MissingComponent` (`this.i`
+/// @524c8qgv); [`Minimum::Off`] is the explicit opt-out. A response covering
 /// `"content-digest";req` verified against a `request` whose body is `None` is `InvalidArgument`:
 /// that digest is recomputed over the request body, and fiki cannot check a body it was not given.
 /// So is `authorities`, which a response has no use for.
@@ -556,7 +606,8 @@ pub fn verify_response(
     opts: &VerifyOptions,
 ) -> Result<Verdict> {
     check_window(opts)?;
-    let minimum = stated(&opts.minimum, None, &RESPONSE_MINIMUM)?;
+    check_expected_keyid(&opts.expected_keyid, true)?;
+    let minimum = stated(&opts.minimum, Some(&RESPONSE_MINIMUM), &RESPONSE_MINIMUM)?;
     if matches!(opts.authorities, Authorities::Served(_)) {
         return Err(Error::new(
             Kind::InvalidArgument,
@@ -626,13 +677,17 @@ fn verify(
     // Section 9's key steps in order (@5zrf8gjk): what the keyid alone shows, then the expected
     // keyid, and only then the resolver, which is never asked about a keyid already refused.
     let local = local_key(opts, keyid.as_deref())?;
-    if let Some(expected) = &opts.expected_keyid {
+    if let ExpectedKeyid::Is(expected) = &opts.expected_keyid {
         if keyid.as_ref() != Some(expected) {
-            let shown = keyid.clone().unwrap_or_default();
+            let signer = keyid.clone().unwrap_or_default();
             return Err(Error::detailed(
                 Kind::UnknownKey,
-                format!("This message is signed by \"{shown}\", and the one expected is \"{expected}\"."),
-                shown,
+                format!(
+                    "This message is signed by {}, and the one expected is {}.",
+                    shown(&signer),
+                    shown(expected)
+                ),
+                signer,
             ));
         }
     }
@@ -644,7 +699,10 @@ fn verify(
         if alg != ALG {
             return Err(Error::detailed(
                 Kind::UnsupportedAlgorithm,
-                format!("This signature is made with \"{alg}\", and fiki verifies only {ALG}."),
+                format!(
+                    "This signature is made with {}, and fiki verifies only {ALG}.",
+                    shown(alg)
+                ),
                 alg,
             ));
         }
@@ -675,8 +733,9 @@ fn verify(
                 return Err(Error::detailed(
                     Kind::SignatureMismatch,
                     format!(
-                        "The signature covers the authority \"{value}\", which this verifier \
-                         does not serve, so it was signed for somebody else."
+                        "The signature covers the authority {}, which this verifier does not \
+                         serve, so it was signed for somebody else.",
+                        shown(&value)
                     ),
                     value,
                 ));
@@ -773,7 +832,7 @@ fn check_minimum(
                 "The signature does not cover {}, which this verifier requires, so it is refused \
                  even though it may be valid: a signature over too little is a signature over what \
                  an intermediary is free to change.",
-                spec_of(item)
+                brief(&spec_of(item))
             ),
             spec_of(item),
         )),
@@ -842,8 +901,9 @@ fn read(
         return Err(Error::detailed(
             Kind::MissingSignatureLabel,
             format!(
-                "The Signature header carries no entry labelled \"{label}\", so the covered \
-                 components describe a signature that is not here."
+                "The Signature header carries no entry labelled {}, so the covered components \
+                 describe a signature that is not here.",
+                shown(label)
             ),
             label,
         ));
@@ -888,6 +948,14 @@ fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Membe
             ),
         ))
     };
+    // A field of nothing but optional whitespace is present and says nothing, which is no RFC 8941
+    // dictionary a signer meant: malformed, as every port says alike (review B7).
+    if parsed.is_empty() {
+        return Err(Error::new(
+            kind,
+            format!("The {name} header holds no members, so there is nothing in it to read."),
+        ));
+    }
     if parsed.len() > MAX_DICTIONARY_MEMBERS {
         return too_many("members", MAX_DICTIONARY_MEMBERS);
     }
@@ -925,13 +993,14 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
         let Some(name) = item.text() else {
             return malformed(format!(
                 "Every covered component is named by a quoted string; {} is not one.",
-                crate::sfv::serialize_item(item)
+                brief(&crate::sfv::serialize_item(item))
             ));
         };
         if !name.starts_with('@') && name != name.to_ascii_lowercase() {
             return malformed(format!(
-                "The covered field \"{name}\" is not lowercase, and RFC 9421 section 2.1 requires \
-                 field names in the covered list to be lowercased by the signer."
+                "The covered field {} is not lowercase, and RFC 9421 section 2.1 requires field \
+                 names in the covered list to be lowercased by the signer.",
+                shown(name)
             ));
         }
     }
@@ -967,8 +1036,9 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
             "nonce" | "alg" | "keyid" | "tag" => false,
             _ => {
                 return malformed(format!(
-                    "The signature parameter \"{name}\" is not one fiki understands; it accepts \
-                     created, expires, nonce, alg, keyid, tag."
+                    "The signature parameter {} is not one fiki understands; it accepts created, \
+                     expires, nonce, alg, keyid, tag.",
+                    shown(name)
                 ))
             }
         };
@@ -987,6 +1057,13 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
                 }
             ));
         }
+        // A time before 1970 is no time a signer could have meant (`this.i` @524c8qgv). Zero is a
+        // time, so this is a sign test and never a truthiness one.
+        if let Value::Integer(time @ ..=-1) = value {
+            return malformed(format!(
+                "The signature parameter \"{name}\" is {time}, and a UNIX time is not negative."
+            ));
+        }
     }
     Ok(list)
 }
@@ -999,7 +1076,7 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
 fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Local<'a>> {
     if let Some(aid) = &opts.expected_aid {
         let public = verifying_key(aid)?;
-        return Ok(Local::Found(public, to_aid(public.as_bytes())));
+        return Ok(Local::Found(public, aid_of(public.as_bytes())));
     }
     let keyid = keyid.filter(|k| !k.is_empty()).ok_or_else(|| {
         Error::new(
@@ -1012,26 +1089,28 @@ fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Loca
     if let Some(resolver) = &opts.resolve {
         if misspelled_aid(keyid) {
             return Err(malformed(format!(
-                "The keyid \"{keyid}\" is shaped like an AID and is not its canonical spelling, so \
-                 it is not an AID at all."
+                "The keyid {} is shaped like an AID and is not its canonical spelling, so it is not \
+                 an AID at all.",
+                shown(keyid)
             )));
         }
         return Ok(Local::Resolve(resolver, keyid));
     }
     let raw = raw_keyid(keyid).ok_or_else(|| {
         malformed(format!(
-            "The keyid \"{keyid}\" is not a base64url-encoded 32-byte Ed25519 public key: that is \
-             exactly 43 characters from the base64url alphabet, unpadded, in the key's own \
-             spelling."
+            "The keyid {} is not a base64url-encoded 32-byte Ed25519 public key: that is exactly \
+             43 characters from the base64url alphabet, unpadded, in the key's own spelling.",
+            shown(keyid)
         ))
     })?;
     let public = public_key(&raw).ok_or_else(|| {
         malformed(format!(
-            "The keyid \"{keyid}\" is not a usable Ed25519 public key: it is not a point on the \
-             curve, or it is a small-order point, under which a signature proves nothing."
+            "The keyid {} is not a usable Ed25519 public key: it is not a point on the curve, or it \
+             is a small-order point, under which a signature proves nothing.",
+            shown(keyid)
         ))
     })?;
-    Ok(Local::Found(public, to_aid(&raw)))
+    Ok(Local::Found(public, aid_of(&raw)))
 }
 
 /// What the keyid alone decided: the key and the identity to report, or a resolver to ask.
@@ -1048,7 +1127,8 @@ fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> 
         Error::detailed(
             Kind::UnknownKey,
             format!(
-                "No key is known for the keyid \"{keyid}\", so the signature cannot be checked."
+                "No key is known for the keyid {}, so the signature cannot be checked.",
+                shown(keyid)
             ),
             keyid,
         )
@@ -1057,9 +1137,9 @@ fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> 
         Error::detailed(
             Kind::MalformedKey,
             format!(
-                "The key resolved for \"{keyid}\" is not a usable Ed25519 public key: it is not a \
-                 point on the curve, or it is a small-order point, under which a signature proves \
-                 nothing."
+                "The key resolved for {} is not a usable Ed25519 public key: it is not a point on \
+                 the curve, or it is a small-order point, under which a signature proves nothing.",
+                shown(keyid)
             ),
             keyid,
         )

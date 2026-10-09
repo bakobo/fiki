@@ -90,7 +90,23 @@ pub(crate) fn b64std_decode(text: &str) -> Option<Vec<u8>> {
 }
 
 /// Render a raw 32-byte Ed25519 public key as a non-transferable AID.
-pub fn to_aid(raw: &[u8]) -> String {
+///
+/// Anything but 32 bytes is the caller's mistake, `InvalidArgument` (review B8), never a panic.
+pub fn to_aid(raw: &[u8]) -> Result<String> {
+    let raw: &[u8; RAW_LEN] = raw.try_into().map_err(|_| {
+        Error::new(
+            Kind::InvalidArgument,
+            format!(
+                "An Ed25519 public key is {RAW_LEN} bytes; this one is {}, so it has no AID.",
+                raw.len()
+            ),
+        )
+    })?;
+    Ok(aid_of(raw))
+}
+
+/// The AID of a key already known to be 32 bytes.
+pub(crate) fn aid_of(raw: &[u8; RAW_LEN]) -> String {
     let mut padded = [0u8; RAW_LEN + 1];
     padded[1..].copy_from_slice(raw);
     let mut aid = b64url(&padded);
@@ -134,7 +150,7 @@ pub fn verifying_key(aid: &str) -> Result<VerifyingKey> {
     // The decode does not check the bits the code character overwrote: the second character's top
     // two bits land in the pad byte, so a non-zero pad would give one key two spellings. Only the
     // canonical one, the one to_aid produces, is the AID (bakobo/fiki#4).
-    if to_aid(&bytes) != aid {
+    if aid_of(&bytes) != aid {
         return Err(Error::detailed(
             Kind::MalformedKey,
             format!("The AID {aid} is not the canonical spelling of its key."),
@@ -216,7 +232,7 @@ impl Key {
 
     /// The non-transferable AID: 44 characters, `B` prefixed, and also the verifying key.
     pub fn aid(&self) -> String {
-        to_aid(self.signing.verifying_key().as_bytes())
+        aid_of(self.signing.verifying_key().as_bytes())
     }
 
     /// The raw verifying key, base64url and unpadded — the RFC 8037 JWK "x" form (@7xrx5evg).

@@ -32,6 +32,7 @@ from cryptography.exceptions import InvalidSignature
 from .base import (
     CONTENT_DIGEST,
     DEFAULT_COVERED,
+    MAX_FIELD_BYTES,
     Request,
     canonical,
     check_covered,
@@ -47,6 +48,7 @@ from .base import (
     spec_of,
     value_of,
 )
+from ._text import brief, shown
 from .errors import (
     DigestMismatch,
     InsufficientCoverage,
@@ -92,7 +94,6 @@ _RAW_KEYID = re.compile(rf"[A-Za-z0-9_-]{{{_RAW_KEYID_LENGTH}}}")
 # Input bounds (@5zrf8gjk, ticks 65q7 and 6mhg), far above anything an honest signer sends and low
 # enough that no parse is slow. A field is measured in bytes before it is parsed, size before
 # shape; the counts are taken on what parsed. Over any of them is the header's malformed class.
-MAX_FIELD_BYTES = 8192
 MAX_DICTIONARY_MEMBERS = 16
 MAX_INNER_LIST_ITEMS = 64
 MAX_PARAMETERS = 16
@@ -409,6 +410,7 @@ def verify_request(
     and :data:`MAX_PARAMETERS` parameters on an item, and a header over any of them is malformed.
     """
     _check_window(max_age, skew)
+    _check_expected_keyid(expected_keyid)
     authorities = _check_authorities(authorities)
     minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT else minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
@@ -431,8 +433,8 @@ def verify_response(
     skew: int = DEFAULT_SKEW,
     now: int | None = None,
     resolve: Resolver | None = None,
-    minimum: Sequence[str] | None = None,
-    expected_keyid: str | None = None,
+    expected_keyid: str | None,
+    minimum: Sequence[str] | None | _Default = _DEFAULT,
 ) -> Verdict:
     """Verify a signed response to ``request``, returning a :class:`Verdict` or raising.
 
@@ -441,7 +443,10 @@ def verify_response(
     :data:`RESPONSE_MINIMUM`, a request with non-empty content obliges the response to cover
     ``"content-digest";req``. A response's body is its content, never its ``Content-Length``, so
     a HEAD or 304 response is bodiless whatever length it announces. A client should pass
-    ``expected_keyid``, the AID it is talking to (profile R1). An unsigned 401 is
+    ``expected_keyid`` has no default and must be given, like ``authorities`` for a request
+    (@524c8qgv): the AID the client is talking to (profile R1), or ``None`` to accept any signer
+    and read it from the verdict. ``minimum`` left out is :data:`RESPONSE_MINIMUM`; ``None`` is
+    the explicit opt-out. An unsigned 401 is
     :class:`~fiki.errors.Unauthenticated`, checked before anything else in the message, because a
     server that refuses before it knows the agent cannot sign the refusal (@2f227n4r). A minimum
     smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
@@ -450,7 +455,8 @@ def verify_response(
     not given.
     """
     _check_window(max_age, skew)
-    minimum = _floored(minimum, RESPONSE_MINIMUM)
+    _check_expected_keyid(expected_keyid)
+    minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
     # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -495,14 +501,15 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     local = _local_key(expected_aid, keyid, resolve)
     if expected_keyid is not None and keyid != expected_keyid:
         raise UnknownKey(
-            f'This message is signed by "{keyid}", and the one expected is "{expected_keyid}".',
+            f"This message is signed by {'no keyid' if keyid is None else shown(keyid)}, and the "
+            f"one expected is {shown(expected_keyid)}.",
             keyid=keyid,
         )
     public_key, aid = local if local is not None else _resolved(keyid, resolve)
     alg = inner.params.get("alg")
     if alg is not None and alg != ALG:
         raise UnsupportedAlgorithm(
-            f'This signature is made with "{alg}", and fiki verifies only {ALG} signatures.',
+            f"This signature is made with {shown(alg)}, and fiki verifies only {ALG} signatures.",
             alg=alg,
         )
 
@@ -579,7 +586,13 @@ def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:
     # that there is no body. Only SP and HTAB are optional whitespace (@5zrf8gjk); a no-break
     # space or a vertical tab makes the value something other than a decimal.
     length = length.strip(" \t")
-    return not re.fullmatch(r"[0-9]+", length) or int(length) > 0
+    if not re.fullmatch(r"[0-9]+", length):
+        return True
+    # Past 18 significant digits a length cannot fit a signed 64-bit integer, and Python refuses
+    # to convert one of over 4300 digits with a ValueError from outside fiki's taxonomy; either
+    # way it announces a body rather than being parsed (@524c8qgv, part-two refinements).
+    significant = length.lstrip("0")
+    return len(significant) > 18 or int(significant or "0") > 0
 
 
 def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) -> None:
@@ -592,11 +605,26 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
     for item in required:
         if identity(item) not in have:
             raise InsufficientCoverage(
-                f"The signature does not cover {spec_of(item)}, which this verifier requires, so "
+                f"The signature does not cover {brief(spec_of(item))}, which this verifier requires, so "
                 "it is refused even though it may be valid: a signature over too little is a "
                 "signature over what an intermediary is free to change.",
                 component=spec_of(item),
             )
+
+
+def _check_expected_keyid(expected_keyid) -> None:
+    """expected_keyid is an AID or None, never an empty string (@524c8qgv, part-two refinements).
+
+    "" names no AID, and reading it as the decline would turn a caller's missing value into
+    "accept any signer"; that is a mistake in the call.
+    """
+    if expected_keyid is None:
+        return
+    if not isinstance(expected_keyid, str):
+        raise TypeError(f"expected_keyid is an AID or None; this one is {type(expected_keyid).__name__}.")
+    if not expected_keyid:
+        raise ValueError("expected_keyid is empty, which names no AID; pass None to accept any "
+                         "signer and read it from the verdict.")
 
 
 def _check_authorities(authorities) -> frozenset[str] | None:
@@ -729,7 +757,7 @@ def _read(found: Mapping[str, str], *, require_keyid: bool, require_created: boo
     label = next(iter(inputs.keys()))
     if label not in signatures:
         raise MissingSignatureLabel(
-            f'The Signature header carries no entry labelled "{label}", so the covered '
+            f"The Signature header carries no entry labelled {shown(label)}, so the covered "
             "components describe a signature that is not here.",
             label=label,
         )
@@ -753,11 +781,11 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
     for item in member:
         if type(item.value) is not str:
             raise MalformedSignatureInput(
-                f"Every covered component is named by a quoted string; {item} is not one."
+                f"Every covered component is named by a quoted string; {brief(str(item))} is not one."
             )
         if not item.value.startswith("@") and item.value != item.value.lower():
             raise MalformedSignatureInput(
-                f"The covered field {item} is not lowercase, and RFC 9421 section 2.1 requires "
+                f"The covered field {brief(str(item))} is not lowercase, and RFC 9421 section 2.1 requires "
                 "field names in the covered list to be lowercased by the signer."
             )
     if require_keyid and "keyid" not in member.params:
@@ -777,13 +805,18 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
         expected = _SIGNATURE_PARAMS.get(name)
         if expected is None:
             raise MalformedSignatureInput(
-                f'The signature parameter "{name}" is not one fiki understands; it accepts '
+                f"The signature parameter {shown(name)} is not one fiki understands; it accepts "
                 f"{', '.join(_SIGNATURE_PARAMS)}."
             )
         if type(value) is not expected:
             raise MalformedSignatureInput(
                 f'The signature parameter "{name}" must be '
                 f"{'an integer' if expected is int else 'a quoted string'}."
+            )
+        if name in ("created", "expires") and value < 0:
+            # A time before 1970 is no time a signer could have meant (@524c8qgv).
+            raise MalformedSignatureInput(
+                f'The signature parameter "{name}" is {value}, and a UNIX time is not negative.'
             )
 
 
@@ -874,7 +907,7 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     if resolve is not None:
         if misspelled_aid(keyid):
             raise MalformedKey(
-                f'The keyid "{keyid}" is shaped like an AID and is not its canonical spelling, '
+                f"The keyid {shown(keyid)} is shaped like an AID and is not its canonical spelling, "
                 "so it is not an AID at all.",
                 keyid=keyid,
             )
@@ -884,14 +917,14 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     # as whatever key it happened to decode to. Only the one canonical spelling is a key.
     if not _RAW_KEYID.fullmatch(keyid):
         raise MalformedKey(
-            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key: that is '
+            f"The keyid {shown(keyid)} is not a base64url-encoded 32-byte Ed25519 public key: that is "
             f"exactly {_RAW_KEYID_LENGTH} characters from the base64url alphabet, unpadded.",
             keyid=keyid,
         )
     raw = base64.urlsafe_b64decode(keyid + "=")
     if base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != keyid:
         raise MalformedKey(
-            f'The keyid "{keyid}" is not the canonical base64url spelling of any key.',
+            f"The keyid {shown(keyid)} is not the canonical base64url spelling of any key.",
             keyid=keyid,
         )
     return public_key(raw, keyid), to_aid(raw)
@@ -904,12 +937,12 @@ def _resolved(keyid: str, resolve: Resolver):
     raw = resolve(keyid)
     if raw is None:
         raise UnknownKey(
-            f'No key is known for the keyid "{keyid}", so the signature cannot be checked.',
+            f"No key is known for the keyid {shown(keyid)}, so the signature cannot be checked.",
             keyid=keyid,
         )
     if not isinstance(raw, (bytes, bytearray)) or len(raw) != _KEY_LENGTH:
         raise MalformedKey(
-            f'The key resolved for "{keyid}" is not a {_KEY_LENGTH}-byte Ed25519 public key.',
+            f"The key resolved for {shown(keyid)} is not a {_KEY_LENGTH}-byte Ed25519 public key.",
             keyid=keyid,
         )
     return public_key(bytes(raw), keyid), keyid
@@ -940,7 +973,7 @@ def _read_digest(header: str | None) -> list:
         expected = getattr(member, "value", None)
         if type(expected) is not bytes:
             raise MalformedDigest(
-                f"The {name} Content-Digest is not an RFC 8941 byte sequence, so it cannot be "
+                f"The {brief(name)} Content-Digest is not an RFC 8941 byte sequence, so it cannot be "
                 "compared with anything."
             )
         recognized.append((name, algorithm, expected))
@@ -961,6 +994,6 @@ def _compare_digest(recognized: list, body: bytes | None) -> None:
     for name, algorithm, expected in recognized:
         if algorithm(body).digest() != expected:
             raise DigestMismatch(
-                f"The body does not match its {name} Content-Digest, so the body is not the one "
+                f"The body does not match its {brief(name)} Content-Digest, so the body is not the one "
                 "that was signed."
             )

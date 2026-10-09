@@ -11,7 +11,7 @@
 
 import { utf8 } from './bytes.js';
 import { DuplicateComponent, MissingComponent, SignatureMismatch, UnsupportedComponent } from './errors.js';
-import { parseItem, serializeInnerList, serializeItem } from './sfv.js';
+import { MAX_FIELD_BYTES, parseItem, serializeInnerList, serializeItem } from './sfv.js';
 
 export const DERIVED = ['@method', '@authority', '@path', '@query'];
 
@@ -52,8 +52,40 @@ const SF_KEY = /^[a-z*][a-z0-9_.*-]*$/;
 // RFC 8941 section 3.3.1: at most fifteen digits.
 const SF_INTEGER_MAX = 999_999_999_999_999;
 
-// A caller's value in a message about it: quoted when it is a string, so a control character shows.
-const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
+// Longest stretch of an untrusted value an error message quotes (@524c8qgv).
+const SHOWN = 64;
+
+/** An untrusted value as an error message may quote it: escaped, and cut at 64 characters.
+ *
+ * JSON.stringify escapes C0 controls but leaves DEL and the C1 controls raw, so those are escaped
+ * here too; a server logs these messages, and a value must not write into its log (review A9, B9).
+ */
+export function quoted(value) {
+  // A non-string is shown as its own spelling, unquoted, under the same bound: String() of an
+  // array, or of an object with its own toString, can be as long as any string (bakobo/fiki#18).
+  const text = typeof value === 'string' ? value : String(value);
+  const cut = text.length > SHOWN;
+  const json = JSON.stringify(cut ? text.slice(0, SHOWN) : text);
+  const escaped = (typeof value === 'string' ? json : json.slice(1, -1)).replace(
+    /[\x7f-\x9f]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+  return cut ? `${escaped} (cut from ${text.length} characters)` : escaped;
+}
+
+/** A component as a message names it: its spelling, quoted and bounded, since it may come off the
+ * wire (bakobo/fiki#18). */
+export const named = (item) => quoted(specOf(item));
+
+/** A-Z folded to a-z and nothing else (@524c8qgv).
+ *
+ * toLowerCase folds U+212A KELVIN SIGN to an ASCII "k", so a field named with it would become a
+ * covered name it is not (review A6, B5). Field names are ASCII tokens; nothing else folds.
+ */
+export const asciiLower = (text) => text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+
+/** Over MAX_FIELD_BYTES, measured in UTF-8 as received: size before shape (@524c8qgv). */
+export const oversized = (text) => utf8(text).length > MAX_FIELD_BYTES;
 
 /** A component identifier from a caller's spelling of it.
  *
@@ -68,7 +100,7 @@ export function component(spec) {
   const item = componentItem(spec);
   if (!item.value.startsWith('@') && !TOKEN.test(item.value)) {
     throw new TypeError(
-      `${JSON.stringify(spec)} is not a component fiki can name: a field is named by an HTTP field ` +
+      `${quoted(spec)} is not a component fiki can name: a field is named by an HTTP field ` +
         'name, one or more token characters, and a derived component by its @ name.',
     );
   }
@@ -76,7 +108,7 @@ export function component(spec) {
 }
 
 function componentItem(spec) {
-  if (!spec.startsWith('"')) return { value: spec.toLowerCase(), params: new Map() };
+  if (!spec.startsWith('"')) return { value: asciiLower(spec), params: new Map() };
   let item;
   try {
     item = parseItem(spec);
@@ -86,16 +118,16 @@ function componentItem(spec) {
   // A spec that opens with a quote can only parse as a string, so the parse is the whole test.
   if (item === null) {
     throw new UnsupportedComponent(
-      `fiki cannot read ${spec} as a component identifier; name a component plainly, as "@path", ` +
+      `fiki cannot read ${quoted(spec)} as a component identifier; name a component plainly, as "@path", ` +
         `or in its serialized form, as '"@path";req'.`,
       { component: spec, supported: [...DERIVED, ...RESPONSE_DERIVED].join(', ') },
     );
   }
-  return { value: item.value.toLowerCase(), params: item.params };
+  return { value: asciiLower(item.value), params: item.params };
 }
 
 /** The spelling of a request component named from a response: `req('@path')` is `'"@path";req'`. */
-export const req = (name) => serializeItem({ value: name.toLowerCase(), params: new Map([[REQ, true]]) });
+export const req = (name) => serializeItem({ value: asciiLower(name), params: new Map([[REQ, true]]) });
 
 /** The inverse of `component`: a plain name when it has no parameters. */
 export const specOf = (item) => (item.params.size > 0 ? serializeItem(item) : item.value);
@@ -112,7 +144,7 @@ export function checkCovered(items, { response }) {
   for (const item of items) {
     if (seen.has(identity(item))) {
       throw new DuplicateComponent(
-        `The covered components name ${specOf(item)} twice, so the signature base would not be ` +
+        `The covered components name ${named(item)} twice, so the signature base would not be ` +
           'what either copy says it is.',
         { component: specOf(item) },
       );
@@ -125,7 +157,7 @@ export function checkCovered(items, { response }) {
     const others = [...item.params.keys()].some((name) => name !== REQ);
     if (others || (item.params.has(REQ) && !(isReq && response))) {
       throw new UnsupportedComponent(
-        `fiki does not support the component ${specOf(item)}: the only component parameter it ` +
+        `fiki does not support the component ${named(item)}: the only component parameter it ` +
           `supports is "${REQ}", and only in a response.`,
         { component: specOf(item), supported: REQ },
       );
@@ -134,7 +166,7 @@ export function checkCovered(items, { response }) {
       const supported = isReq || !response ? DERIVED : RESPONSE_DERIVED;
       if (!supported.includes(item.value)) {
         throw new UnsupportedComponent(
-          `fiki does not build the derived component ${specOf(item)} in a ` +
+          `fiki does not build the derived component ${named(item)} in a ` +
             `${response ? 'response' : 'request'}; it builds ${supported.join(', ')}.`,
           { component: specOf(item), supported: supported.join(', ') },
         );
@@ -152,11 +184,11 @@ export function checkCovered(items, { response }) {
 function unreadable(message, reason) {
   if (message.received) {
     return new SignatureMismatch(
-      `The URL ${message.url} cannot be read: ${reason} So there is no signature base to check the ` +
-        'signature against.',
+      `The URL ${quoted(message.url)} cannot be read: ${reason} So there is no signature base to ` +
+        'check the signature against.',
     );
   }
-  return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
+  return new TypeError(`The URL ${quoted(message.url)} cannot be read: ${reason}`);
 }
 
 // A scheme, "://", and at least one character of authority (RFC 3986 section 3).
@@ -179,6 +211,7 @@ const ABSOLUTE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]/;
  */
 function splitUrl(message) {
   const { url } = message;
+  if (oversized(url)) throw unreadable(message, `it is over ${MAX_FIELD_BYTES} bytes.`);
   if (/[\x00-\x20\x7f]/.test(url)) throw unreadable(message, 'it contains a space or a control character.');
   if (url.includes('#')) throw unreadable(message, 'it carries a fragment, which no request target has.');
   if (url.startsWith('/')) {
@@ -270,7 +303,7 @@ function hostport(text, scheme, message) {
   if (port === '') return host.toLowerCase();
   const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
   if (digits === null || digits.length > 5 || Number(digits) > 65535) {
-    throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
+    throw unreadable(message, `its port ${quoted(port)} is not a number from 0 to 65535.`);
   }
   if (digits === DEFAULT_PORTS.get(scheme)) return host.toLowerCase();
   return `${host.toLowerCase()}:${digits}`;
@@ -281,7 +314,12 @@ function authority(message) {
   // *is* the authority, supplies it — the shape a server-side verifier actually holds.
   const { headers } = message;
   const parts = partsOf(message);
-  if (parts.netloc) return hostport(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), parts.scheme, message);
+  if (parts.netloc) {
+    // RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure the authority
+    // (@524c8qgv). An empty one is still one.
+    if (parts.netloc.includes('@')) throw unreadable(message, 'its authority carries user information.');
+    return hostport(parts.netloc, parts.scheme, message);
+  }
   const host = headers.get('host');
   if (host === undefined) {
     throw new MissingComponent(
@@ -312,12 +350,12 @@ export function canonicalHeaders(headers, name = 'headers') {
     // A name is always a string here, since an object's keys are; a value has to be checked
     // (@5zrf8gjk), or null would be signed as the string "null".
     if (typeof value !== 'string') {
-      throw new TypeError(`A header is a name and a string value; the value of "${field}" is ${String(value)}.`);
+      throw new TypeError(`A header is a name and a string value; the value of ${quoted(field)} is ${quoted(value)}.`);
     }
-    const lower = field.toLowerCase();
+    const lower = asciiLower(field);
     if (Object.hasOwn(out, lower)) {
       throw new TypeError(
-        `${name} names the field "${lower}" twice in different case, so it holds two values for one ` +
+        `${name} names the field ${quoted(lower)} twice in different case, so it holds two values for one ` +
           'field; pass one.',
       );
     }
@@ -344,7 +382,12 @@ const ows = (value) => value.replace(/^[ \t]+|[ \t]+$/g, '');
  * encoded differently by different stacks. The KERI profile names such a base unbuildable, and so
  * a signature mismatch (@2f227n4r).
  */
-function checked(value, spec) {
+function checked(value, spec, { bounded = true } = {}) {
+  if (bounded && oversized(value)) {
+    throw new SignatureMismatch(
+      `The value of ${spec} is over ${MAX_FIELD_BYTES} bytes, so no signature base is built from it.`,
+    );
+  }
   if (!/^[\t\x20-\x7e]*$/.test(value)) {
     throw new SignatureMismatch(
       `The value of ${spec} contains a line break, a control character or a non-ASCII ` +
@@ -362,7 +405,7 @@ function checked(value, spec) {
 function checkMethod(method) {
   if (typeof method !== 'string' || !TOKEN.test(method)) {
     throw new TypeError(
-      `The method ${shown(method)} is not an HTTP method: a method is a ` +
+      `The method ${quoted(method)} is not an HTTP method: a method is a ` +
         'string of one or more token characters, with no spaces, line breaks or separators.',
     );
   }
@@ -386,7 +429,7 @@ function componentValue(item, message) {
   if (item.params.get(REQ) === true) {
     if (message.request === null) {
       throw new MissingComponent(
-        `The signature covers ${specOf(item)}, which is read from the request this response ` +
+        `The signature covers ${named(item)}, which is read from the request this response ` +
           'answers, and no request was supplied.',
         { component: specOf(item) },
       );
@@ -400,7 +443,7 @@ function componentValue(item, message) {
     const { status } = source;
     if (!Number.isInteger(status) || status < 100 || status > 999) {
       throw new MissingComponent(
-        `The signature covers @status, and ${String(status)} is not a three-digit HTTP status ` +
+        `The signature covers @status, and ${quoted(status)} is not a three-digit HTTP status ` +
           'code, so there is no status line to build.',
         { component: '@status' },
       );
@@ -418,17 +461,19 @@ function componentValue(item, message) {
   const value = source.headers.get(name);
   if (value === undefined) {
     throw new MissingComponent(
-      `The signature covers ${specOf(item)}, but the message carries no value for it, so the ` +
+      `The signature covers ${named(item)}, but the message carries no value for it, so the ` +
         'signature base cannot be built.',
       { component: specOf(item) },
     );
   }
-  // Checked as received, then trimmed of field whitespace only.
-  return ows(checked(value, specOf(item)));
+  // Checked as received, then trimmed of field whitespace only. Content-Digest has its own bound
+  // and its own class, MalformedDigest, checked when it is parsed (@5zrf8gjk).
+  return ows(checked(value, named(item), { bounded: name !== CONTENT_DIGEST }));
 }
 
 /** A component's value, refused when it has no single serialization both sides agree on. */
-export const valueOf = (item, message) => checked(componentValue(item, message), specOf(item));
+export const valueOf = (item, message) =>
+  checked(componentValue(item, message), named(item), { bounded: item.value !== CONTENT_DIGEST });
 
 /** Every line of the signature base except the trailing `@signature-params`. */
 export const linesFor = (items, message) => items.map((item) => `${serializeItem(item)}: ${valueOf(item, message)}`);
@@ -457,7 +502,7 @@ export function checkSignerParams({ created, expires, keyid, alg, nonce, tag }) 
     if (value === undefined || value === null) continue;
     if (!Number.isInteger(value) || value < 0 || value > SF_INTEGER_MAX) {
       throw new TypeError(
-        `${name} is ${String(value)}, and RFC 8941 carries an integer of at most fifteen digits; fiki ` +
+        `${name} is ${quoted(value)}, and RFC 8941 carries an integer of at most fifteen digits; fiki ` +
           `signs a whole number of seconds from 0 to ${SF_INTEGER_MAX}.`,
       );
     }
@@ -466,7 +511,7 @@ export function checkSignerParams({ created, expires, keyid, alg, nonce, tag }) 
     if (value === undefined || value === null) continue;
     if (typeof value !== 'string' || !SF_STRING.test(value)) {
       throw new TypeError(
-        `The ${name} ${shown(value)} is not a string of printable ASCII, which is all an RFC ` +
+        `The ${name} ${quoted(value)} is not a string of printable ASCII, which is all an RFC ` +
           '8941 string can carry; a line break there would forge a header line.',
       );
     }
@@ -477,7 +522,7 @@ export function checkSignerParams({ created, expires, keyid, alg, nonce, tag }) 
 export function checkLabel(label) {
   if (typeof label !== 'string' || !SF_KEY.test(label)) {
     throw new TypeError(
-      `The label ${shown(label)} is not an RFC 8941 key: it starts with a lowercase letter ` +
+      `The label ${quoted(label)} is not an RFC 8941 key: it starts with a lowercase letter ` +
         'or "*" and continues with lowercase letters, digits, "_", "-", "." and "*".',
     );
   }

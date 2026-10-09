@@ -42,7 +42,7 @@ func VerifyingKey(aid string) (ed25519.PublicKey, error) {
 		}
 	}
 	if !aidShape.MatchString(aid) {
-		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + aid + " is not valid base64url.", Keyid: aid}
+		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + brief(aid) + " is not valid base64url.", Keyid: aid}
 	}
 	// No error check on the decode: the pattern above already established 44 characters of the
 	// base64url alphabet with no padding, so this cannot fail. A branch that cannot be taken is a
@@ -52,7 +52,7 @@ func VerifyingKey(aid string) (ed25519.PublicKey, error) {
 	// pad would give one key two spellings. Only the canonical one, the one ToAID produces, is the
 	// AID (bakobo/fiki#4).
 	if decoded[0] != 0 {
-		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + aid + " is not the canonical spelling of its key.", Keyid: aid}
+		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + brief(aid) + " is not the canonical spelling of its key.", Keyid: aid}
 	}
 	return ed25519.PublicKey(decoded[1:]), nil
 }

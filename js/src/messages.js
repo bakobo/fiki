@@ -16,6 +16,7 @@ import { equal, toBase64, toBase64Url, fromBase64Url, utf8 } from './bytes.js';
 import {
   CONTENT_DIGEST,
   DEFAULT_COVERED,
+  asciiLower,
   canonicalHeaders,
   checkCovered,
   checkLabel,
@@ -24,6 +25,8 @@ import {
   finishBase,
   identity,
   linesFor,
+  named,
+  quoted,
   req,
   requestMessage,
   responseMessage,
@@ -356,7 +359,7 @@ export async function signResponse({
  * another, and supplying it makes `@authority` required even under `minimum: null`, so a signature
  * that does not cover it is InsufficientCoverage (@605z9tnw). A string, an empty collection, or one
  * holding anything but strings is a TypeError. `expectedKeyid` refuses a signature by any other
- * keyid as UnknownKey.
+ * keyid as UnknownKey; an empty string names no keyid and is a TypeError.
  */
 export async function verifyRequest({
   method,
@@ -373,6 +376,7 @@ export async function verifyRequest({
   authorities,
 }) {
   checkWindow(maxAge, skew, 'verifyRequest');
+  checkExpectedKeyid(expectedKeyid, 'verifyRequest');
   const served = checkAuthorities(authorities);
   // Only `undefined` takes the default above; `null` is the opt-out, which floored passes through.
   const floor = floored(minimum, REQUEST_MINIMUM);
@@ -409,7 +413,7 @@ function checkAuthorities(authorities) {
   if (text || typeof authorities[Symbol.iterator] !== 'function') {
     throw new TypeError(
       "authorities is a collection of the hosts this verifier serves, such as ['api.example.com'], " +
-        `or null; this one is ${shown(authorities)}.`,
+        `or null; this one is ${quoted(authorities)}.`,
     );
   }
   const served = new Set(authorities);
@@ -417,13 +421,11 @@ function checkAuthorities(authorities) {
     throw new TypeError('authorities is empty, which serves no host at all; pass null to decline the check.');
   }
   for (const host of served) {
-    if (typeof host !== 'string') throw new TypeError(`Every authority is a string; ${shown(host)} is not.`);
+    if (typeof host !== 'string') throw new TypeError(`Every authority is a string; ${quoted(host)} is not.`);
   }
   return served;
 }
 
-// A caller's value in a message about it: quoted when it is a string, so a control character shows.
-const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
 
 /** Verify a signed response to `request`, returning a verdict or throwing.
  *
@@ -431,8 +433,12 @@ const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : St
  * `request` the response answers, `{method, url, headers, body}`, which its `req` components are
  * read from. Under RESPONSE_MINIMUM, a request with non-empty content obliges the response to
  * cover `"content-digest";req`. A response's body is its content, never its `Content-Length`, so a
- * HEAD or 304 response is bodiless whatever length it announces. A client should pass
- * `expectedKeyid`, the AID it is talking to (profile R1). An unsigned 401 is Unauthenticated,
+ * HEAD or 304 response is bodiless whatever length it announces.
+ *
+ * `minimum` left out is RESPONSE_MINIMUM, which reads `req` components and so needs the `request`;
+ * `null` is the explicit opt-out (@524c8qgv). `expectedKeyid` has no default and must be given,
+ * like `authorities` for a request: the AID the client is talking to (profile R1), or `null` to
+ * accept any signer and read it from the verdict; an empty string is a TypeError. An unsigned 401 is Unauthenticated,
  * checked before anything else, because a server that refuses before it knows the agent cannot
  * sign the refusal (@2f227n4r). A response covering `"content-digest";req` verified against a
  * request whose body is null is a TypeError: fiki cannot check a body it was not given.
@@ -447,10 +453,19 @@ export async function verifyResponse({
   skew = DEFAULT_SKEW,
   now: at = null,
   resolve = null,
-  minimum = null,
-  expectedKeyid = null,
+  minimum = RESPONSE_MINIMUM,
+  expectedKeyid,
 }) {
   checkWindow(maxAge, skew, 'verifyResponse');
+  if (expectedKeyid === undefined) {
+    throw new TypeError(
+      'verifyResponse requires expectedKeyid: the AID this client is talking to, or null to accept ' +
+        'any signer and read it from the verdict. There is no default, because a response signed by ' +
+        'any key at all must not verify unless you say so.',
+    );
+  }
+  checkExpectedKeyid(expectedKeyid, 'verifyResponse');
+  // Only `undefined` takes the default above; `null` is the opt-out, which floored passes through.
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
@@ -476,6 +491,24 @@ export async function verifyResponse({
   });
 }
 
+/** expectedKeyid is an AID or null, never an empty string (@524c8qgv, part-two refinements).
+ *
+ * "" names no AID, and reading it as the decline, which JavaScript's truthiness invites, would turn
+ * a caller's missing value into "accept any signer"; that is a mistake in the call.
+ */
+function checkExpectedKeyid(expectedKeyid, name) {
+  if (expectedKeyid === null || expectedKeyid === undefined) return;
+  if (typeof expectedKeyid !== 'string') {
+    throw new TypeError(`${name}'s expectedKeyid is an AID or null; this one is ${quoted(expectedKeyid)}.`);
+  }
+  if (expectedKeyid === '') {
+    throw new TypeError(
+      `${name}'s expectedKeyid is empty, which names no AID; pass null to accept any signer and ` +
+        'read it from the verdict.',
+    );
+  }
+}
+
 /** maxAge must be given, and a freshness window, when given, is a positive whole number of seconds.
  *
  * The KERI profile's section 3 says so (@5zrf8gjk), and a zero or negative one would refuse every
@@ -492,7 +525,7 @@ function checkWindow(maxAge, skew, name) {
   for (const [field, value] of [['maxAge', maxAge], ['skew', skew]]) {
     if (value === null && field === 'maxAge') continue;
     if (!Number.isInteger(value) || value <= 0) {
-      throw new TypeError(`${field} is ${String(value)}, and a freshness window is a positive whole number of seconds.`);
+      throw new TypeError(`${field} is ${quoted(value)}, and a freshness window is a positive whole number of seconds.`);
     }
   }
 }
@@ -529,7 +562,7 @@ async function verify(message, headers, body, options) {
   const { raw, aid, keyid } = await resolveKey(expectedAid, received, resolve, expectedKeyid);
   const alg = inner.params.get('alg');
   if (alg !== undefined && alg !== ALG) {
-    throw new UnsupportedAlgorithm(`This signature is made with "${alg}", and fiki verifies only ${ALG} signatures.`, {
+    throw new UnsupportedAlgorithm(`This signature is made with ${quoted(alg)}, and fiki verifies only ${ALG} signatures.`, {
       alg,
     });
   }
@@ -547,7 +580,7 @@ async function verify(message, headers, body, options) {
     for (const item of items) {
       if (item.value === '@authority' && !authorities.has(valueOf(item, message))) {
         throw new SignatureMismatch(
-          `The signature covers the authority "${valueOf(item, message)}", which this verifier does ` +
+          `The signature covers the authority ${quoted(valueOf(item, message))}, which this verifier does ` +
             'not serve, so it was signed for somebody else.',
         );
       }
@@ -607,7 +640,7 @@ function checkMinimum(items, minimum, { hasBody, requestHadBody }) {
   for (const item of required) {
     if (!have.has(identity(item))) {
       throw new InsufficientCoverage(
-        `The signature does not cover ${specOf(item)}, which this verifier requires, so it is ` +
+        `The signature does not cover ${named(item)}, which this verifier requires, so it is ` +
           'refused even though it may be valid: a signature over too little is a signature over ' +
           'what an intermediary is free to change.',
         { component: specOf(item) },
@@ -697,7 +730,7 @@ function read(found, { requireKeyid, requireCreated }) {
   const [label] = inputs.keys();
   if (!signatures.has(label)) {
     throw new MissingSignatureLabel(
-      `The Signature header carries no entry labelled "${label}", so the covered components ` +
+      `The Signature header carries no entry labelled ${quoted(label)}, so the covered components ` +
         'describe a signature that is not here.',
       { label },
     );
@@ -725,9 +758,9 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     if (typeof item.value !== 'string') {
       throw new MalformedSignatureInput('Every covered component is named by a quoted string; one here is not.');
     }
-    if (!item.value.startsWith('@') && item.value !== item.value.toLowerCase()) {
+    if (!item.value.startsWith('@') && item.value !== asciiLower(item.value)) {
       throw new MalformedSignatureInput(
-        `The covered field "${item.value}" is not lowercase, and RFC 9421 section 2.1 requires ` +
+        `The covered field ${quoted(item.value)} is not lowercase, and RFC 9421 section 2.1 requires ` +
           'field names in the covered list to be lowercased by the signer.',
       );
     }
@@ -751,14 +784,18 @@ function checkInput(member, { requireKeyid, requireCreated }) {
     const expected = SIGNATURE_PARAMS.get(name);
     if (expected === undefined) {
       throw new MalformedSignatureInput(
-        `The signature parameter "${name}" is not one fiki understands; it accepts ` +
+        `The signature parameter ${quoted(name)} is not one fiki understands; it accepts ` +
           `${[...SIGNATURE_PARAMS.keys()].join(', ')}.`,
       );
     }
     if (typeof value !== expected) {
       throw new MalformedSignatureInput(
-        `The signature parameter "${name}" must be ${expected === 'number' ? 'an integer' : 'a quoted string'}.`,
+        `The signature parameter ${quoted(name)} must be ${expected === 'number' ? 'an integer' : 'a quoted string'}.`,
       );
+    }
+    if ((name === 'created' || name === 'expires') && value < 0) {
+      // A time before 1970 is no time a signer could have meant (@524c8qgv). Zero is a time.
+      throw new MalformedSignatureInput(`The signature parameter ${quoted(name)} is ${value}, and a UNIX time is not negative.`);
     }
   }
 }
@@ -773,11 +810,15 @@ function parse(raw, name, ErrorClass) {
   if (size > MAX_FIELD_BYTES) {
     throw new ErrorClass(`The ${name} header is ${size} bytes, and fiki reads one of at most ${MAX_FIELD_BYTES}.`);
   }
+  let parsed;
   try {
-    return parseDictionary(raw);
+    parsed = parseDictionary(raw);
   } catch {
     throw new ErrorClass(`I could not parse the ${name} header; RFC 9421 spells it as an RFC 8941 dictionary.`);
   }
+  // Present but empty after whitespace is malformed, as every port says alike (review B7).
+  if (parsed.size === 0) throw new ErrorClass(`The ${name} header holds no members once its whitespace is set aside.`);
+  return parsed;
 }
 
 /** The key to verify with, the identity to report, and the keyid as received.
@@ -791,7 +832,7 @@ function parse(raw, name, ErrorClass) {
 async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
   const expect = () => {
     if (expectedKeyid !== null && keyid !== expectedKeyid) {
-      throw new UnknownKey(`This message is signed by "${keyid}", and the one expected is "${expectedKeyid}".`, {
+      throw new UnknownKey(`This message is signed by ${quoted(keyid)}, and the one expected is ${quoted(expectedKeyid)}.`, {
         keyid,
       });
     }
@@ -810,7 +851,7 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
   if (resolve !== null) {
     if (misspelledAid(keyid)) {
       throw new MalformedKey(
-        `The keyid "${keyid}" is shaped like an AID and is not its canonical spelling, so it is ` +
+        `The keyid ${quoted(keyid)} is shaped like an AID and is not its canonical spelling, so it is ` +
           'not an AID at all.',
         { keyid },
       );
@@ -820,10 +861,10 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
     // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
     const raw = await resolve(keyid);
     if (raw === null || raw === undefined) {
-      throw new UnknownKey(`No key is known for the keyid "${keyid}", so the signature cannot be checked.`, { keyid });
+      throw new UnknownKey(`No key is known for the keyid ${quoted(keyid)}, so the signature cannot be checked.`, { keyid });
     }
     if (!(raw instanceof Uint8Array) || raw.length !== KEY_LENGTH) {
-      throw new MalformedKey(`The key resolved for "${keyid}" is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
+      throw new MalformedKey(`The key resolved for ${quoted(keyid)} is not a ${KEY_LENGTH}-byte Ed25519 public key.`, {
         keyid,
       });
     }
@@ -835,7 +876,7 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
   const raw = RAW_KEYID.test(keyid) ? fromBase64Url(keyid) : null;
   if (raw === null || toBase64Url(raw) !== keyid) {
     throw new MalformedKey(
-      `The keyid "${keyid}" is not the canonical base64url spelling of a 32-byte Ed25519 public ` +
+      `The keyid ${quoted(keyid)} is not the canonical base64url spelling of a 32-byte Ed25519 public ` +
         'key: that is exactly 43 characters from the base64url alphabet, unpadded.',
       { keyid },
     );
@@ -858,7 +899,7 @@ function readDigest(header) {
     if (algorithm === undefined) continue;
     if (!(member.value instanceof Uint8Array)) {
       throw new MalformedDigest(
-        `The ${name} Content-Digest is not an RFC 8941 byte sequence, so it cannot be compared with anything.`,
+        `The ${quoted(name)} Content-Digest is not an RFC 8941 byte sequence, so it cannot be compared with anything.`,
       );
     }
     recognized.push([name, algorithm, member.value]);

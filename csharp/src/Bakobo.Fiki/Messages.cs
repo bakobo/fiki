@@ -102,7 +102,7 @@ namespace Bakobo.Fiki
             var lowered = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var header in headers)
             {
-                lowered[PyText.Lower(header.Key)] = header.Value;
+                lowered[PyText.AsciiLower(header.Key)] = header.Value;
             }
             return lowered;
         }
@@ -181,7 +181,7 @@ namespace Bakobo.Fiki
             if (!Sfv.IsKey(label))
             {
                 throw new ArgumentException(
-                    $"The label \"{label}\" is not an RFC 8941 dictionary key, so no verifier could read the headers it " +
+                    $"The label {PyText.Shown(label)} is not an RFC 8941 dictionary key, so no verifier could read the headers it " +
                     "would label: it must begin with a lowercase letter or \"*\" and continue with lowercase letters, digits, " +
                     "\"_\", \"-\", \".\" or \"*\".",
                     nameof(label));
@@ -301,7 +301,16 @@ namespace Bakobo.Fiki
             {
                 throw new ArgumentException("A response covers no authority of its own; WithAuthorities applies to verifying a request.");
             }
-            var floor = Floored(options.Minimum, ResponseMinimum);
+            // A required decision, like the authorities of a request (this.i @524c8qgv): the AID the
+            // client is talking to, or that any signer will do and is read from the verdict.
+            if (!options.ExpectedKeyIdStated)
+            {
+                throw new ArgumentException(
+                    "Verifying a response needs a decision about who may have signed it: " +
+                    "VerifyOptions.WithExpectedKeyId(aid), the AID this client is talking to, or DecliningKeyidCheck().");
+            }
+            // Unstated, a response is held to the profile's own minimum; WithoutMinimum opts out.
+            var floor = Floored(options.MinimumStated ? options.Minimum : ResponseMinimum, ResponseMinimum);
             // A server that refuses before it knows the agent cannot sign the refusal, so an
             // unsigned 401 is an authentication failure whose body is not to be trusted (@2f227n4r).
             // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -352,7 +361,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.UnknownKey,
-                    $"This message is signed by \"{keyId}\", and the one expected is \"{options.ExpectedKeyId}\".",
+                    $"This message is signed by {PyText.Shown(keyId ?? "")}, and the one expected is {PyText.Shown(options.ExpectedKeyId)}.",
                     keyId: keyId);
             }
             publicKey ??= Resolved(keyId!, options.Resolver!, out aid);
@@ -360,7 +369,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.UnsupportedAlgorithm,
-                    $"This signature is made with \"{alg.Text}\", and fiki verifies only {Alg} signatures.")
+                    $"This signature is made with {PyText.Shown(alg.Text)}, and fiki verifies only {Alg} signatures.")
                 { Alg = alg.Text };
             }
 
@@ -381,7 +390,7 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.SignatureMismatch,
-                            $"The signature covers the authority \"{Components.ValueOf(item, message)}\", which this verifier " +
+                            $"The signature covers the authority {PyText.Shown(Components.ValueOf(item, message))}, which this verifier " +
                             "does not serve, so it was signed for somebody else.");
                     }
                 }
@@ -478,7 +487,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.InsufficientCoverage,
-                        $"The signature does not cover {Components.SpecOf(item)}, which this verifier requires, so it is " +
+                        $"The signature does not cover {PyText.Named(Components.SpecOf(item))}, which this verifier requires, so it is " +
                         "refused even though it may be valid: a signature over too little is a signature over what an " +
                         "intermediary is free to change.")
                     { Component = Components.SpecOf(item) };
@@ -557,7 +566,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedKey,
-                        $"The keyid \"{keyId}\" is shaped like an AID and is not its canonical spelling, so it is not an AID at all.",
+                        $"The keyid {PyText.Shown(keyId!)} is shaped like an AID and is not its canonical spelling, so it is not an AID at all.",
                         keyId: keyId);
                 }
                 aid = keyId!;
@@ -575,7 +584,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.MalformedKey,
-                    $"The keyid \"{keyId}\" is not a base64url-encoded 32-byte Ed25519 public key: that is exactly " +
+                    $"The keyid {PyText.Shown(keyId)} is not a base64url-encoded 32-byte Ed25519 public key: that is exactly " +
                     $"{RawKeyIdLength} characters from the base64url alphabet, unpadded.",
                     keyId: keyId);
             }
@@ -584,7 +593,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.MalformedKey,
-                    $"The keyid \"{keyId}\" is not the canonical base64url spelling of any key.",
+                    $"The keyid {PyText.Shown(keyId)} is not the canonical base64url spelling of any key.",
                     keyId: keyId);
             }
             if (!Aids.IsUsableKey(raw))
@@ -602,13 +611,13 @@ namespace Bakobo.Fiki
             // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
             var resolved = resolve(keyId) ?? throw new FikiException(
                 FikiErrorKind.UnknownKey,
-                $"No key is known for the keyid \"{keyId}\", so the signature cannot be checked.",
+                $"No key is known for the keyid {PyText.Shown(keyId)}, so the signature cannot be checked.",
                 keyId: keyId);
             if (resolved.Length != KeyLength)
             {
                 throw new FikiException(
                     FikiErrorKind.MalformedKey,
-                    $"The key resolved for \"{keyId}\" is not a {KeyLength}-byte Ed25519 public key.",
+                    $"The key resolved for {PyText.Shown(keyId)} is not a {KeyLength}-byte Ed25519 public key.",
                     keyId: keyId);
             }
             // A small-order key is refused here, in the key's place in section 9's order, rather
@@ -679,7 +688,7 @@ namespace Bakobo.Fiki
             {
                 throw new FikiException(
                     FikiErrorKind.MissingSignatureLabel,
-                    $"The Signature header carries no entry labelled \"{only.Key}\", so the covered components describe a signature that is not here.")
+                    $"The Signature header carries no entry labelled {PyText.Shown(only.Key)}, so the covered components describe a signature that is not here.")
                 { Label = only.Key };
             }
 
@@ -708,13 +717,13 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedSignatureInput,
-                        $"Every covered component is named by a quoted string; {item.Serialize()} is not one.");
+                        $"Every covered component is named by a quoted string; {PyText.Named(item.Serialize())} is not one.");
                 }
                 if (!item.Value.Text.StartsWith("@", StringComparison.Ordinal) && item.Value.Text != PyText.Lower(item.Value.Text))
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedSignatureInput,
-                        $"The covered field {item.Serialize()} is not lowercase, and RFC 9421 section 2.1 requires field names " +
+                        $"The covered field {PyText.Named(item.Serialize())} is not lowercase, and RFC 9421 section 2.1 requires field names " +
                         "in the covered list to be lowercased by the signer.");
                 }
             }
@@ -748,7 +757,7 @@ namespace Bakobo.Fiki
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedSignatureInput,
-                        $"The signature parameter \"{parameter.Key}\" is not one fiki understands; it accepts {string.Join(", ", ParamNames)}.");
+                        $"The signature parameter {PyText.Shown(parameter.Key)} is not one fiki understands; it accepts {string.Join(", ", ParamNames)}.");
                 }
                 var integer = at < 2;
                 if (parameter.Value.Type != (integer ? SfType.Integer : SfType.String))
@@ -756,6 +765,14 @@ namespace Bakobo.Fiki
                     throw new FikiException(
                         FikiErrorKind.MalformedSignatureInput,
                         $"The signature parameter \"{parameter.Key}\" must be {(integer ? "an integer" : "a quoted string")}.");
+                }
+                if (integer && parameter.Value.Integer < 0)
+                {
+                    // A time before 1970 is no time a signer could have meant (this.i @524c8qgv).
+                    // Zero is a time, and is accepted for both.
+                    throw new FikiException(
+                        FikiErrorKind.MalformedSignatureInput,
+                        $"The signature parameter \"{parameter.Key}\" is {parameter.Value.Integer.ToString(CultureInfo.InvariantCulture)}, and a UNIX time is not negative.");
                 }
             }
         }

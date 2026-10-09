@@ -156,10 +156,9 @@ namespace Bakobo.Fiki.Tests
                 .WithNow(now)
                 .WithResolver(Resolver(keys));
             var expectedKeyId = Policy("expected_keyid", out var hasExpected);
-            if (hasExpected)
-            {
-                options = options.WithExpectedKeyId(expectedKeyId.GetString()!);
-            }
+            // A policy with no expected_keyid states the decline, which a response requires
+            // (keri_vectors_format 5, this.i @524c8qgv).
+            options = hasExpected ? options.WithExpectedKeyId(expectedKeyId.GetString()!) : options.DecliningKeyidCheck();
             if (response.HasValue)
             {
                 var r = response.Value;

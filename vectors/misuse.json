@@ -148,6 +148,88 @@
       "omit": [],
       "error": "caller",
       "note": "An empty minimum is below the profile's."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [
+        "expected_keyid"
+      ],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "response-expected-keyid-omitted",
+      "error": "caller",
+      "note": "expected_keyid is a required decision (@524c8qgv)."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": [
+        "@status"
+      ],
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "response-minimum-below-the-profiles",
+      "error": "caller",
+      "note": "A response minimum must include RESPONSE_MINIMUM."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "expected_keyid": "",
+      "id": "response-expected-keyid-empty",
+      "error": "caller",
+      "note": "An empty AID names nothing; it is not the decline."
     }
   ]
 }

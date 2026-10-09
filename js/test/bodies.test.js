@@ -61,7 +61,7 @@ describe('bodies of every accepted type', () => {
       const request = { method: 'GET', url: URL_ };
       const headers = await signResponse({ key: KEY, status: 200, request, created: AT });
       await assert.rejects(
-        () => verifyResponse({ status: 200, headers, body, request, maxAge: null, minimum: RESPONSE_MINIMUM }),
+        () => verifyResponse({ status: 200, headers, body, request, maxAge: null, minimum: RESPONSE_MINIMUM, expectedKeyid: null }),
         errors.InsufficientCoverage,
       );
     });
@@ -71,7 +71,7 @@ describe('bodies of every accepted type', () => {
       const request = { method: 'POST', url: URL_, headers: original, body: 'original' };
       const headers = await signResponse({ key: KEY, status: 200, request, created: AT });
       await assert.rejects(
-        () => verifyResponse({ status: 200, headers, request: { ...request, body }, maxAge: null, minimum: RESPONSE_MINIMUM }),
+        () => verifyResponse({ status: 200, headers, request: { ...request, body }, maxAge: null, minimum: RESPONSE_MINIMUM, expectedKeyid: null }),
         errors.DigestMismatch,
       );
     });
@@ -103,9 +103,9 @@ describe('bodies of every accepted type', () => {
       await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, body, maxAge: null }), TypeError);
       const request = { method: 'GET', url: URL_ };
       const response = await signResponse({ key: KEY, status: 200, request, created: AT });
-      await assert.rejects(() => verifyResponse({ status: 200, headers: response, body, request, maxAge: null }), TypeError);
+      await assert.rejects(() => verifyResponse({ status: 200, headers: response, body, request, maxAge: null, expectedKeyid: null, minimum: null }), TypeError);
       await assert.rejects(
-        () => verifyResponse({ status: 200, headers: response, request: { ...request, body }, maxAge: null }),
+        () => verifyResponse({ status: 200, headers: response, request: { ...request, body }, maxAge: null, expectedKeyid: null, minimum: null }),
         TypeError,
       );
       await assert.rejects(() => signResponse({ key: KEY, status: 200, request: { ...request, body }, created: AT }), TypeError);

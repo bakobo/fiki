@@ -263,9 +263,9 @@ def test_an_unexpected_keyid_is_unknown_without_asking_the_resolver():
 
 def test_a_401_with_an_empty_signature_header_is_unauthenticated():
     with pytest.raises(Unauthenticated):
-        verify_response(status=401, headers={"Signature": ""}, max_age=None)
+        verify_response(expected_keyid=None, minimum=None, status=401, headers={"Signature": ""}, max_age=None)
     with pytest.raises(Unauthenticated):
-        verify_response(status=401, headers={"Signature": "", "Signature-Input": "sig=()"},
+        verify_response(expected_keyid=None, minimum=None, status=401, headers={"Signature": "", "Signature-Input": "sig=()"},
                         max_age=None)
 
 
@@ -322,7 +322,7 @@ def test_a_method_that_is_not_a_token_is_a_caller_error_wherever_a_request_is_bu
         response_signature_base(status=200, headers={}, covered=["@status"],
                                 request=Request(method=method, url=URL), **BASE_ARGS)
     with pytest.raises(ValueError):
-        verify_response(status=200, headers={}, max_age=None,
+        verify_response(expected_keyid=None, minimum=None, status=200, headers={}, max_age=None,
                         request=Request(method=method, url=URL))
 
 
@@ -351,7 +351,7 @@ def test_any_token_is_a_method_and_keeps_its_case(method):
     ("https://a.example:65535/x", "a.example:65535"),
     ("https://a.example:0/x", "a.example:0"),
     ("https://a.example:/x", "a.example"),
-    ("https://user:pw@A.example:81/x", "a.example:81"),
+    ("https://A.example:81/x", "a.example:81"),
 ])
 def test_a_port_is_read_as_a_number(url, expected):
     assert authority(url) == expected
@@ -398,7 +398,7 @@ def test_a_bad_port_is_a_signature_mismatch_in_the_request_a_response_answers():
     headers = sign_response(key=KEY, status=200, request=asked, created=AT,
                             covered=["@status", req("@authority")])
     with pytest.raises(SignatureMismatch):
-        verify_response(status=200, headers=headers, max_age=None,
+        verify_response(expected_keyid=None, minimum=None, status=200, headers=headers, max_age=None,
                         request=Request(method="GET", url="https://a.example:99999/x"))
 
 
@@ -511,7 +511,7 @@ def test_a_freshness_window_that_is_not_positive_is_a_caller_error(field, value)
     with pytest.raises(ValueError):
         verify(request, headers, **{field: value})
     with pytest.raises(ValueError):
-        verify_response(status=200, headers={}, **{"max_age": None, field: value})
+        verify_response(expected_keyid=None, minimum=None, status=200, headers={}, **{"max_age": None, field: value})
 
 
 @pytest.mark.parametrize("field", ["max_age", "skew"])

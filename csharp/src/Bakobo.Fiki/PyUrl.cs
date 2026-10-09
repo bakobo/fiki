@@ -163,7 +163,7 @@ namespace Bakobo.Fiki
             else if (!PyIp.IsIPv6(hostname))
             {
                 // An IPv4 address in brackets is refused too, and is never a valid IPv6 one.
-                throw new ArgumentException($"'{hostname}' does not appear to be an IPv6 address");
+                throw new ArgumentException($"{PyText.Shown(hostname)} does not appear to be an IPv6 address");
             }
         }
 
@@ -184,7 +184,7 @@ namespace Bakobo.Fiki
             var normalized = n.Normalize(NormalizationForm.FormKC);
             if (n != normalized && normalized.IndexOfAny("/?#@:".ToCharArray()) >= 0)
             {
-                throw new ArgumentException($"netloc '{netloc}' contains invalid characters under NFKC normalization");
+                throw new ArgumentException($"netloc {PyText.Shown(netloc)} contains invalid characters under NFKC normalization");
             }
         }
 
@@ -239,7 +239,7 @@ namespace Bakobo.Fiki
                 {
                     if (c < '0' || c > '9')
                     {
-                        throw new ArgumentException($"Port could not be cast to integer value as '{port}'");
+                        throw new ArgumentException($"Port could not be cast to integer value as {PyText.Shown(port)}");
                     }
                 }
                 var trimmed = port.TrimStart('0');
@@ -419,7 +419,7 @@ namespace Bakobo.Fiki
         }
     }
 
-    /// <summary>Python's <c>str.lower()</c>, as fiki-py applies it to header names.</summary>
+    /// <summary>Text helpers shared by the ports' reading of untrusted values.</summary>
     internal static class PyText
     {
         /// <summary>
@@ -427,5 +427,82 @@ namespace Bakobo.Fiki
         /// combining dot, where the invariant culture gives one.
         /// </summary>
         internal static string Lower(string text) => text.Replace("\u0130", "i\u0307").ToLowerInvariant();
+
+        /// <summary>
+        /// A-Z folded to a-z and nothing else, as fiki-py's <c>ascii_lower</c> folds field names
+        /// (this.i @524c8qgv). Never <see cref="string.ToLowerInvariant"/>: .NET 10 folds U+212A
+        /// KELVIN SIGN to an ASCII "k" and .NET Framework does not, and either way a field named with
+        /// it would become a covered name it is not (review A6, B5).
+        /// </summary>
+        internal static string AsciiLower(string text)
+        {
+            var lowered = new StringBuilder(text.Length);
+            foreach (var c in text)
+            {
+                lowered.Append(c >= 'A' && c <= 'Z' ? (char)(c + ('a' - 'A')) : c);
+            }
+            return lowered.ToString();
+        }
+
+        /// <summary>The longest stretch of an untrusted value an error message quotes (this.i @524c8qgv).</summary>
+        internal const int ShownLength = 64;
+
+        /// <summary>
+        /// An untrusted value as an error message may quote it, as fiki-py's <c>shown</c> does: in
+        /// quotes, with a control character, a quote or a backslash escaped, and cut at
+        /// <see cref="ShownLength"/> characters with a note of how long it was, so a 5 MB URL cannot
+        /// make a 10 MB message nor a control character reach a log raw (review A9, B9).
+        /// </summary>
+        internal static string Shown(string text)
+        {
+            // Total, so building a refusal's message never throws before the refusal (#18).
+            if (text == null)
+            {
+                return "nothing";
+            }
+            var cut = text.Length > ShownLength;
+            var length = cut ? ShownLength : text.Length;
+            if (cut && char.IsHighSurrogate(text[length - 1]))
+            {
+                // Never split a pair, which would leave half a character in the message.
+                length--;
+            }
+            var quoted = new StringBuilder("\"");
+            for (var i = 0; i < length; i++)
+            {
+                var c = text[i];
+                if (c < ' ' || c == '\x7f')
+                {
+                    quoted.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+                }
+                else
+                {
+                    quoted.Append(c == '"' || c == '\\' ? "\\" : "").Append(c);
+                }
+            }
+            var shown = quoted.Append('"').ToString();
+            return cut ? shown + " (cut from " + text.Length.ToString(CultureInfo.InvariantCulture) + " characters)" : shown;
+        }
+
+        /// <summary>
+        /// A name an error message mentions, such as a component identifier: left bare when it is at
+        /// most <see cref="ShownLength"/> characters of printable ASCII, as a name a caller would
+        /// recognize, and otherwise quoted and cut by <see cref="Shown"/> (this.i @524c8qgv).
+        /// </summary>
+        internal static string Named(string text)
+        {
+            if (text.Length > ShownLength)
+            {
+                return Shown(text);
+            }
+            foreach (var c in text)
+            {
+                if (c < ' ' || c > '~')
+                {
+                    return Shown(text);
+                }
+            }
+            return text;
+        }
     }
 }

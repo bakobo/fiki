@@ -234,7 +234,7 @@ def test_the_guides_error_sample_names_each_new_refusal():
     twice["Signature-Input"] = twice["Signature-Input"].replace('("@method"', '("@method" "@method"')
     assert refusal(verify(headers=twice)) == "the covered list names @method twice"
 
-    assert refusal(lambda: verify_response(status=401, headers={}, max_age=300)) == (
+    assert refusal(lambda: verify_response(expected_keyid=None, minimum=None, status=401, headers={}, max_age=300)) == (
         "an unsigned 401; its body is not to be trusted"
     )
     assert refusal(verify(headers={})) == "MissingSignature"
