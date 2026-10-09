@@ -151,9 +151,18 @@ class VectorsTest {
         return opts.withAuthorities(raw);
     }
 
-    private static void loadedCases(JsonNode doc) {
-        assertTrue(doc.get("cases").size() >= 5, "a vector file with no cases checks nothing");
-    }
+    /*
+     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * were written and never at test time: a driver looping over an emptied cases array asserted
+     * nothing and passed (tick 7xbw, T8). Counted.each holds each file to its number.
+     */
+    private static final int AID_LENS_CASES = 3;
+    private static final int SIGNATURE_BASE_CASES = 14;
+    private static final int ACCEPTS_CASES = 44;
+    private static final int REFUSALS_CASES = 144;
+    private static final int RESPONSES_CASES = 13;
+    private static final int SIGNS_CASES = 16;
+    private static final int MISUSE_CASES = 10;
 
     @TestFactory
     Stream<DynamicTest> vectorsFormat() {
@@ -171,78 +180,60 @@ class VectorsTest {
 
     @TestFactory
     Stream<DynamicTest> aidLens() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : load("aid-lens.json").get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
-                assertEquals(c.get("aid").asText(), key.aid());
-                assertEquals(c.get("keyid").asText(), key.keyid());
-                assertArrayEquals(
-                    HexFormat.of().parseHex(c.get("public_key_hex").asText()),
-                    Key.verifyingKeyBytes(c.get("aid").asText()));
-            }));
-        }
-        return tests.stream();
+        return Counted.each("aid-lens.json", load("aid-lens.json").get("cases"), AID_LENS_CASES, c -> {
+            Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
+            assertEquals(c.get("aid").asText(), key.aid());
+            assertEquals(c.get("keyid").asText(), key.keyid());
+            assertArrayEquals(
+                HexFormat.of().parseHex(c.get("public_key_hex").asText()),
+                Key.verifyingKeyBytes(c.get("aid").asText()));
+        });
     }
 
     @TestFactory
     Stream<DynamicTest> signatureBases() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
-        for (JsonNode c : load("signature-base.json").get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                JsonNode alg = c.get("alg");
-                Fiki.Params params = new Fiki.Params(
-                    c.get("created").asLong(), c.get("keyid").asText(),
-                    alg == null ? null : alg.asText(), null, null, null);
-                byte[] base = Fiki.signatureBase(
-                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")),
-                    strings(c.get("covered")), params);
-                assertEquals(c.get("base").asText(), new String(base, StandardCharsets.UTF_8));
-                // Ed25519 is deterministic, so a port that builds the right base produces the
-                // right bytes: byte equality, not a verification round trip.
-                Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
-                assertEquals(
-                    c.get("signature").asText(),
-                    Base64.getEncoder().encodeToString(key.sign(base)));
-            }));
-        }
-        return tests.stream();
+        return Counted.each("signature-base.json", load("signature-base.json").get("cases"), SIGNATURE_BASE_CASES, c -> {
+            JsonNode alg = c.get("alg");
+            Fiki.Params params = new Fiki.Params(
+                c.get("created").asLong(), c.get("keyid").asText(),
+                alg == null ? null : alg.asText(), null, null, null);
+            byte[] base = Fiki.signatureBase(
+                c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")),
+                strings(c.get("covered")), params);
+            assertEquals(c.get("base").asText(), new String(base, StandardCharsets.UTF_8));
+            // Ed25519 is deterministic, so a port that builds the right base produces the
+            // right bytes: byte equality, not a verification round trip.
+            Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
+            assertEquals(
+                c.get("signature").asText(),
+                Base64.getEncoder().encodeToString(key.sign(base)));
+        });
     }
 
     @TestFactory
     Stream<DynamicTest> accepts() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
         JsonNode doc = load("accepts.json");
-        loadedCases(doc);
-        for (JsonNode c : doc.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                Fiki.Verdict verdict = Fiki.verifyRequest(
-                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c));
-                assertEquals(c.get("aid").asText(), verdict.aid());
-                assertEquals(strings(c.get("covered")), verdict.covered());
-                // The keyid as it appeared on the wire (@5zrf8gjk, rule B18).
-                assertEquals(c.get("keyid").asText(), verdict.keyid());
-            }));
-        }
-        return tests.stream();
+        return Counted.each("accepts.json", doc.get("cases"), ACCEPTS_CASES, c -> {
+            Fiki.Verdict verdict = Fiki.verifyRequest(
+                c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c));
+            assertEquals(c.get("aid").asText(), verdict.aid());
+            assertEquals(strings(c.get("covered")), verdict.covered());
+            // The keyid as it appeared on the wire (@5zrf8gjk, rule B18).
+            assertEquals(c.get("keyid").asText(), verdict.keyid());
+        });
     }
 
     @TestFactory
     Stream<DynamicTest> refusals() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
         JsonNode doc = load("refusals.json");
-        loadedCases(doc);
-        for (JsonNode c : doc.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                // Every entry names the kind fiki reports, so this port maps its own onto the same
-                // condition rather than inventing a taxonomy of its own.
-                FikiException thrown = assertThrows(FikiException.class, () -> Fiki.verifyRequest(
-                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
-                assertEquals(c.get("error").asText(), thrown.kind().name());
-                wellFormed(thrown);
-            }));
-        }
-        return tests.stream();
+        return Counted.each("refusals.json", doc.get("cases"), REFUSALS_CASES, c -> {
+            // Every entry names the kind fiki reports, so this port maps its own onto the same
+            // condition rather than inventing a taxonomy of its own.
+            FikiException thrown = assertThrows(FikiException.class, () -> Fiki.verifyRequest(
+                c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
+            assertEquals(c.get("error").asText(), thrown.kind().name());
+            wellFormed(thrown);
+        });
     }
 
     private static Fiki.Request requestOf(JsonNode message) {
@@ -286,23 +277,18 @@ class VectorsTest {
 
     @TestFactory
     Stream<DynamicTest> responses() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
         JsonNode doc = load("responses.json");
-        loadedCases(doc);
-        for (JsonNode c : doc.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                if (c.has("error")) {
-                    FikiException thrown = assertThrows(FikiException.class, () -> verifyResponse(c));
-                    assertEquals(c.get("error").asText(), thrown.kind().name());
-                    wellFormed(thrown);
-                } else {
-                    Fiki.Verdict verdict = verifyResponse(c);
-                    assertEquals(c.get("keyid").asText(), verdict.keyid());
-                    assertEquals(strings(c.get("covered")), verdict.covered());
-                }
-            }));
-        }
-        return tests.stream();
+        return Counted.each("responses.json", doc.get("cases"), RESPONSES_CASES, c -> {
+            if (c.has("error")) {
+                FikiException thrown = assertThrows(FikiException.class, () -> verifyResponse(c));
+                assertEquals(c.get("error").asText(), thrown.kind().name());
+                wellFormed(thrown);
+            } else {
+                Fiki.Verdict verdict = verifyResponse(c);
+                assertEquals(c.get("keyid").asText(), verdict.keyid());
+                assertEquals(strings(c.get("covered")), verdict.covered());
+            }
+        });
     }
 
     /** What the signer emits, byte for byte (review V-C4). */
@@ -343,48 +329,38 @@ class VectorsTest {
 
     @TestFactory
     Stream<DynamicTest> signs() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
         JsonNode doc = load("signs.json");
-        loadedCases(doc);
-        for (JsonNode c : doc.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                knownFields(c, SIGN_FIELDS);
-                if (c.has("error") && c.get("error").asText().equals("caller")) {
-                    Throwable thrown = assertThrows(IllegalArgumentException.class, () -> sign(c));
-                    assertFalse(thrown instanceof FikiException);
-                } else if (c.has("error")) {
-                    FikiException thrown = assertThrows(FikiException.class, () -> sign(c));
-                    assertEquals(c.get("error").asText(), thrown.kind().name());
-                    wellFormed(thrown);
-                } else {
-                    // Byte for byte, names and order included: a LinkedHashMap compares neither
-                    // order nor spelling, so both are checked as lists.
-                    Map<String, String> expected = headers(c.get("expected_headers"));
-                    Map<String, String> made = sign(c);
-                    assertEquals(new ArrayList<>(expected.entrySet()), new ArrayList<>(made.entrySet()));
-                }
-            }));
-        }
-        return tests.stream();
+        return Counted.each("signs.json", doc.get("cases"), SIGNS_CASES, c -> {
+            knownFields(c, SIGN_FIELDS);
+            if (c.has("error") && c.get("error").asText().equals("caller")) {
+                Throwable thrown = assertThrows(IllegalArgumentException.class, () -> sign(c));
+                assertFalse(thrown instanceof FikiException);
+            } else if (c.has("error")) {
+                FikiException thrown = assertThrows(FikiException.class, () -> sign(c));
+                assertEquals(c.get("error").asText(), thrown.kind().name());
+                wellFormed(thrown);
+            } else {
+                // Byte for byte, names and order included: a LinkedHashMap compares neither
+                // order nor spelling, so both are checked as lists.
+                Map<String, String> expected = headers(c.get("expected_headers"));
+                Map<String, String> made = sign(c);
+                assertEquals(new ArrayList<>(expected.entrySet()), new ArrayList<>(made.entrySet()));
+            }
+        });
     }
 
     @TestFactory
     Stream<DynamicTest> misuse() throws Exception {
-        List<DynamicTest> tests = new ArrayList<>();
         JsonNode doc = load("misuse.json");
-        loadedCases(doc);
-        for (JsonNode c : doc.get("cases")) {
-            tests.add(DynamicTest.dynamicTest(c.get("id").asText(), () -> {
-                // A mistake in the call is an IllegalArgumentException, never a FikiException
-                // (@5zrf8gjk); FikiException is not one, so assertThrows alone shows both.
-                assertEquals("caller", c.get("error").asText());
-                Throwable thrown = c.has("kind") && c.get("kind").asText().equals("response")
-                    ? assertThrows(IllegalArgumentException.class, () -> verifyResponse(c))
-                    : assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(
-                        c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
-                assertFalse(thrown instanceof FikiException);
-            }));
-        }
-        return tests.stream();
+        return Counted.each("misuse.json", doc.get("cases"), MISUSE_CASES, c -> {
+            // A mistake in the call is an IllegalArgumentException, never a FikiException
+            // (@5zrf8gjk); FikiException is not one, so assertThrows alone shows both.
+            assertEquals("caller", c.get("error").asText());
+            Throwable thrown = c.has("kind") && c.get("kind").asText().equals("response")
+                ? assertThrows(IllegalArgumentException.class, () -> verifyResponse(c))
+                : assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(
+                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
+            assertFalse(thrown instanceof FikiException);
+        });
     }
 }
