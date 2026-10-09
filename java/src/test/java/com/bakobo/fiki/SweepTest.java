@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -80,17 +79,21 @@ class SweepTest {
 
     @Test
     void a6ParametersAndMembersParseInLinearTime() {
-        int n = 100_000;
-        StringBuilder params = new StringBuilder("sig=(\"@method\")");
-        StringBuilder members = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            params.append(";p").append(i).append('=').append(i);
-            members.append(i == 0 ? "" : ", ").append('m').append(i).append("=1");
-        }
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(5), () -> {
-            assertEquals(n, ((Sfv.InnerList) Sfv.parseDictionary(params.toString()).get(0).value()).params().size());
-            assertEquals(n, Sfv.parseDictionary(members.toString()).size());
-        });
+        // Growth, not a time limit, so a loaded machine cannot fail it (tick 7xbw).
+        Linear.assertLinear("distinct parameters", 2_000, n -> {
+            StringBuilder params = new StringBuilder("sig=(\"@method\")");
+            for (int i = 0; i < n; i++) {
+                params.append(";p").append(i).append('=').append(i);
+            }
+            return params.toString();
+        }, text -> assertTrue(((Sfv.InnerList) Sfv.parseDictionary(text).get(0).value()).params().size() >= 2_000));
+        Linear.assertLinear("distinct members", 2_000, n -> {
+            StringBuilder members = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                members.append(i == 0 ? "" : ", ").append('m').append(i).append("=1");
+            }
+            return members.toString();
+        }, text -> assertTrue(Sfv.parseDictionary(text).size() >= 2_000));
     }
 
     /* ------------------------------------------------- A7 and E5: a caller-supplied digest */
