@@ -315,8 +315,8 @@ func labelled(label string) string {
 // mistake: it is serialized into both headers as given (this.i @5zrf8gjk).
 func checkLabel(label string) error {
 	if !isSfKey(labelled(label)) {
-		return invalidOptions("The label %q is not an RFC 8941 key: it starts with a lowercase letter "+
-			"or '*' and continues with lowercase letters, digits, '_', '-', '.' and '*'.", label)
+		return invalidOptions("The label %s is not an RFC 8941 key: it starts with a lowercase letter "+
+			"or '*' and continues with lowercase letters, digits, '_', '-', '.' and '*'.", shown(label))
 	}
 	return nil
 }
@@ -404,7 +404,7 @@ func checkMinimum(items []componentID, minimum []string, hasBody, requestHadBody
 		if !have[item.identity()] {
 			return &Error{
 				Kind: KindInsufficientCoverage,
-				Message: "The signature does not cover " + item.spec() + ", which this verifier " +
+				Message: "The signature does not cover " + brief(item.spec()) + ", which this verifier " +
 					"requires, so it is refused even though it may be valid: a signature over too " +
 					"little is a signature over what an intermediary is free to change.",
 				Component: item.spec(),
@@ -789,7 +789,7 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 		name, ok := component.Value.(string)
 		if !ok {
 			return errorf(KindMalformedSignatureInput,
-				"Every covered component is named by a quoted string; %s is not one.", serializeBareItem(component.Value))
+				"Every covered component is named by a quoted string; %s is not one.", brief(serializeBareItem(component.Value)))
 		}
 		if !strings.HasPrefix(name, "@") && name != strings.ToLower(name) {
 			return errorf(KindMalformedSignatureInput,
@@ -826,13 +826,13 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 			if integer {
 				kind = "an integer"
 			}
-			return errorf(KindMalformedSignatureInput, "The signature parameter %q must be %s.", p.Key, kind)
+			return errorf(KindMalformedSignatureInput, "The signature parameter %s must be %s.", shown(p.Key), kind)
 		}
 		if n, ok := p.Value.(int64); ok && n < 0 {
 			// created and expires: a time before 1970 is no time a signer could have meant, refused
 			// before the signature is examined (this.i @524c8qgv).
 			return errorf(KindMalformedSignatureInput,
-				"The signature parameter %q is %d, and a UNIX time is not negative.", p.Key, n)
+				"The signature parameter %s is %d, and a UNIX time is not negative.", shown(p.Key), n)
 		}
 	}
 	return nil

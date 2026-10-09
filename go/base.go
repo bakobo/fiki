@@ -169,8 +169,8 @@ func (c componentID) isReq() bool {
 func parseComponent(spec string) (componentID, error) {
 	id, err := readComponent(spec)
 	if err == nil && !strings.HasPrefix(id.Name, "@") && !isToken(id.Name) {
-		return componentID{}, invalidOptions("%q is not a component fiki can name: a field is named "+
-			"by an HTTP field name, one or more token characters, and a derived component by its @ name.", spec)
+		return componentID{}, invalidOptions("%s is not a component fiki can name: a field is named "+
+			"by an HTTP field name, one or more token characters, and a derived component by its @ name.", shown(spec))
 	}
 	return id, err
 }
@@ -188,7 +188,7 @@ func readComponent(spec string) (componentID, error) {
 	if err != nil || !c.done() {
 		return componentID{}, &Error{
 			Kind: KindUnsupportedComponent,
-			Message: "fiki cannot read " + spec + " as a component identifier; name a component " +
+			Message: "fiki cannot read " + brief(spec) + " as a component identifier; name a component " +
 				`plainly, as "@path", or in its serialized form, as "\"@path\";req".`,
 			Component: spec,
 			Supported: strings.Join(append(append([]string{}, Derived...), responseDerived...), ", "),
@@ -224,7 +224,7 @@ func checkCovered(items []componentID, response bool) error {
 		if seen[item.identity()] {
 			return &Error{
 				Kind: KindDuplicateComponent,
-				Message: "The covered components name " + item.spec() + " twice, so the signature " +
+				Message: "The covered components name " + brief(item.spec()) + " twice, so the signature " +
 					"base would not be what either copy says it is.",
 				Component: item.spec(),
 			}
@@ -237,7 +237,7 @@ func checkCovered(items []componentID, response bool) error {
 		if len(item.Params) > 1 || (len(item.Params) == 1 && !hasReq) || (hasReq && !(item.isReq() && response)) {
 			return &Error{
 				Kind: KindUnsupportedComponent,
-				Message: "fiki does not support the component " + item.spec() + `: the only component ` +
+				Message: "fiki does not support the component " + brief(item.spec()) + `: the only component ` +
 					`parameter it supports is "req", and only in a response.`,
 				Component: item.spec(),
 				Supported: reqParam,
@@ -254,7 +254,7 @@ func checkCovered(items []componentID, response bool) error {
 			if !slices.Contains(supported, item.Name) {
 				return &Error{
 					Kind: KindUnsupportedComponent,
-					Message: "fiki does not build the derived component " + item.spec() + " in a " +
+					Message: "fiki does not build the derived component " + brief(item.spec()) + " in a " +
 						where + "; it builds " + strings.Join(supported, ", ") + ".",
 					Component: item.spec(),
 					Supported: strings.Join(supported, ", "),
@@ -508,7 +508,7 @@ func componentValue(item componentID, m *message) (string, error) {
 		if m.request == nil {
 			return "", &Error{
 				Kind: KindMissingComponent,
-				Message: "The signature covers " + item.spec() + ", which is read from the request " +
+				Message: "The signature covers " + brief(item.spec()) + ", which is read from the request " +
 					"this response answers, and no request was supplied.",
 				Component: item.spec(),
 			}
@@ -556,7 +556,7 @@ func componentValue(item componentID, m *message) (string, error) {
 	if !ok {
 		return "", &Error{
 			Kind: KindMissingComponent,
-			Message: "The signature covers " + item.spec() + ", but the message carries no value " +
+			Message: "The signature covers " + brief(item.spec()) + ", but the message carries no value " +
 				"for it, so the signature base cannot be built.",
 			Component: item.spec(),
 		}
@@ -751,4 +751,14 @@ func shown(text string) string {
 		n++
 	}
 	return fmt.Sprintf("%s (cut from %d characters)", strconv.Quote(text[:end]), count)
+}
+
+// brief is a name as an error message may show it: bare when it is short and printable ASCII, as
+// a component identifier or keyid usually is, and otherwise shown, so a name a peer chose cannot
+// make a message long or carry a control character into a log (bakobo/fiki#18).
+func brief(text string) string {
+	if len(text) <= shownMax && isSfString(text) {
+		return text
+	}
+	return shown(text)
 }
