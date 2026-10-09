@@ -274,9 +274,12 @@ def _split(message: _Message):
     url = message.url
     if any(c <= " " or c == "\x7f" for c in url):
         raise _unreadable(message, "it contains a space or a control character.")
+    if "#" in url:
+        # A request target has no fragment (RFC 9112 section 3.2); stripping one, as urlsplit
+        # does, is a divergence from any port that keeps it.
+        raise _unreadable(message, "it carries a fragment, which no request target has.")
     if url.startswith("/"):
-        target = url.partition("#")[0]
-        path, _, query = target.partition("?")
+        path, _, query = url.partition("?")
         return SplitResult("", "", path, query, "")
     if not _ABSOLUTE.match(url):
         raise _unreadable(message, "it is neither origin-form, beginning with a slash, nor an "
@@ -336,25 +339,7 @@ def _authority(message: _Message) -> str:
     parts = _split(message)
     headers = message.headers
     if parts.netloc:
-        hostport = parts.netloc.rpartition("@")[2]
-        # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
-        # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
-        # every Python it supports alike, so the IP-literal rule does not turn on a patch release.
-        if hostport.startswith("["):
-            host, closed, rest = hostport.partition("]")
-            if not closed or not ip_literal(host[1:]) or rest[:1] not in ("", ":"):
-                raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture "
-                                           "in brackets followed by nothing but a port.")
-            host, port_text = host + "]", rest[1:]
-        else:
-            host, _, port_text = hostport.partition(":")
-            if "[" in host or "]" in host:
-                raise _unreadable(message, "a bracket belongs only around an IP-literal.")
-        port = _port(port_text, message)
-        host = host.lower()
-        if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
-            return host
-        return f"{host}:{port}"
+        return _hostport(parts.netloc.rpartition("@")[2], parts.scheme, message)
     host = headers.get("host")
     if host is None:
         raise MissingComponent(
@@ -363,7 +348,35 @@ def _authority(message: _Message) -> str:
             component="@authority",
         )
     _check_raw(host, "@authority")
-    return host.strip(_OWS).lower()
+    host = host.strip(_OWS)
+    # Host is an origin-form request's authority, so it passes the same checks as an absolute
+    # URL's, and with no scheme no port is a default one (this.i, "Host is validated like any
+    # authority"). Userinfo and a list of hosts have no place in it.
+    if "@" in host or "," in host:
+        raise _unreadable(message, "its Host header is not a single host and optional port.")
+    return _hostport(host, "", message)
+
+
+def _hostport(hostport: str, scheme: str, message: _Message) -> str:
+    """host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built."""
+    # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
+    # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
+    # every Python it supports alike, so the IP-literal rule does not turn on a patch release.
+    if hostport.startswith("["):
+        host, closed, rest = hostport.partition("]")
+        if not closed or not ip_literal(host[1:]) or rest[:1] not in ("", ":"):
+            raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture "
+                                       "in brackets followed by nothing but a port.")
+        host, port_text = host + "]", rest[1:]
+    else:
+        host, _, port_text = hostport.partition(":")
+        if "[" in host or "]" in host:
+            raise _unreadable(message, "a bracket belongs only around an IP-literal.")
+    port = _port(port_text, message)
+    host = host.lower()
+    if port is None or port == _DEFAULT_PORTS.get(scheme.lower()):
+        return host
+    return f"{host}:{port}"
 
 
 def _component_value(item: http_sfv.Item, message: _Message) -> str:

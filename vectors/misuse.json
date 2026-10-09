@@ -1,0 +1,153 @@
+{
+  "about": "Calls every implementation must reject as a caller's mistake.",
+  "vectors_format": 3,
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "authorities-is-a-string",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": "default",
+      "authorities": "api.example.com",
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "A string is a collection of characters, so in would be a substring test that lets api.example.com admit example.com (review A3)."
+    },
+    {
+      "id": "authorities-is-a-string-containing-the-host",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": "default",
+      "authorities": "xapi.example.comx",
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "The A3 substring bug made concrete."
+    },
+    {
+      "id": "authorities-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": "default",
+      "authorities": [],
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "An empty collection serves no host; None declines the check."
+    },
+    {
+      "id": "authorities-holds-a-non-string",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": "default",
+      "authorities": [
+        "api.example.com",
+        443
+      ],
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "Every authority is a string."
+    },
+    {
+      "id": "authorities-omitted",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "omit": [
+        "authorities"
+      ],
+      "error": "caller",
+      "note": "authorities is a required decision with no default (@524c8qgv)."
+    },
+    {
+      "id": "minimum-below-the-profiles",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": [
+        "@method",
+        "@query"
+      ],
+      "authorities": null,
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "A minimum must include REQUEST_MINIMUM."
+    },
+    {
+      "id": "minimum-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "minimum": [],
+      "authorities": null,
+      "expected_aid": null,
+      "omit": [],
+      "error": "caller",
+      "note": "An empty minimum is below the profile's."
+    }
+  ]
+}

@@ -28,6 +28,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -52,6 +53,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -77,6 +79,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -100,6 +103,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -123,6 +127,7 @@
       "now": 1700000120,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -146,6 +151,7 @@
       "now": 1700000060,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -169,6 +175,7 @@
       "now": 1700000000,
       "minimum": null,
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -191,6 +198,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -213,6 +221,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -236,6 +245,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -259,6 +269,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -281,6 +292,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -304,6 +316,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -387,6 +400,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -471,6 +485,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -495,6 +510,7 @@
       "now": 1700000000,
       "minimum": null,
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -521,6 +537,7 @@
         "api.example.com",
         "other.example"
       ],
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -544,6 +561,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
       "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
       "covered": [
@@ -553,6 +571,206 @@
         "@query"
       ],
       "note": "Signed for victim.example with the path //evil.example/p, and verified from the origin-form target and the Host header."
+    },
+    {
+      "id": "content-length-zero-is-no-body",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Content-Length": "0",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "fetch and most clients send Content-Length: 0 on a bodiless request."
+    },
+    {
+      "id": "an-empty-body-is-no-body",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": "",
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "A zero-length body, as opposed to none, needs no digest."
+    },
+    {
+      "id": "a-list-minimum-replaces-the-default",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:cwI+rZQMQlVW0f4OF+fRdj2dwBGfqROt/ABABqhNN93XXgpa0U3a8EefSC/w+AcWJ/qt4W9sOn6jY0qtf9X+Ag==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": [
+        "@method",
+        "@path",
+        "@query"
+      ],
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@path",
+        "@query"
+      ],
+      "note": "A caller's own minimum, here the KERI profile's, replaces the default rather than joining it, so a profile signer that omits @authority is admitted."
+    },
+    {
+      "id": "double-slash-target-under-served-authorities",
+      "method": "GET",
+      "url": "//evil.example/p?x=1",
+      "headers": {
+        "Host": "victim.example",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:41no2adgv6iwGpgLLVqHcRz6IOkVApmR2+RC3Y+udVVlCzoS2Yigu1LNYv4MnEjea45s0Agu22shPfuLY2CABQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": [
+        "victim.example"
+      ],
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "The authority compared with authorities is Host's, not one parsed out of the path."
+    },
+    {
+      "id": "expected-aid-of-the-signer",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:BHT5XPTkGqfdQVLsA3GKKFmaJymNEECpcEAFD4urQWEd9N8Y0pZdFNfymr1sEMp7qVOQqU0CAz4QIT8vse7uDw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ]
+    },
+    {
+      "id": "dictionary-members-joined-by-comma-and-tab",
+      "method": "POST",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:,\tx=:AAAA:",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:U1TPaLfTjMBh9cLyU8PUvWdhz1ZbfY7z0TU7X90sLuscc2zhs64UG4nRmdKEJ9x0oqxPER7cCkwzZ5c2f05gCQ==:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query",
+        "content-digest"
+      ],
+      "note": "RFC 8941 section 4.2.2 allows OWS, tab included, after a dictionary's comma."
+    },
+    {
+      "id": "cofactorless-accept-with-torsion-in-r",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA\"",
+        "Signature": "sig=:zLv1Y+pbZz0GbYMeaWCgqho0jiIrYfSCrehHjnQRhjxaxN4g/+2KIEZSu8iYDes67bX+eK3SBj7VOFSODkuaCw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BLFUvWIYiuKD3Rh_7-jDH14nbt8IO0z_EcnVz_hWx0RA",
+      "keyid": "sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "R and the key each carry a point of order 8, and they cancel, so [S]B = R + [k]A holds. A hand-written check that refuses any R outside the prime-order subgroup fails here."
+    },
+    {
+      "id": "no-created-under-the-explicit-opt-out",
+      "method": "GET",
+      "url": "https://api.example.com/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hhsgS1ZSDCqLATsnSzk5qKZBCImTXuNPq4NWeqVEkLTNmqqEEUZND3hSHUm9GPZgh9ATgVEQsStGs46YkhCMAQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": null,
+      "authorities": null,
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "minimum=None drops the created requirement with the rest of the minimum."
     },
     {
       "id": "mixed-order-key-the-cofactorless-check-accepts",
@@ -567,6 +785,7 @@
       "now": 1700000000,
       "minimum": "default",
       "authorities": null,
+      "expected_aid": null,
       "aid": "BLFUvWIYiuKD3Rh_7-jDH14nbt8IO0z_EcnVz_hWx0RA",
       "keyid": "sVS9YhiK4oPdGH_v6MMfXidu3wg7TP8RydXP-FbHREA",
       "covered": [

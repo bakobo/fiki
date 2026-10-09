@@ -190,6 +190,45 @@ def mixed_order_accepts(signed_at: int):
              "hold; a port that refuses every mixed-order key fails here.")]
 
 
+def non_canonical_r_signature(url: str) -> str:
+    """SEED_A's signature over the default GET base with R the identity spelled y = p + 1."""
+    key = Key.from_seed(SEED_A)
+    public = rfc8032.secret_to_public(SEED_A)
+    base = signature_base(method="GET", url=url, headers={}, covered=DEFAULT_COVERED,
+                          created=1700000000, keyid=b64url(public), alg="ed25519")
+    a, _ = rfc8032.secret_expand(SEED_A)
+    r_bytes = int.to_bytes(rfc8032.p + 1, 32, "little")
+    h = rfc8032.sha512_modq(r_bytes + public + base)
+    signature = r_bytes + int.to_bytes(h * a % rfc8032.q, 32, "little")
+    assert not rfc8032.verify(public, base, signature) and not _openssl_accepts(public, base, signature)
+    assert key.aid  # the same key fiki's signer uses
+    return base64.b64encode(signature).decode("ascii")
+
+
+def torsion_r_accept(signed_at: int):
+    """A mixed-order key and an R with torsion that cancels, so the cofactorless equation holds."""
+    mixed = _mixed_key(SEED_A)
+    keyid = b64url(mixed)
+    base = signature_base(method="GET", url="https://api.example.com/x", headers={},
+                          covered=DEFAULT_COVERED, created=signed_at, keyid=keyid, alg="ed25519")
+    a, prefix = rfc8032.secret_expand(SEED_A)
+    torsion = _torsion8()
+    for counter in range(2000):
+        r = rfc8032.sha512_modq(prefix + base + b"fiki-torsion-r-%d" % counter)
+        for j in range(1, 8):
+            R = rfc8032.point_add(rfc8032.point_mul(r, rfc8032.G), rfc8032.point_mul(j, torsion))
+            Rs = rfc8032.point_compress(R)
+            h = rfc8032.sha512_modq(Rs + mixed + base)
+            if (j + h) % 8 or h % 8 == 0:
+                continue
+            signature = Rs + int.to_bytes((r + h * a) % rfc8032.q, 32, "little")
+            assert rfc8032.verify(mixed, base, signature) and _openssl_accepts(mixed, base, signature)
+            params = base.decode("utf-8").rsplit('"@signature-params": ', 1)[1]
+            return {"Signature-Input": f"sig={params}",
+                    "Signature": f"sig=:{base64.b64encode(signature).decode('ascii')}:"}
+    raise AssertionError("no torsion-R signature found")
+
+
 def aid_of_raw(raw: bytes) -> str:
     from fiki import to_aid
 
@@ -452,7 +491,8 @@ def refusals():
     cases = []
 
     def add(case_id, error, *, method="POST", target=url, headers=None, body_text='{"hello": "world"}',
-            note=None, max_age=None, now=None, minimum="default", authorities=None):
+            note=None, max_age=None, now=None, minimum="default", authorities=None,
+            expected_aid=None):
         case = {
             "id": case_id,
             "method": method,
@@ -463,6 +503,7 @@ def refusals():
             "now": now,
             "minimum": minimum,
             "authorities": authorities,
+            "expected_aid": expected_aid,
             "error": error,
         }
         if note:
@@ -765,6 +806,130 @@ def refusals():
         add(case_id, "MalformedSignatureInput", method="GET", headers=bad, body_text=None,
             note="RFC 8941 sections 3.1.1, 3.1.2 and 4.2: SP only here, never HTAB.")
 
+    # --- format 3, from the challenge of its test plan (format3-test-plan-challenge.md) ---
+    query = "/things?limit=1&sort=name"
+    evil = signed(method="GET", body=None, url="https://evil.example" + query)
+    add("authorities-checked-against-the-target-not-host", "SignatureMismatch", method="GET",
+        body_text=None, target="https://evil.example" + query,
+        headers={**evil, "Host": "victim.example"}, authorities=["victim.example"],
+        note="An absolute target's authority is the target's (RFC 9112 section 3.2.2), so a "
+             "port that compares the Host header with authorities admits a cross-service replay.")
+    add("authorities-port-is-part-of-the-authority", "SignatureMismatch", method="GET",
+        body_text=None, target="https://api.example.com:8443" + query,
+        headers=signed(method="GET", body=None, url="https://api.example.com:8443" + query),
+        authorities=["api.example.com"],
+        note="api.example.com:8443 is not api.example.com: comparing host names only would let "
+             "a signature for one service replay to another port on the same host.")
+    add("origin-form-host-not-served", "SignatureMismatch", method="GET", body_text=None,
+        target=query, headers={**evil, "Host": "evil.example"}, authorities=["victim.example"],
+        note="authorities binds an origin-form request too, whose authority is its Host.")
+    for case_id, entry in [("authorities-entry-in-uppercase", "API.EXAMPLE.COM"),
+                           ("authorities-entry-with-a-default-port", "api.example.com:443")]:
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, headers=get_default,
+            authorities=[entry],
+            note="Entries are compared exactly with @authority as fiki derives it: lowercase, "
+                 "a default port dropped (this.i, 'authorities match exactly').")
+
+    # Host supplies an origin-form request's authority, and is validated like any authority.
+    # Each is signed over the base a port that took Host verbatim would build.
+    for case_id, host in [
+        ("host-with-a-port-out-of-range", "api.example.com:65536"),
+        ("host-with-userinfo", "user@api.example.com"),
+        ("host-that-is-a-list-of-hosts", "victim.example, evil.example"),
+        ("host-with-an-ip-literal-that-is-not-an-address", "[not-an-ip]"),
+        ("host-with-a-port-that-is-not-a-number", "api.example.com:44x"),
+    ]:
+        good_base = signature_base(method="GET", url=query, headers={"Host": "placeholder.example"},
+                                   covered=DEFAULT_COVERED, created=1700000000,
+                                   keyid=keyid_of(key), alg="ed25519")
+        lenient = good_base.replace(b'"@authority": placeholder.example',
+                                    f'"@authority": {host.lower()}'.encode())
+        assert lenient != good_base
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, target=query,
+            headers={"Host": host,
+                     "Signature-Input": "sig=" + lenient.decode().rsplit('"@signature-params": ', 1)[1],
+                     "Signature": f"sig=:{base64.b64encode(key.sign(lenient)).decode()}:"},
+            note="Host is the authority of an origin-form request and passes the same checks "
+                 "as an absolute URL's authority. The signature is good over the base a port "
+                 "that took Host verbatim would build.")
+    add("host-keeps-its-default-port", "SignatureMismatch", method="GET", body_text=None,
+        target=query, headers={**get_default, "Host": "api.example.com:443"},
+        note="With no scheme no port is a default port, so this @authority is "
+             "api.example.com:443 and the signature, over api.example.com, does not verify.")
+    add("origin-form-without-host", "MissingComponent", method="GET", body_text=None,
+        target=query, headers=get_default,
+        note="Nothing to derive @authority from. A port that falls back to an empty or a "
+             "default host lets a signature over that host verify wherever Host is stripped.")
+    for case_id, target in [
+        ("origin-form-target-with-a-fragment", query + "#frag"),
+        ("absolute-target-with-a-fragment", "https://api.example.com" + query + "#frag"),
+        ("target-with-a-del", "/thi\x7fngs?limit=1&sort=name"),
+        ("target-with-a-nul", "/thi\x00ngs?limit=1&sort=name"),
+    ]:
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, target=target,
+            headers={**get_default, "Host": "api.example.com"},
+            note="A request target has no fragment and no control character (RFC 9112 "
+                 "section 3.2), so no base can be built.")
+
+    for case_id, extra in [
+        ("body-announced-by-transfer-encoding-only", {"Transfer-Encoding": "chunked"}),
+        ("content-length-that-is-not-a-number", {"Content-Length": "abc"}),
+        ("content-length-that-is-a-list", {"Content-Length": "18, 18"}),
+    ]:
+        add(case_id, "InsufficientCoverage", method="GET", body_text=None,
+            headers={**get_default, **extra},
+            note="Any transfer coding, or a length that is not a plain decimal, is evidence of a "
+                 "body, so the default minimum requires a covered content-digest (profile body "
+                 "test). Reading it as no body fails open.")
+    add("list-minimum-is-enforced", "InsufficientCoverage", method="GET", body_text=None,
+        headers=get_default, minimum=["@method", "@authority", "@path", "@query", "x-tenant"],
+        note="A caller's own minimum is applied, not ignored in favour of the default.")
+    add("default-minimum-without-path", "InsufficientCoverage", method="GET", body_text=None,
+        headers=signed(method="GET", body=None, covered=["@method", "@authority", "@query"]))
+    short = signed(method="GET", body=None, covered=["@method", "@authority", "@path"])
+    add("coverage-is-checked-before-the-clock", "InsufficientCoverage", method="GET",
+        body_text=None, headers=short, max_age=10, now=1700001000,
+        note="Profile section 9's order. A default minimum done as a check of the verdict "
+             "after verifying would say SignatureTooOld here.")
+    short_bad_key = dict(short)
+    real_keyid = short["Signature-Input"].split('keyid="')[1].split('"')[0]
+    short_bad_key["Signature-Input"] = short["Signature-Input"].replace(real_keyid, "not-a-key")
+    add("coverage-is-checked-before-the-key", "InsufficientCoverage", method="GET",
+        body_text=None, headers=short_bad_key,
+        note="A signature policy already refuses never reaches a key lookup, which with a "
+             "resolver may be a network fetch.")
+    add("authorities-are-checked-before-the-clock", "SignatureMismatch", method="GET",
+        body_text=None, headers=get_default, authorities=["other.example"], max_age=10,
+        now=1700001000)
+    no_keyid = signed(method="GET", body=None)
+    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
+    add("keyid-required-beside-expected-aid-under-the-default", "MissingKey", method="GET",
+        body_text=None, headers=no_keyid, expected_aid=key.aid,
+        note="Any minimum requires keyid even when the verifier names the key (@7y9lfnzq).")
+    stranger = Key.from_seed(SEED_B)
+    add("expected-aid-of-another-key", "SignatureMismatch", method="GET", body_text=None,
+        headers=sign_request(key=stranger, method="GET", url=url, created=1700000000),
+        expected_aid=key.aid,
+        note="A stranger's valid signature, checked against the key the verifier expected "
+             "(review V-C2: no vector exercised expected_aid).")
+
+    for case_id, mangle in [
+        ("tag-with-a-tab", lambda v: v + ';tag="o\tk"'),
+        ("nonce-with-non-ascii", lambda v: v + ';nonce="n\u00e91"'),
+        ("alg-with-a-carriage-return", lambda v: v.replace('alg="ed25519"', 'alg="ed\r25519"')),
+        ("component-name-with-a-tab", lambda v: v.replace('"@path"', '"@pa\tth"')),
+        ("keyid-with-an-unknown-escape", lambda v: v.replace('keyid="', 'keyid="\\q', 1)),
+        ("keyid-ending-in-a-lone-backslash",
+         lambda v: v.split(';keyid="')[0] + ';keyid="abc\\'),
+    ]:
+        bad = signed(method="GET", body=None)
+        before = bad["Signature-Input"]
+        bad["Signature-Input"] = mangle(before)
+        assert bad["Signature-Input"] != before, case_id
+        add(case_id, "MalformedSignatureInput", method="GET", headers=bad, body_text=None,
+            note="Every sf-string, not only keyid, is printable ASCII, and its only escapes "
+                 "are a backslash before a quote or a backslash (RFC 8941 section 3.3.3).")
+
     # The cofactorless Ed25519 equation (@524c8qgv), checked by RFC 8032's own code.
     for case_id, signature_text, keyid_text, note in mixed_order_refusals():
         crafted = signed(method="GET", body=None, keyid=keyid_text)
@@ -772,6 +937,19 @@ def refusals():
                               created=1700000000, keyid=keyid_text, alg="ed25519")
         add(case_id, "SignatureMismatch", method="GET", body_text=None,
             headers={**crafted, "Signature": f"sig=:{signature_text(base)}:"}, note=note)
+
+    honest = signed(method="GET", body=None)
+    raw_sig = base64.b64decode(honest["Signature"].split("=:", 1)[1].rstrip(":"))
+    s_plus_l = raw_sig[:32] + int.to_bytes(int.from_bytes(raw_sig[32:], "little") + rfc8032.q,
+                                           32, "little")
+    add("signature-whose-s-is-not-below-l", "SignatureMismatch", method="GET", body_text=None,
+        headers={**honest, "Signature": f"sig=:{base64.b64encode(s_plus_l).decode()}:"},
+        note="S + L satisfies the group equation, so only RFC 8032 section 5.1.7's S < L check "
+             "refuses it; without it every signature has a second spelling.")
+    add("non-canonical-identity-r", "SignatureMismatch", method="GET", body_text=None,
+        headers={**honest, "Signature": f"sig=:{non_canonical_r_signature(url)}:"},
+        note="R encoded as y = p + 1, the identity's non-canonical spelling. RFC 8032 decoding "
+             "refuses it; a ZIP-215-mode verifier would not.")
 
     return {
         **HEADER,
@@ -796,7 +974,8 @@ def accepts():
 
     def add(case_id, *, method, url, headers=None, body_text=None, covered=None, expires=None,
             max_age=None, now=None, note=None, nonce=None, after=None, minimum="default",
-            authorities=None, signer=key, verify_url=None, presigned=None, received_body=None):
+            authorities=None, signer=key, verify_url=None, presigned=None, received_body=None,
+            expected_aid=None):
         payload = None if body_text is None else body_text.encode("utf-8")
         sent = dict(headers or {})
         if presigned is not None:
@@ -826,6 +1005,7 @@ def accepts():
             "now": signed_at if now is None else now,
             "minimum": minimum,
             "authorities": authorities,
+            "expected_aid": expected_aid,
             "aid": aid_of_raw(base64.urlsafe_b64decode(keyid + "=" * (-len(keyid) % 4))),
             "keyid": keyid,
             "covered": [item.value for item in member],
@@ -909,12 +1089,81 @@ def accepts():
         headers={"Host": "victim.example"},
         note="Signed for victim.example with the path //evil.example/p, and verified from the "
              "origin-form target and the Host header.")
+    add("content-length-zero-is-no-body", method="GET", url="https://api.example.com/x",
+        headers={"Content-Length": "0"},
+        note="fetch and most clients send Content-Length: 0 on a bodiless request.")
+    add("an-empty-body-is-no-body", method="GET", url="https://api.example.com/x",
+        received_body="", note="A zero-length body, as opposed to none, needs no digest.")
+    add("a-list-minimum-replaces-the-default", method="GET", url="https://api.example.com/x",
+        covered=["@method", "@path", "@query"], minimum=["@method", "@path", "@query"],
+        note="A caller's own minimum, here the KERI profile's, replaces the default rather than "
+             "joining it, so a profile signer that omits @authority is admitted.")
+    add("double-slash-target-under-served-authorities", method="GET",
+        url="https://victim.example//evil.example/p?x=1", verify_url="//evil.example/p?x=1",
+        headers={"Host": "victim.example"}, authorities=["victim.example"],
+        note="The authority compared with authorities is Host's, not one parsed out of the path.")
+    add("expected-aid-of-the-signer", method="GET", url="https://api.example.com/x",
+        expected_aid=key.aid)
+    good_digest = content_digest(body)
+    add("dictionary-members-joined-by-comma-and-tab", method="POST",
+        url="https://api.example.com/x", body_text=body.decode(),
+        headers={"Content-Digest": good_digest + ",\tx=:AAAA:"},
+        note="RFC 8941 section 4.2.2 allows OWS, tab included, after a dictionary's comma.")
+    add("cofactorless-accept-with-torsion-in-r", method="GET", url="https://api.example.com/x",
+        presigned=torsion_r_accept(signed_at),
+        note="R and the key each carry a point of order 8, and they cancel, so [S]B = R + [k]A "
+             "holds. A hand-written check that refuses any R outside the prime-order subgroup "
+             "fails here.")
+    no_created_base = signature_base(method="GET", url="https://api.example.com/x", headers={},
+                                     covered=DEFAULT_COVERED, created=signed_at,
+                                     keyid=keyid_of(key), alg="ed25519")
+    stripped = no_created_base.replace(b";created=%d" % signed_at, b"")
+    add("no-created-under-the-explicit-opt-out", method="GET", url="https://api.example.com/x",
+        minimum=None, presigned={
+            "Signature-Input": "sig=" + stripped.decode().rsplit('"@signature-params": ', 1)[1],
+            "Signature": f"sig=:{base64.b64encode(key.sign(stripped)).decode()}:"},
+        note="minimum=None drops the created requirement with the rest of the minimum.")
     for case_id, signer_seed, crafted_headers, note in mixed_order_accepts(signed_at):
         add(case_id, method="GET", url="https://api.example.com/x", presigned=crafted_headers,
             note=note)
 
     return {**HEADER,
             "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
+            "cases": cases}
+
+
+def misuse():
+    """Mistakes in the call, which every port reports in its own caller-error idiom, never as a
+    FikiError (@5zrf8gjk's convention). A vector cannot name six idioms, so each case says only
+    "caller"; a driver maps that to its port's type and asserts the error is not a FikiError.
+    Each case is a valid request with one argument wrong, so nothing else can be what refused it.
+    A field listed in "omit" is left out of the call altogether.
+    """
+    key = Key.from_seed(SEED_A)
+    url = "https://api.example.com/things?limit=1"
+    base = {"method": "GET", "url": url, "body": None, "max_age": None, "now": 1700000000,
+            "headers": sign_request(key=key, method="GET", url=url, created=1700000000),
+            "minimum": "default", "authorities": None, "expected_aid": None, "omit": []}
+    cases = []
+
+    def add(case_id, note, **changes):
+        cases.append({"id": case_id, **base, **changes, "error": "caller", "note": note})
+
+    add("authorities-is-a-string", "A string is a collection of characters, so in would be a "
+        "substring test that lets api.example.com admit example.com (review A3).",
+        authorities="api.example.com")
+    add("authorities-is-a-string-containing-the-host", "The A3 substring bug made concrete.",
+        authorities="xapi.example.comx")
+    add("authorities-is-empty", "An empty collection serves no host; None declines the check.",
+        authorities=[])
+    add("authorities-holds-a-non-string", "Every authority is a string.",
+        authorities=["api.example.com", 443])
+    add("authorities-omitted", "authorities is a required decision with no default (@524c8qgv).",
+        omit=["authorities"])
+    add("minimum-below-the-profiles", "A minimum must include REQUEST_MINIMUM.",
+        minimum=["@method", "@query"])
+    add("minimum-empty", "An empty minimum is below the profile's.", minimum=[])
+    return {**HEADER, "about": "Calls every implementation must reject as a caller's mistake.",
             "cases": cases}
 
 
@@ -925,6 +1174,7 @@ def main() -> None:
         ("signature-base.json", signature_bases()),
         ("accepts.json", accepts()),
         ("refusals.json", refusals()),
+        ("misuse.json", misuse()),
     ]:
         (out / name).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
         print(f"wrote {name}: {len(data['cases'])} cases")
