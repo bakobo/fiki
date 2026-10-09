@@ -64,16 +64,19 @@ def test_the_guides_verifying_sample_runs():
     body = b'{"hello": "world"}'
     headers = sign_request(key=key, method="POST", url=url, body=body)
 
-    verdict = verify_request(method="POST", url=url, headers=headers, body=body, max_age=300)
+    verdict = verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
+                             authorities={"api.example.com"})
     assert verdict.aid == key.aid
 
     # Preregistration, and declining the freshness check, both as the guide spells them.
     assert verify_request(
-        method="POST", url=url, headers=headers, body=body, max_age=None, expected_aid=key.aid
+        method="POST", url=url, headers=headers, body=body, max_age=None, expected_aid=key.aid,
+        authorities={"api.example.com"},
     ).aid == key.aid
 
     try:
-        verify_request(method="POST", url=url, headers=headers, body=b"tampered", max_age=None)
+        verify_request(method="POST", url=url, headers=headers, body=b"tampered", max_age=None,
+                       authorities=None)
     except DigestMismatch:
         pass
     else:
@@ -135,7 +138,8 @@ def test_the_guides_resolver_sample_runs():
 
     # An AID the resolver does not know is refused, never decoded as a key.
     with pytest.raises(errors.UnknownKey) as caught:
-        verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
+        verify_request(authorities=None, method="POST", url=url, headers=headers,
+                       body=body, max_age=300,
                        minimum=REQUEST_MINIMUM, resolve=lambda keyid: None)
     assert caught.value.keyid == CONTROLLER_AID
 
@@ -213,7 +217,8 @@ def test_the_guides_error_sample_names_each_new_refusal():
     key, url, body, headers = _keri_request()
 
     def verify(headers=headers, resolve=key_state.get, minimum=REQUEST_MINIMUM):
-        return lambda: verify_request(method="POST", url=url, headers=headers, body=body,
+        return lambda: verify_request(authorities=None, method="POST", url=url, headers=headers,
+                       body=body,
                                       max_age=300, minimum=minimum, resolve=resolve)
 
     assert refusal(verify()) == "verified"
@@ -238,7 +243,8 @@ def test_the_guides_error_sample_names_each_new_refusal():
     with pytest.raises(ValueError):
         verify(minimum=["@method"])()
     with pytest.raises(TypeError):
-        verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
+        verify_request(authorities=None, method="POST", url=url, headers=headers,
+                       body=body, max_age=300,
                        expected_aid=CONTROLLER_AID, resolve=key_state.get)
 
 
@@ -282,6 +288,7 @@ def test_the_guides_key_spelling_samples_run(tmp_path, monkeypatch):
     headers = sign_request(key=key, method="GET", url="https://api.example.com/things")
 # end guide
     verdict = verify_request(
+        authorities=None,
         method="GET", url="https://api.example.com/things", headers=headers, max_age=300,
         expected_aid=registered_aid,
     )

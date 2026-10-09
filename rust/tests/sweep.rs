@@ -12,9 +12,20 @@ use std::sync::{Arc, Mutex};
 
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
-    verify_request, verify_response, Key, Kind, Request, Resolver, SignOptions, SignatureParams,
-    Verdict, VerifyOptions, REQUEST_MINIMUM,
+    verify_request, verify_response, Authorities, Key, Kind, Minimum, Request, Resolver,
+    SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
 };
+
+/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
+/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
+/// so a test whose subject is something else states that policy rather than relying on it.
+fn opted_out() -> VerifyOptions {
+    VerifyOptions {
+        minimum: Minimum::Off,
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    }
+}
 
 const URL: &str = "https://api.example.com/things?limit=1";
 const BODY: &[u8] = br#"{"hello": "world"}"#;
@@ -114,7 +125,7 @@ impl Sent {
     }
 
     fn aid(&self) -> String {
-        self.verify(VerifyOptions::default())
+        self.verify(opted_out())
             .unwrap_or_else(|e| panic!("{}: {e}", e.kind))
             .aid
     }
@@ -271,7 +282,7 @@ fn a3_text_after_an_ip_literal_is_a_signature_mismatch_when_verifying() {
     let sent = sign("GET", "https://[::1]/things", &[], SignOptions::default()).unwrap();
     for url in ["https://[::1]x/things", "https://[::1/things"] {
         assert_eq!(
-            sent.at(url).kind(VerifyOptions::default()),
+            sent.at(url).kind(opted_out()),
             Kind::SignatureMismatch,
             "{url}"
         );
@@ -304,7 +315,7 @@ fn a3_a_bracketed_host_that_is_not_an_address_is_unreadable() {
         let url = format!("https://[{inside}]/x");
         assert_eq!(kind_of(authority(&url)), Kind::InvalidArgument, "{url}");
         assert_eq!(
-            sent.at(&url).kind(VerifyOptions::default()),
+            sent.at(&url).kind(opted_out()),
             Kind::SignatureMismatch,
             "{url}"
         );
@@ -345,7 +356,7 @@ fn a4_two_names_equal_but_for_case_are_a_caller_error_whatever_their_values() {
     let both = map(&[("X-A", "1"), ("x-a", "1")]);
     let err = sign_request(&key(), "GET", URL, &both, &SignOptions::default());
     assert_eq!(kind_of(err), Kind::InvalidArgument);
-    let err = verify_request("GET", URL, &both, &VerifyOptions::default());
+    let err = verify_request("GET", URL, &both, &opted_out());
     assert_eq!(kind_of(err), Kind::InvalidArgument);
 }
 
@@ -393,8 +404,8 @@ fn a7_a_supplied_digest_that_matches_is_signed_as_given() {
 
 fn under_minimum() -> VerifyOptions {
     VerifyOptions {
-        minimum: Some(strings(&REQUEST_MINIMUM)),
-        ..Default::default()
+        minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
+        ..opted_out()
     }
 }
 
@@ -446,7 +457,7 @@ fn signed_as(keyid: &str) -> Sent {
 fn expecting(keyid: &str) -> VerifyOptions {
     VerifyOptions {
         expected_keyid: Some(keyid.into()),
-        ..Default::default()
+        ..opted_out()
     }
 }
 
@@ -497,7 +508,7 @@ fn a11_a_401_with_an_empty_signature_header_is_unauthenticated() {
         map(&[("Signature", "")]),
         map(&[("Signature", ""), ("Signature-Input", "sig=()")]),
     ] {
-        let err = verify_response(401, &headers, None, &VerifyOptions::default());
+        let err = verify_response(401, &headers, None, &opted_out());
         assert_eq!(kind_of(err), Kind::Unauthenticated);
     }
 }
@@ -508,11 +519,7 @@ fn a11_a_401_with_an_empty_signature_header_is_unauthenticated() {
 fn a12_a_decimal_without_a_fractional_digit_is_malformed() {
     for member in ["x=1.", "x=-1.", "x=1.;a=2", "x=(1.)", "x=2;a=1."] {
         let sent = with_digest(&format!("{}, {member}", content_digest(BODY)));
-        assert_eq!(
-            sent.kind(VerifyOptions::default()),
-            Kind::MalformedDigest,
-            "{member}"
-        );
+        assert_eq!(sent.kind(opted_out()), Kind::MalformedDigest, "{member}");
     }
 }
 
@@ -528,15 +535,12 @@ fn a12_what_only_looks_like_a_bare_decimal_is_still_accepted() {
 fn a12_a_bare_decimal_is_malformed_in_the_other_two_headers() {
     let sent = signed();
     let bad = sent.with("Signature", format!("{};x=1.", sent.headers["Signature"]));
-    assert_eq!(bad.kind(VerifyOptions::default()), Kind::MalformedSignature);
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignature);
     let bad = sent.with(
         "Signature-Input",
         format!("{};x=1.", sent.headers["Signature-Input"]),
     );
-    assert_eq!(
-        bad.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignatureInput);
 }
 
 #[test]
@@ -549,11 +553,7 @@ fn a12_long_integers_and_badly_padded_byte_sequences_are_malformed() {
         "x=:QQ==QQ==:",
     ] {
         let sent = with_digest(&format!("{}, {member}", content_digest(BODY)));
-        assert_eq!(
-            sent.kind(VerifyOptions::default()),
-            Kind::MalformedDigest,
-            "{member:?}"
-        );
+        assert_eq!(sent.kind(opted_out()), Kind::MalformedDigest, "{member:?}");
     }
 }
 
@@ -588,11 +588,7 @@ fn b13_a_method_that_is_not_a_token_is_a_caller_error_wherever_a_request_is_buil
             method: method.into(),
             ..good.clone()
         };
-        assert_eq!(
-            sent.kind(VerifyOptions::default()),
-            Kind::InvalidArgument,
-            "{method:?}"
-        );
+        assert_eq!(sent.kind(opted_out()), Kind::InvalidArgument, "{method:?}");
         let request = asked(method, URL);
         let err = response_signature_base(
             200,
@@ -602,12 +598,7 @@ fn b13_a_method_that_is_not_a_token_is_a_caller_error_wherever_a_request_is_buil
             &params(),
         );
         assert_eq!(kind_of(err), Kind::InvalidArgument, "{method:?}");
-        let err = verify_response(
-            200,
-            &BTreeMap::new(),
-            Some(&request),
-            &VerifyOptions::default(),
-        );
+        let err = verify_response(200, &BTreeMap::new(), Some(&request), &opted_out());
         assert_eq!(kind_of(err), Kind::InvalidArgument, "{method:?}");
         let err = sign_response(
             &key(),
@@ -689,7 +680,7 @@ fn b14_a_port_that_is_not_one_is_a_signature_mismatch_when_verifying() {
     for port in BAD_PORTS {
         let url = format!("https://a.example:{port}/x");
         assert_eq!(
-            sent.at(&url).kind(VerifyOptions::default()),
+            sent.at(&url).kind(opted_out()),
             Kind::SignatureMismatch,
             "{port:?}"
         );
@@ -717,7 +708,7 @@ fn b14_a_bad_port_is_a_signature_mismatch_in_the_request_a_response_answers() {
         Some(&asked("GET", "https://a.example:99999/x")),
         &VerifyOptions {
             now: Some(AT),
-            ..Default::default()
+            ..opted_out()
         },
     );
     assert_eq!(kind_of(err), Kind::SignatureMismatch);
@@ -897,7 +888,7 @@ fn b15_a_field_name_is_still_lowercased_for_a_local_caller() {
     };
     let sent = sign("GET", URL, &[("X-Role", "admin")], opts).unwrap();
     assert!(sent.headers["Signature-Input"].contains("\"x-role\""));
-    let verdict = sent.verify(VerifyOptions::default()).unwrap();
+    let verdict = sent.verify(opted_out()).unwrap();
     assert_eq!(verdict.covered, ["@method", "x-role"]);
 }
 
@@ -960,11 +951,11 @@ fn b17_a_freshness_window_that_is_not_positive_is_a_caller_error() {
         for opts in [
             VerifyOptions {
                 max_age: Some(value),
-                ..Default::default()
+                ..opted_out()
             },
             VerifyOptions {
                 skew: Some(value),
-                ..Default::default()
+                ..opted_out()
             },
         ] {
             assert_eq!(sent.kind(opts.clone()), Kind::InvalidArgument, "{value}");
@@ -985,7 +976,7 @@ fn b17_enormous_windows_neither_overflow_nor_refuse() {
         max_age: Some(i64::MAX),
         skew: Some(i64::MAX),
         now: Some(1_000_000_000_000_000_000),
-        ..Default::default()
+        ..opted_out()
     });
     assert_eq!(verdict.unwrap().aid, key().aid());
     // And at the other end of the clock, where now - created is the subtraction that wraps: compared
@@ -994,7 +985,7 @@ fn b17_enormous_windows_neither_overflow_nor_refuse() {
         max_age: Some(i64::MAX),
         skew: Some(i64::MAX),
         now: Some(i64::MIN),
-        ..Default::default()
+        ..opted_out()
     });
     assert_eq!(kind_of(refused), Kind::SignatureTooOld);
 }
@@ -1003,7 +994,7 @@ fn b17_enormous_windows_neither_overflow_nor_refuse() {
 
 #[test]
 fn b18_the_verdict_keyid_is_the_wire_keyid_and_the_aid_is_who_vouched() {
-    let verdict = signed().verify(VerifyOptions::default()).unwrap();
+    let verdict = signed().verify(opted_out()).unwrap();
     assert_eq!(
         (verdict.keyid, verdict.aid),
         (Some(key().keyid()), key().aid())
@@ -1011,7 +1002,7 @@ fn b18_the_verdict_keyid_is_the_wire_keyid_and_the_aid_is_who_vouched() {
     let verdict = signed_as("any keyid at all")
         .verify(VerifyOptions {
             expected_aid: Some(key().aid()),
-            ..Default::default()
+            ..opted_out()
         })
         .unwrap();
     assert_eq!(
@@ -1047,7 +1038,7 @@ fn b18_the_verdict_documents_both_fields() {
 #[test]
 fn b19_both_vectors_formats_are_exported() {
     let formats: [u32; 2] = [fiki::VECTORS_FORMAT, fiki::KERI_VECTORS_FORMAT];
-    assert_eq!(formats, [2, 4]);
+    assert_eq!(formats, [3, 4]);
 }
 
 // --- B20: input bounds, size before shape ---
@@ -1066,7 +1057,7 @@ fn b20_a_field_over_8192_bytes_is_malformed_before_it_is_parsed() {
     ] {
         let sent = posted();
         let sent = sent.with(header, pad_to(&sent.headers[header], 8193));
-        let err = sent.verify(VerifyOptions::default()).unwrap_err();
+        let err = sent.verify(opted_out()).unwrap_err();
         assert_eq!(err.kind, kind, "{header}");
         assert!(err.message.contains("8192"), "{}", err.message);
     }
@@ -1078,7 +1069,7 @@ fn b20_a_field_over_8192_bytes_is_refused_whatever_it_holds() {
     for value in ["(".repeat(9000), "\u{e9}".repeat(4097)] {
         let err = sent
             .with("Signature-Input", value)
-            .verify(VerifyOptions::default())
+            .verify(opted_out())
             .unwrap_err();
         assert_eq!(err.kind, Kind::MalformedSignatureInput);
         assert!(err.message.contains("8192"), "{}", err.message);
@@ -1105,17 +1096,14 @@ fn b20_a_dictionary_of_seventeen_members_is_malformed() {
         "Signature",
         format!("{}{}", sent.headers["Signature"], extra_members(16)),
     );
-    assert_eq!(bad.kind(VerifyOptions::default()), Kind::MalformedSignature);
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignature);
     let bad = sent.with(
         "Signature-Input",
         format!("{}{}", sent.headers["Signature-Input"], extra_members(16)),
     );
-    assert_eq!(
-        bad.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignatureInput);
     let bad = with_digest(&format!("{}{}", content_digest(BODY), extra_members(16)));
-    assert_eq!(bad.kind(VerifyOptions::default()), Kind::MalformedDigest);
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedDigest);
 }
 
 #[test]
@@ -1125,10 +1113,7 @@ fn b20_a_dictionary_of_sixteen_members_is_read() {
         "Signature",
         format!("{}{}", sent.headers["Signature"], extra_members(15)),
     );
-    assert_eq!(
-        bad.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureLabel
-    );
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignatureLabel);
     let good = with_digest(&format!("{}{}", content_digest(BODY), extra_members(15)));
     assert_eq!(good.aid(), key().aid());
 }
@@ -1149,26 +1134,20 @@ fn b20_an_inner_list_of_sixty_four_components_is_read_and_sixty_five_is_malforme
         ..Default::default()
     };
     let sent = sign("GET", URL, &given, opts).unwrap();
-    assert_eq!(
-        sent.verify(VerifyOptions::default()).unwrap().covered.len(),
-        64
-    );
+    assert_eq!(sent.verify(opted_out()).unwrap().covered.len(), 64);
     let opts = SignOptions {
         covered: Some(covered),
         ..Default::default()
     };
     let sent = sign("GET", URL, &given, opts).unwrap();
-    assert_eq!(
-        sent.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureInput);
 }
 
 #[test]
 fn b20_an_inner_list_anywhere_holds_at_most_sixty_four_items() {
     let ones = vec!["1"; 65].join(" ");
     let sent = with_digest(&format!("{}, x=({ones})", content_digest(BODY)));
-    assert_eq!(sent.kind(VerifyOptions::default()), Kind::MalformedDigest);
+    assert_eq!(sent.kind(opted_out()), Kind::MalformedDigest);
 }
 
 fn many_params(n: usize) -> String {
@@ -1183,22 +1162,16 @@ fn b20_an_item_with_seventeen_parameters_is_malformed() {
         "Signature-Input",
         input.replace("\"@path\"", &format!("\"@path\"{}", many_params(17))),
     );
-    assert_eq!(
-        bad.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignatureInput);
     let bad = sent.with(
         "Signature",
         format!("{}{}", sent.headers["Signature"], many_params(17)),
     );
-    assert_eq!(bad.kind(VerifyOptions::default()), Kind::MalformedSignature);
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignature);
     let bad = with_digest(&format!("{}{}", content_digest(BODY), many_params(17)));
-    assert_eq!(bad.kind(VerifyOptions::default()), Kind::MalformedDigest);
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedDigest);
     let bad = sent.with("Signature-Input", format!("{input}{}", many_params(17)));
-    assert_eq!(
-        bad.kind(VerifyOptions::default()),
-        Kind::MalformedSignatureInput
-    );
+    assert_eq!(bad.kind(opted_out()), Kind::MalformedSignatureInput);
 }
 
 #[test]
@@ -1241,37 +1214,46 @@ fn line_of(component: &str, url: &str) -> String {
         .to_string()
 }
 
+// Format 3 reverses the stripping these tests once pinned (@2n99rej7): a space or an ASCII
+// control anywhere in a target is refused rather than stripped, so "/\nx" is never read as "/x"
+// (`this.i` @524c8qgv, "A target beginning with a slash is origin-form"). Their subject was the
+// stripping itself, so their expectation changes rather than their policy.
+
 #[test]
-fn e_tab_cr_and_lf_are_removed_from_anywhere_in_a_url() {
-    assert_eq!(
-        authority("https://a.exa\tmple:8\r\n443/x").unwrap(),
-        "a.example:8443"
-    );
-    assert_eq!(line_of("@path", "https://a.example/a\r\nb\tc"), "/abc");
-    assert_eq!(line_of("@query", "https://a.example/x?a=\n1"), "?a=1");
+fn e_tab_cr_and_lf_anywhere_in_a_url_are_refused() {
+    for url in [
+        "https://a.exa\tmple:8\r\n443/x",
+        "https://a.example/a\r\nb\tc",
+        "https://a.example/x?a=\n1",
+        "/a\nb",
+    ] {
+        assert_eq!(kind_of(authority(url)), Kind::InvalidArgument, "{url:?}");
+    }
+    assert_eq!(line_of("@path", "https://a.example/abc"), "/abc");
 }
 
 #[test]
-fn e_leading_c0_controls_and_spaces_are_stripped_and_trailing_ones_kept() {
-    assert_eq!(
-        authority("\u{0}\u{1f} https://a.example/x").unwrap(),
-        "a.example"
-    );
-    assert_eq!(line_of("@path", " \u{b}https://a.example/x "), "/x ");
-    // A trailing control is not stripped, so it stays in the value and no base can be built.
-    let err = signature_base(
-        "GET",
+fn e_leading_and_trailing_c0_controls_and_spaces_are_refused() {
+    for url in [
+        "\u{0}\u{1f} https://a.example/x",
+        " \u{b}https://a.example/x ",
         "https://a.example/x\u{b}",
-        &BTreeMap::new(),
-        &strings(&["@path"]),
-        &params(),
-    );
-    assert_eq!(kind_of(err), Kind::SignatureMismatch);
+        "https://a.example/x\u{7f}",
+    ] {
+        let err = signature_base(
+            "GET",
+            url,
+            &BTreeMap::new(),
+            &strings(&["@path"]),
+            &params(),
+        );
+        assert_eq!(kind_of(err), Kind::InvalidArgument, "{url:?}");
+    }
 }
 
 #[test]
-fn e_a_url_cleaned_of_whitespace_verifies_as_the_url_it_was_signed_as() {
+fn e_a_url_with_whitespace_does_not_verify_as_the_url_it_was_signed_as() {
     let sent = signed();
     let dirty = format!(" {}", URL.replacen("api", "a\tp\ni", 1));
-    assert_eq!(sent.at(&dirty).aid(), key().aid());
+    assert_eq!(sent.at(&dirty).kind(opted_out()), Kind::SignatureMismatch);
 }

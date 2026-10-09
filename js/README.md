@@ -41,12 +41,15 @@ const { aid, keyid, covered } = await verifyRequest({
   headers: request.headers,
   body: await request.bytes(),
   maxAge: 300,               // seconds, or null to decline the check
+  authorities: ['api.example.com'],  // the hosts you serve, or null to decline the check
 });
 ```
 
 `keyid` is the keyid exactly as it appeared on the wire, or `null` when the signature had none; `aid` is the identity that vouched for the key — the non-transferable AID of a raw key, the keyid a resolver vouched for, or the AID of `expectedAid`.
 
 `maxAge` has no default and must be given. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the argument exists to prevent. An `expires` the signer declared is enforced either way. `maxAge` and `skew`, when given, are positive whole numbers of seconds.
+
+`authorities` has no default either: an array or `Set` of the `@authority` values this verifier serves, compared exactly, or `null` to decline the check. A string, an empty collection, or one holding anything but strings is a `TypeError`. `minimum` defaults to `DEFAULT_MINIMUM`, fiki's own signing default (`@method @authority @path @query`, plus `content-digest` with a body), so a verifier left at its defaults accepts what a fiki signer produces and nothing that covers less; `minimum: null` opts out. A target beginning with `/` is origin-form and takes its authority from `Host`, which is validated like a URL's authority; a target with a space, a control character or a `#` is refused.
 
 ## What is refused before it is read
 
@@ -74,6 +77,6 @@ Everything is async. WebCrypto's `sign`, `verify`, `digest` and `importKey` all 
 
 - A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network.
 - The request a response answers is a plain object, `{ method, url, headers, body }`, rather than an exported `Request` class.
-- A mistake in the call rather than the message — `expectedAid` together with `resolve`, a `minimum` smaller than the profile's, a missing or non-positive `maxAge`, a response binding the request's digest verified without the request body, and everything the signer refuses above — is a `TypeError`. Python raises `TypeError` for some of these and `ValueError` for others; JavaScript has no `ValueError`. None of them is a `FikiError`.
+- A mistake in the call rather than the message — `expectedAid` together with `resolve`, a `minimum` smaller than the profile's, a missing or non-positive `maxAge`, missing or malformed `authorities`, a response binding the request's digest verified without the request body, and everything the signer refuses above — is a `TypeError`. Python raises `TypeError` for some of these and `ValueError` for others; JavaScript has no `ValueError`. None of them is a `FikiError`.
 
-URLs are cleaned as Python's `urlsplit` cleans them — leading control characters and spaces stripped, TAB, CR and LF removed anywhere — and then split as sent rather than parsed with `new URL`, which normalizes the path that RFC 9421 and the KERI profile sign unnormalized (`this.i` @90y0gsfx).
+URLs are split as sent rather than parsed with `new URL`, which normalizes the path that RFC 9421 and the KERI profile sign unnormalized (`this.i` @90y0gsfx). Nothing is cleaned first: a space, a control character or a `#` anywhere in a target refuses it, where before format 3 they were stripped as Python's `urlsplit` strips them (`this.i` @524c8qgv).

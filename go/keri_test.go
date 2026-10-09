@@ -211,7 +211,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 	}
 
 	t.Run("a resolver supplies the key and the verdict names the keyid", func(t *testing.T) {
-		verdict, err := VerifyRequest("POST", urlQuery, request.Headers, opts(resolverFor(key)))
+		verdict, err := verifyOptedOut("POST", urlQuery, request.Headers, opts(resolverFor(key)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -221,7 +221,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 	})
 
 	t.Run("a resolver that knows no key is UnknownKey", func(t *testing.T) {
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return nil, nil }))
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return nil, nil }))
 		if kindOf(t, err) != KindUnknownKey {
 			t.Error("expected UnknownKey")
 		}
@@ -229,14 +229,14 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 
 	t.Run("a resolver's own refusal passes through unchanged", func(t *testing.T) {
 		refusal := &Error{Kind: KindUnsupportedSigner, Message: "two of three", Keyid: keriAID}
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return nil, refusal }))
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return nil, refusal }))
 		if err != refusal {
 			t.Errorf("got %v", err)
 		}
 	})
 
 	t.Run("a resolved key of the wrong length is MalformedKey", func(t *testing.T) {
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return []byte{}, nil }))
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, opts(func(string) ([]byte, error) { return []byte{}, nil }))
 		if kindOf(t, err) != KindMalformedKey {
 			t.Error("expected MalformedKey")
 		}
@@ -249,7 +249,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 			t.Fatal(err)
 		}
 		called := false
-		_, err = VerifyRequest("GET", urlQuery, headers, VerifyOptions{Resolve: func(string) ([]byte, error) {
+		_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: func(string) ([]byte, error) {
 			called = true
 			return nil, nil
 		}})
@@ -261,7 +261,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 	t.Run("an expected keyid refuses any other", func(t *testing.T) {
 		o := opts(resolverFor(key))
 		o.ExpectedKeyid = "Esomebody-else"
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, o)
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, o)
 		if kindOf(t, err) != KindUnknownKey {
 			t.Error("expected UnknownKey")
 		}
@@ -270,12 +270,12 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 	t.Run("ExpectedAID and Resolve together are ErrInvalidOptions", func(t *testing.T) {
 		o := opts(resolverFor(key))
 		o.ExpectedAID = key.AID()
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, o)
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, o)
 		isInvalidOptions(t, err)
 	})
 
 	t.Run("a minimum below the profile's is ErrInvalidOptions on both sides", func(t *testing.T) {
-		_, err := VerifyRequest("POST", urlQuery, request.Headers, VerifyOptions{Minimum: []string{"@method"}})
+		_, err := verifyOptedOut("POST", urlQuery, request.Headers, VerifyOptions{Minimum: []string{"@method"}})
 		isInvalidOptions(t, err)
 		_, err = SignRequest(key, "POST", urlQuery, nil, SignOptions{Minimum: []string{"@method", "@path"}})
 		isInvalidOptions(t, err)
@@ -290,7 +290,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 
 	t.Run("an empty keyid is MissingKey", func(t *testing.T) {
 		headers := map[string]string{"Signature-Input": `sig=("@method");keyid=""`, "Signature": zeroSignature}
-		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{})
+		_, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{})
 		if kindOf(t, err) != KindMissingKey {
 			t.Error("expected MissingKey")
 		}
@@ -300,7 +300,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 		// Non-zero trailing bits, and a padded spelling: neither is the key's own encoding.
 		for _, keyid := range []string{key.Keyid()[:42] + "B", key.Keyid()[:41] + "=="} {
 			headers := map[string]string{"Signature-Input": `sig=("@method");keyid="` + keyid + `"`, "Signature": zeroSignature}
-			_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{})
+			_, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{})
 			if kindOf(t, err) != KindMalformedKey {
 				t.Errorf("%q should be MalformedKey", keyid)
 			}
@@ -329,7 +329,7 @@ func TestSignatureInputRefusals(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			headers := map[string]string{"Signature-Input": c.input, "Signature": zeroSignature}
-			_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{Minimum: c.minimum})
+			_, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Minimum: c.minimum})
 			if got := kindOf(t, err); got != c.want {
 				t.Errorf("kind = %s, want %s", got, c.want)
 			}
@@ -361,15 +361,12 @@ func TestTheWireAndTheURLAsSent(t *testing.T) {
 		return strings.Split(string(base), "\n")[0], err
 	}
 	for name, c := range map[string]struct{ component, url, want string }{
-		"a path is not decoded":                                   {"@path", "https://example.com/a%7Eb/%2F", `"@path": /a%7Eb/%2F`},
-		"text that is not a scheme is a path":                     {"@path", "ht_tp://x/p", `"@path": ht_tp://x/p`},
-		"no scheme and no authority is a path":                    {"@path", "://nonsense", `"@path": ://nonsense`},
-		"a fragment is dropped":                                   {"@query", "https://example.com/p?a=1#frag", `"@query": ?a=1`},
-		"userinfo is not the authority":                           {"@authority", "https://user:pw@Host.example:443/", `"@authority": host.example`},
-		"an IP literal keeps its brackets and a non-default port": {"@authority", "http://[::1]:8080/", `"@authority": [::1]:8080`},
-		"an IP literal keeps its brackets with no port":           {"@authority", "http://[::1]/", `"@authority": [::1]`},
-		"an empty port is no port":                                {"@authority", "http://example.com:/", `"@authority": example.com`},
-		"leading controls and line breaks go":                     {"@path", " \thttps://example.com/a\nb", `"@path": /ab`},
+		"a path is not decoded":                                     {"@path", "https://example.com/a%7Eb/%2F", `"@path": /a%7Eb/%2F`},
+		"userinfo is not the authority":                             {"@authority", "https://user:pw@Host.example:443/", `"@authority": host.example`},
+		"an IP literal keeps its brackets and a non-default port":   {"@authority", "http://[::1]:8080/", `"@authority": [::1]:8080`},
+		"an IP literal keeps its brackets with no port":             {"@authority", "http://[::1]/", `"@authority": [::1]`},
+		"an empty port is no port":                                  {"@authority", "http://example.com:/", `"@authority": example.com`},
+		"a leading double slash is origin-form, all of it the path": {"@path", "//evil.example/p?a", `"@path": //evil.example/p`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := line(t, c.component, c.url)
@@ -380,6 +377,13 @@ func TestTheWireAndTheURLAsSent(t *testing.T) {
 	}
 	for _, rawURL := range []string{"https://example.com:http/", "https://example.com:99999/", "https://example.com:-1/", "http://[::1/", "http://::1]/"} {
 		_, err := line(t, "@authority", rawURL)
+		isInvalidOptions(t, err)
+	}
+	// Format 3 (@524c8qgv): a target that is neither origin-form nor scheme://authority, that
+	// carries a fragment, or that holds a space or a control anywhere is not read leniently, as
+	// these four once were, but is the signer's mistake.
+	for _, rawURL := range []string{"ht_tp://x/p", "://nonsense", "https://example.com/p?a=1#frag", " \thttps://example.com/a\nb"} {
+		_, err := line(t, "@path", rawURL)
 		isInvalidOptions(t, err)
 	}
 	if _, err := line(t, "x-note", "https://example.com/"); kindOf(t, err) != KindMissingComponent {
@@ -466,7 +470,7 @@ func TestSuppliedAuthoritiesRequireAuthority(t *testing.T) {
 
 	t.Run("a request signed for another host without @authority is refused, the cross-host replay", func(t *testing.T) {
 		headers := sign("https://attacker.example/identifiers?type=rot", minimumOnly)
-		_, err := VerifyRequest("GET", "https://victim.example/identifiers?type=rot", headers, VerifyOptions{
+		_, err := verifyOptedOut("GET", "https://victim.example/identifiers?type=rot", headers, VerifyOptions{
 			Resolve: resolverFor(key), Minimum: RequestMinimum, Authorities: []string{"victim.example"},
 		})
 		if kindOf(t, err) != KindInsufficientCoverage {
@@ -478,9 +482,9 @@ func TestSuppliedAuthoritiesRequireAuthority(t *testing.T) {
 		}
 	})
 
-	t.Run("without Authorities an uncovered @authority still verifies", func(t *testing.T) {
+	t.Run("with AnyAuthority an uncovered @authority still verifies", func(t *testing.T) {
 		headers := sign("https://victim.example/identifiers", minimumOnly)
-		if _, err := VerifyRequest("GET", "https://victim.example/identifiers", headers,
+		if _, err := verifyOptedOut("GET", "https://victim.example/identifiers", headers,
 			VerifyOptions{Resolve: resolverFor(key), Minimum: RequestMinimum}); err != nil {
 			t.Fatal(err)
 		}
@@ -489,7 +493,7 @@ func TestSuppliedAuthoritiesRequireAuthority(t *testing.T) {
 	t.Run("the coverage refusal comes before the key is resolved", func(t *testing.T) {
 		headers := sign("https://victim.example/identifiers", minimumOnly)
 		unknown := func(string) ([]byte, error) { return nil, nil }
-		_, err := VerifyRequest("GET", "https://victim.example/identifiers", headers,
+		_, err := verifyOptedOut("GET", "https://victim.example/identifiers", headers,
 			VerifyOptions{Resolve: unknown, Authorities: []string{"victim.example"}})
 		if kindOf(t, err) != KindInsufficientCoverage {
 			t.Error("expected InsufficientCoverage")
@@ -499,11 +503,11 @@ func TestSuppliedAuthoritiesRequireAuthority(t *testing.T) {
 	t.Run("a covered @authority verifies for the right host and not the wrong one", func(t *testing.T) {
 		headers := sign("https://victim.example/identifiers", withAuthority)
 		opts := VerifyOptions{Resolve: resolverFor(key), Authorities: []string{"victim.example"}}
-		if _, err := VerifyRequest("GET", "https://victim.example/identifiers", headers, opts); err != nil {
+		if _, err := verifyOptedOut("GET", "https://victim.example/identifiers", headers, opts); err != nil {
 			t.Fatal(err)
 		}
 		opts.Authorities = []string{"attacker.example"}
-		_, err := VerifyRequest("GET", "https://victim.example/identifiers", headers, opts)
+		_, err := verifyOptedOut("GET", "https://victim.example/identifiers", headers, opts)
 		if kindOf(t, err) != KindSignatureMismatch {
 			t.Error("expected SignatureMismatch")
 		}

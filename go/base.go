@@ -13,6 +13,7 @@ package fiki
 // KERI dialect.
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"sort"
@@ -265,30 +266,45 @@ func checkCovered(items []componentID, response bool) error {
 
 // target is a URL split the way the origin server received it: nothing decoded, nothing
 // normalized. Go's net/url decodes the path, which is the one thing @path must not do (profile
-// section 2, O1), so fiki splits the URL itself, as Python's urlsplit does for fiki-py.
+// section 2, O1), so fiki splits the URL itself. unreadable, when set, is why the target has no
+// components at all; it is reported only when a covered component needs one, as fiki-py reads
+// the target lazily.
 type target struct {
 	scheme, netloc, path, query string
+	unreadable                  string
 }
 
+// splitURL reads a request target as RFC 9112 section 3.2 does (this.i @524c8qgv).
+//
+// A target beginning with "/" is origin-form: everything before the first "?" is the path,
+// verbatim, however many slashes it starts with, and it has no authority of its own, so authority
+// reads the Host header. Reading "//evil.example/p" as a network-path reference would let the
+// sender choose the authority (review A1). Anything else must be a scheme, "://" and a non-empty
+// authority. A space or an ASCII control anywhere is refused rather than stripped, since
+// stripping made "/\nx" verify as "/x", and so is a fragment, which no request target has.
 func splitURL(raw string) target {
-	// Leading C0 controls and spaces are stripped, and tab, CR and LF removed wherever they are,
-	// as the WHATWG URL parser does and urlsplit follows.
-	raw = strings.TrimLeft(raw, "\x00\x01\x02\x03\x04\x05\x06\x07\x08\t\n\x0b\x0c\r\x0e\x0f"+
-		"\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f ")
-	raw = strings.NewReplacer("\t", "", "\r", "", "\n", "").Replace(raw)
-	var t target
-	if i := strings.IndexByte(raw, ':'); i > 0 && isAlpha(raw[0]) && isSchemeText(raw[:i]) {
-		t.scheme, raw = strings.ToLower(raw[:i]), raw[i+1:]
-	}
-	if strings.HasPrefix(raw, "//") {
-		raw = raw[2:]
-		end := strings.IndexAny(raw, "/?#")
-		if end < 0 {
-			end = len(raw)
+	for i := 0; i < len(raw); i++ {
+		if raw[i] <= ' ' || raw[i] == 0x7f {
+			return target{unreadable: "contains a space or a control character"}
 		}
-		t.netloc, raw = raw[:end], raw[end:]
 	}
-	raw, _, _ = strings.Cut(raw, "#")
+	if strings.IndexByte(raw, '#') >= 0 {
+		return target{unreadable: "carries a fragment, which no request target has"}
+	}
+	var t target
+	if !strings.HasPrefix(raw, "/") {
+		scheme, rest, ok := strings.Cut(raw, "://")
+		if !ok || scheme == "" || !isAlpha(scheme[0]) || !isSchemeText(scheme) ||
+			rest == "" || strings.IndexByte("/?", rest[0]) >= 0 {
+			return target{unreadable: "is neither origin-form, beginning with a slash, nor an " +
+				"absolute URI with a scheme and an authority"}
+		}
+		end := strings.IndexAny(rest, "/?")
+		if end < 0 {
+			end = len(rest)
+		}
+		t.scheme, t.netloc, raw = strings.ToLower(scheme), rest[:end], rest[end:]
+	}
 	t.path, t.query, _ = strings.Cut(raw, "?")
 	return t
 }
@@ -304,38 +320,73 @@ func isSchemeText(text string) bool {
 	return true
 }
 
+// unbuildable is a target fiki cannot read: the caller's mistake when signing, and a base that
+// cannot be built, so a SignatureMismatch (profile section 9), when the message was received
+// (this.i @5zrf8gjk).
+func (m *message) unbuildable(what, why string) error {
+	if m.received {
+		return errorf(KindSignatureMismatch, "The %s %s, so there is no signature base to check "+
+			"the signature against.", what, why)
+	}
+	return invalidOptions("The %s %s, so there is no signature base to sign.", what, why)
+}
+
+// targetOf is the message's target, or the reason it has none.
+func targetOf(m *message) (target, error) {
+	if m.target.unreadable != "" {
+		return target{}, m.unbuildable(fmt.Sprintf("URL %q", m.url), m.target.unreadable)
+	}
+	return m.target, nil
+}
+
 // authority is RFC 9421 section 2.2.3: lowercase host, default port omitted.
 //
-// A relative URL falls back to the Host header, which in HTTP/1.1 *is* the authority — the shape a
-// server-side verifier actually holds. Nothing is normalized away there, because without a scheme
-// no port is a default port.
+// An origin-form target takes its authority from the Host header, which in HTTP/1.1 *is* the
+// authority — the shape a server-side verifier actually holds. Host passes every check an
+// absolute URL's authority does, holds no userinfo and no list of hosts, and keeps its port,
+// because without a scheme no port is a default one (this.i, "Host is validated like any
+// authority").
 //
-// A URL whose authority cannot be read is the caller's mistake when signing, and a base that cannot
-// be built, so a SignatureMismatch (profile section 9), when the message was received (this.i
-// @5zrf8gjk). A port is any run of ASCII digits read as a number, so :000080 is 80, and an empty
-// port is no port at all (RFC 3986 section 6.2.3).
+// A port is any run of ASCII digits read as a number, so :000080 is 80, and an empty port is no
+// port at all (RFC 3986 section 6.2.3). Every byte is checked to be visible ASCII before the host
+// is lowercased, since Unicode case mapping turns U+212A KELVIN SIGN into "k" (review A6).
 func authority(m *message) (string, error) {
-	t, headers := m.target, m.headers
-	if t.netloc == "" {
-		host, ok := headers["host"]
-		if !ok {
-			return "", &Error{
-				Kind: KindMissingComponent,
-				Message: `The signature covers "@authority", but the URL carries no authority and ` +
-					"the request has no Host header, so there is nothing to derive it from.",
-				Component: "@authority",
-			}
-		}
-		return strings.ToLower(strings.Trim(host, " \t")), nil
+	t, err := targetOf(m)
+	if err != nil {
+		return "", err
 	}
-	// Userinfo, if any, ends at the last "@".
-	hostinfo := t.netloc[strings.LastIndexByte(t.netloc, '@')+1:]
-	unbuildable := func(why string) error {
-		if m.received {
-			return errorf(KindSignatureMismatch, "The URL's authority %q %s, so there is no "+
-				"@authority to build and no signature base to check the signature against.", hostinfo, why)
+	if t.netloc != "" {
+		// Userinfo, if any, ends at the last "@".
+		return hostport(m, "URL's authority", t.netloc[strings.LastIndexByte(t.netloc, '@')+1:], t.scheme)
+	}
+	host, ok := m.headers["host"]
+	if !ok {
+		return "", &Error{
+			Kind: KindMissingComponent,
+			Message: `The signature covers "@authority", but the URL carries no authority and ` +
+				"the request has no Host header, so there is nothing to derive it from.",
+			Component: "@authority",
 		}
-		return invalidOptions("The URL's authority %q %s, so there is no @authority to sign.", hostinfo, why)
+	}
+	if err := checkVisible(host, "@authority"); err != nil {
+		return "", err
+	}
+	host = strings.Trim(host, " \t")
+	if strings.ContainsAny(host, "@,") {
+		return "", m.unbuildable(fmt.Sprintf("Host header %q", host), "is not a single host and optional port")
+	}
+	return hostport(m, "Host header", host, "")
+}
+
+// hostport is host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built.
+func hostport(m *message, where, hostinfo, scheme string) (string, error) {
+	unbuildable := func(why string) error {
+		return m.unbuildable(fmt.Sprintf("%s %q", where, hostinfo), why)
+	}
+	for i := 0; i < len(hostinfo); i++ {
+		if hostinfo[i] > '~' {
+			return "", unbuildable("is not ASCII")
+		}
 	}
 	var host, port string
 	if strings.HasPrefix(hostinfo, "[") {
@@ -366,7 +417,7 @@ func authority(m *message) (string, error) {
 	if strings.TrimLeft(port, "0123456789") != "" || err != nil || number > portMax {
 		return "", unbuildable("has a port that is not a number from 0 to 65535")
 	}
-	if number == defaultPorts[strings.ToLower(t.scheme)] {
+	if standard, ok := defaultPorts[scheme]; ok && number == standard {
 		return host, nil
 	}
 	return host + ":" + strconv.Itoa(number), nil
@@ -377,6 +428,7 @@ func authority(m *message) (string, error) {
 type message struct {
 	headers map[string]string
 	method  string
+	url     string
 	target  target
 	status  int
 	request *message
@@ -424,7 +476,7 @@ func canonicalMessage(method, rawURL string, canonical map[string]string, receiv
 		return nil, invalidOptions("The method %q is not an HTTP method: a method is one or more token "+
 			"characters, with no spaces, line breaks or separators; pass it as it goes on the wire.", method)
 	}
-	return &message{headers: canonical, method: method, target: splitURL(rawURL), received: received}, nil
+	return &message{headers: canonical, method: method, url: rawURL, target: splitURL(rawURL), received: received}, nil
 }
 
 func responseMessage(status int, headers map[string]string, request *Request, received bool) (*message, error) {
@@ -472,15 +524,23 @@ func componentValue(item componentID, m *message) (string, error) {
 	case "@authority":
 		return authority(m)
 	case "@path":
+		t, err := targetOf(m)
+		if err != nil {
+			return "", err
+		}
 		// An empty path is the "/" the origin server would have received.
-		if m.target.path == "" {
+		if t.path == "" {
 			return "/", nil
 		}
-		return m.target.path, nil
+		return t.path, nil
 	case "@query":
+		t, err := targetOf(m)
+		if err != nil {
+			return "", err
+		}
 		// Section 2.2.7: the whole query string including the leading "?", percent-encoding
 		// preserved, and a bare "?" when the request carries no query at all.
-		return "?" + m.target.query, nil
+		return "?" + t.query, nil
 	}
 	value, ok := m.headers[item.Name]
 	if !ok {
@@ -504,17 +564,25 @@ func valueOf(item componentID, m *message) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for i := 0; i < len(value); i++ {
-		if value[i] != '\t' && (value[i] < ' ' || value[i] > '~') {
-			return "", errorf(KindSignatureMismatch,
-				"The value of %s contains a line break, a control character or a non-ASCII "+
-					"character, so there is no signature base both sides would build from it.", item.spec())
-		}
+	if err := checkVisible(value, item.spec()); err != nil {
+		return "", err
 	}
 	if !strings.HasPrefix(item.Name, "@") {
 		value = strings.Trim(value, " \t")
 	}
 	return value, nil
+}
+
+// checkVisible refuses a value holding anything but visible ASCII, SP and HTAB.
+func checkVisible(value, spec string) error {
+	for i := 0; i < len(value); i++ {
+		if value[i] != '\t' && (value[i] < ' ' || value[i] > '~') {
+			return errorf(KindSignatureMismatch,
+				"The value of %s contains a line break, a control character or a non-ASCII "+
+					"character, so there is no signature base both sides would build from it.", spec)
+		}
+	}
+	return nil
 }
 
 // componentLines is every line of the signature base except the trailing @signature-params.

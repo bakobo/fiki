@@ -131,7 +131,7 @@ from fiki.errors import FikiError
 try:
     verdict = verify_request(
         method=request.method, url=request.url, headers=request.headers,
-        body=request.body, max_age=300,
+        body=request.body, max_age=300, authorities={"api.example.com"},
     )
 except FikiError as e:
     return 401, str(e)
@@ -147,6 +147,7 @@ import { verifyRequest, FikiError } from '@bakobo/fiki';
 
 const verdict = await verifyRequest({
   method, url, headers, body, maxAge: 300,
+  authorities: ['api.example.com'],  // the hosts this verifier serves, or null to decline the check
 });
 ```
 
@@ -155,7 +156,7 @@ const verdict = await verifyRequest({
 ```go
 maxAge := int64(300)
 verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
-    fiki.VerifyOptions{Body: body, MaxAge: &maxAge})
+    fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
 
 ### Rust
@@ -163,6 +164,7 @@ verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
 ```rust
 let verdict = verify_request(method, url, &headers, &VerifyOptions {
     max_age: Some(300),
+    authorities: Authorities::served(["api.example.com"]),
     body: Some(body.to_vec()),
     ..Default::default()
 })?;
@@ -172,7 +174,7 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 
 ```java
 Fiki.Verdict verdict = Fiki.verifyRequest(method, url, headers,
-    Fiki.VerifyOptions.maxAge(300).withBody(body));
+    Fiki.VerifyOptions.maxAge(300).withBody(body).withAuthorities(Set.of("api.example.com")));
 ```
 
 ### C#
@@ -182,7 +184,8 @@ Verdict verdict;
 try
 {
     verdict = HttpSignatures.VerifyRequest(method, url, headers,
-        VerifyOptions.MaxAge(300).WithBody(body));
+        VerifyOptions.MaxAge(300).WithBody(body)
+            .WithAuthorities(new[] { "api.example.com" }));   // the hosts this server answers for
 }
 catch (FikiException e)
 {
@@ -196,6 +199,31 @@ if (verdict.Aid != registeredAidForThisClient)
 ```
 
 A verdict carries the **AID that signed** and the **components the signature actually covered**. Comparing the AID against the one you registered is the authorization step, and it is yours: fiki tells you who signed, never whether they are allowed.
+
+### What a verifier requires by default
+
+From vectors format 3, a verifier refuses a signature that covers less than fiki's own signer does: the method, the host, the path and the query, plus a digest of the body whenever the request has one. A request counts as having a body when one is handed to fiki, or when its headers say so with a `Content-Length` above zero or any `Transfer-Encoding`, so a body you forgot to pass is still noticed. A signature without `created` is refused too, because an age that cannot be computed is a signature that replays forever. So is the empty covered list `sig=()`, which binds nothing. Each refusal is `InsufficientCoverage` or, for a missing `created`, `MalformedSignatureInput`, and each happens before the key is looked up.
+
+Before format 3, a verifier left at its defaults accepted all of these, and a signature that left out `@query` verified as readily as one that covered it, though it cannot tell `?limit=1` from `?limit=1000000`. The default is that floor, exported as `DEFAULT_MINIMUM` (Go: `DefaultMinimum`). A verifier that must accept a signer which covers less can name a smaller minimum of its own, as the KERI profile's verifiers do below, or opt out entirely: Python `minimum=None`, JavaScript `minimum: null`, Go `NoMinimum: true`, Rust `minimum: Minimum::Off`, Java `.withoutMinimum()`, C# `.WithoutMinimum()`. With no minimum, fiki checks what was signed and nothing more, and `verdict.covered` is the only place that shows what that was.
+
+### Stating the hosts you serve
+
+`authorities` is a required decision, like the freshness check: the hosts this verifier answers for, or an explicit refusal to check. A request signed for one service then cannot be replayed to another, even when both trust the same client key and share a path such as `POST /v1/transfer`.
+
+| Language | Serve these hosts | Decline |
+|---|---|---|
+| Python | `authorities={"api.example.com"}` | `authorities=None` |
+| JavaScript | `authorities: ['api.example.com']` | `authorities: null` |
+| Go | `Authorities: []string{"api.example.com"}` | `AnyAuthority: true` |
+| Rust | `authorities: Authorities::served(["api.example.com"])` | `authorities: Authorities::Unchecked` |
+| Java | `.withAuthorities(Set.of("api.example.com"))` | `.withoutAuthorityCheck()` |
+| C# | `.WithAuthorities(new[] { "api.example.com" })` | `.DecliningAuthorityCheck()` |
+
+Leaving it out is a mistake in the call, not a default, and so is a single string where a collection belongs: Python's `in` and JavaScript's `includes` read a string as a sequence of characters, so `"api.example.com"` would have admitted `example.com`. An empty collection serves no host at all and is refused for the same reason.
+
+Write each entry as fiki derives `@authority`: a lowercase host, and a port only when it is not the scheme's default. Entries are compared exactly, so `API.EXAMPLE.COM` or `api.example.com:443` never matches. The value compared is the request's own authority: the host and port of an absolute URL, or the `Host` header when the target is a path. A request target that begins with a slash is always a path, however many slashes follow, so `//evil.example/p` received at `victim.example` is the path `//evil.example/p` on `victim.example`. A `Host` header is held to the same rules as a URL's authority, so a port out of range, user information, or a list of hosts is refused rather than read.
+
+Covering `@authority` binds a signature to the host it names, but the sender controls the `Host` header, so without `authorities` a replay to another service fails only if that service's routing refuses a foreign `Host`. `authorities` makes it fail every time.
 
 ### Preregistration
 
@@ -362,9 +390,9 @@ The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of
 
 The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is shaped like an AID and is not its canonical spelling is `MalformedKey` before the resolver sees it. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
 
-Pass the minimum here as well. A verifier that enforces it refuses a signature over too little even when the signature is valid, refuses a body that arrived without a covered `content-digest`, and requires `created`. Without a minimum, fiki checks what was signed and applies no coverage policy of its own. `authorities` lists the `@authority` values this server answers for, so that a request signed for one service cannot be replayed to another.
+Pass the profile's minimum here. It is smaller than fiki's default, which also requires `@authority`, and naming it replaces the default rather than adding to it, so a profile signer that leaves `@authority` out is admitted. Like the default, it refuses a signature over too little even when the signature is valid, refuses a body that arrived without a covered `content-digest`, and requires `created`. `authorities` lists the `@authority` values this server answers for, so that a request signed for one service cannot be replayed to another.
 
-Supplying `authorities` makes `@authority` required, from 0.7.0 in every port. The profile's request minimum leaves `@authority` out, so a signature over the minimum commits to no host at all, and comparing a host it never covered would protect nothing: a GET signed for `attacker.example` would verify at `victim.example`. A verifier given `authorities` therefore refuses a request whose signature does not cover `@authority` as `InsufficientCoverage`, before it resolves the key, and refuses a covered `@authority` outside the set as `SignatureMismatch`, as before. A verifier given no `authorities` checks no host, unchanged.
+Supplying `authorities` makes `@authority` required, from 0.7.0 in every port. The profile's request minimum leaves `@authority` out, so a signature over the minimum commits to no host at all, and comparing a host it never covered would protect nothing: a GET signed for `attacker.example` would verify at `victim.example`. A verifier given `authorities` therefore refuses a request whose signature does not cover `@authority` as `InsufficientCoverage`, before it resolves the key, and refuses a covered `@authority` outside the set as `SignatureMismatch`, as before. A verifier that declines the check checks no host.
 
 ### Python
 
@@ -392,6 +420,7 @@ const verdict = await verifyRequest({
   method, url, headers, body,
   maxAge: 300,
   minimum: REQUEST_MINIMUM,
+  authorities: ['api.example.com'],  // or null to decline the check
   resolve: async (keyid) => keyState.get(keyid) ?? null,  // 32 raw bytes, or null
 });
 verdict.keyid;  // the AID the resolver vouched for; verdict.aid is the same
@@ -419,7 +448,7 @@ verdict, err := fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
 // verdict.Keyid is the AID the resolver vouched for; verdict.AID is the same.
 ```
 
-A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. Three fields distinguish nil from empty: a nil `Minimum` applies no minimum, a nil `Authorities` checks no authority while an empty one serves nothing, and a nil `Body` is no body while an empty one is a body of no bytes.
+A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. For a request, a nil `Minimum` applies `DefaultMinimum` and `NoMinimum: true` applies none; `Authorities` and `AnyAuthority: true` are the two ways to state the authority decision, and stating neither, both, or an empty list is `ErrInvalidOptions`. A nil `Body` is no body, while an empty one is a body of no bytes.
 
 ### Rust
 
@@ -437,7 +466,8 @@ let verdict = verify_request(
         max_age: Some(300),
         body: Some(body.to_vec()),
         resolve: Some(resolve),
-        minimum: Some(REQUEST_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+        authorities: Authorities::served(["keria.example.com"]),
         ..Default::default()
     },
 )?;
@@ -453,7 +483,7 @@ Map<String, byte[]> keyState = ...;   // each AID to the raw 32 bytes of its cur
 Fiki.Resolver resolver = keyid -> keyState.get(keyid);   // 32 raw bytes, or null if unknown
 Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
     Fiki.VerifyOptions.maxAge(300).withBody(body).withResolver(resolver)
-        .withMinimum(Fiki.REQUEST_MINIMUM));
+        .withMinimum(Fiki.REQUEST_MINIMUM).withAuthorities(Set.of("keria.example.com")));
 String signer = verdict.keyid();   // the AID the resolver vouched for
 ```
 
@@ -598,7 +628,7 @@ let verdict = verify_response(
         body: Some(br#"{"done": true}"#.to_vec()),
         resolve: Some(resolve),
         expected_keyid: Some("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6".into()),
-        minimum: Some(RESPONSE_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
         ..Default::default()
     },
 )?;

@@ -93,6 +93,11 @@ const RAW_KEYID = /^[A-Za-z0-9_-]{43}$/;
 export const REQUEST_MINIMUM = Object.freeze(['@method', '@path', '@query']);
 export const RESPONSE_MINIMUM = Object.freeze(['@status', req('@method'), req('@path'), req('@query')]);
 
+// What verifyRequest requires when the caller states no minimum of its own (@524c8qgv): fiki's own
+// signing default, so a verifier left at its defaults accepts what a fiki signer produces and
+// nothing that covers less. Pass `minimum: null` to opt out.
+export const DEFAULT_MINIMUM = Object.freeze(['@method', '@authority', '@path', '@query']);
+
 /** A body as bytes, normalized once at the boundary, or null when none was handed over.
  *
  * A Uint8Array, any other ArrayBufferView, an ArrayBuffer, or a string, which is encoded as UTF-8.
@@ -338,14 +343,20 @@ export async function signResponse({
  * names, or null when it names none, returning either directly or as a promise. Pass one or
  * neither.
  *
- * `minimum` is the verifier's covered-set policy, REQUEST_MINIMUM or a superset of it: a
- * signature covering less is refused even though it verifies, and so is a body — signalled by
- * `Content-Length` above zero, any `Transfer-Encoding`, or simply arriving — without a covered
- * `content-digest` (@7f28p7xk). `null` enforces no minimum, body rule included. `expectedKeyid`
- * refuses a signature by any other keyid as UnknownKey. `authorities` is the set of `@authority`
- * values this verifier serves; a covered `@authority` outside it is a SignatureMismatch, and
- * supplying it makes `@authority` required, so a signature that does not cover it is
- * InsufficientCoverage (@605z9tnw).
+ * `minimum` is the verifier's covered-set policy. Left out, it is DEFAULT_MINIMUM, fiki's own
+ * signing default (@524c8qgv); given, it is REQUEST_MINIMUM or a superset of it (a smaller one is a
+ * TypeError). A signature covering less is refused even though it verifies, and so is a body —
+ * signalled by `Content-Length` above zero, any `Transfer-Encoding`, or simply arriving — without a
+ * covered `content-digest` (@7f28p7xk); any minimum also requires `created`, and a `keyid` even
+ * beside `expectedAid`. `null` is the explicit opt-out: no minimum and no body rule.
+ *
+ * `authorities` has no default and must be given, like `maxAge` (@524c8qgv): an array or Set of the
+ * `@authority` values this verifier serves, or `null` to decline the check. A covered `@authority`
+ * outside it is a SignatureMismatch, because a request signed for one service must not replay to
+ * another, and supplying it makes `@authority` required even under `minimum: null`, so a signature
+ * that does not cover it is InsufficientCoverage (@605z9tnw). A string, an empty collection, or one
+ * holding anything but strings is a TypeError. `expectedKeyid` refuses a signature by any other
+ * keyid as UnknownKey.
  */
 export async function verifyRequest({
   method,
@@ -357,11 +368,13 @@ export async function verifyRequest({
   skew = DEFAULT_SKEW,
   now: at = null,
   resolve = null,
-  minimum = null,
+  minimum = DEFAULT_MINIMUM,
   expectedKeyid = null,
-  authorities = null,
+  authorities,
 }) {
   checkWindow(maxAge, skew, 'verifyRequest');
+  const served = checkAuthorities(authorities);
+  // Only `undefined` takes the default above; `null` is the opt-out, which floored passes through.
   const floor = floored(minimum, REQUEST_MINIMUM);
   headers = canonicalHeaders(headers);
   return verify(requestMessage(method, url, headers, { received: true }), headers, bodyBytes(body), {
@@ -374,9 +387,43 @@ export async function verifyRequest({
     resolve,
     minimum: floor,
     expectedKeyid,
-    authorities: authorities === null || authorities === undefined ? null : new Set(authorities),
+    authorities: served,
   });
 }
+
+/** authorities is null or a non-empty collection of strings, never a string (@524c8qgv).
+ *
+ * A string is itself iterable, so `new Set("api.example.com")` would be a set of characters (review
+ * A3); that, like leaving the decision out, is a mistake in the call.
+ */
+function checkAuthorities(authorities) {
+  if (authorities === undefined) {
+    throw new TypeError(
+      'verifyRequest requires authorities: the hosts this verifier serves, such as ' +
+        "['api.example.com'], or null to decline the check. There is no default, because a request " +
+        'signed for one service must not replay to another unless you say so.',
+    );
+  }
+  if (authorities === null) return null;
+  const text = typeof authorities === 'string' || authorities instanceof String;
+  if (text || typeof authorities[Symbol.iterator] !== 'function') {
+    throw new TypeError(
+      "authorities is a collection of the hosts this verifier serves, such as ['api.example.com'], " +
+        `or null; this one is ${shown(authorities)}.`,
+    );
+  }
+  const served = new Set(authorities);
+  if (served.size === 0) {
+    throw new TypeError('authorities is empty, which serves no host at all; pass null to decline the check.');
+  }
+  for (const host of served) {
+    if (typeof host !== 'string') throw new TypeError(`Every authority is a string; ${shown(host)} is not.`);
+  }
+  return served;
+}
+
+// A caller's value in a message about it: quoted when it is a string, so a control character shows.
+const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
 
 /** Verify a signed response to `request`, returning a verdict or throwing.
  *

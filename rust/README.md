@@ -33,12 +33,15 @@ By default the signature binds the method, the host, the path, the query string,
 ```rust
 let verdict = verify_request(method, url, &headers, &VerifyOptions {
     max_age: Some(300),             // or None to decline the check
+    authorities: Authorities::served(["api.example.com"]),  // or Authorities::Unchecked
     body: Some(body.to_vec()),
     ..Default::default()
 })?;
 ```
 
 `max_age` is an `Option<i64>` the caller fills in one way or the other: seconds of tolerance, or an explicit `None`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way. A `max_age` or `skew` you do give must be positive; zero or less is `Kind::InvalidArgument`. `skew: None` takes `DEFAULT_SKEW`, five seconds.
+
+`authorities` is a decision of the same kind, and is checked when `verify_request` runs because `..Default::default()` cannot make a field mandatory: `Authorities::served([...])` names the hosts this verifier answers for, `Authorities::Unchecked` declines the check, and leaving it `Unstated` is `Kind::InvalidArgument`. `minimum` defaults to `Minimum::Default`, which applies `DEFAULT_MINIMUM` (method, authority, path and query, plus the body's digest whenever there is a body, with `created` and `keyid` required); `Minimum::Off` is the explicit opt-out and `Minimum::Of(..)` a minimum of your own, no smaller than `REQUEST_MINIMUM`.
 
 `verdict.keyid` is the keyid exactly as it appeared on the wire, or `None` when the signature had none. `verdict.aid` is the identity that vouched for the key: the AID of a raw key, the keyid a resolver vouched for, or the AID of `expected_aid`.
 

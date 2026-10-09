@@ -5,14 +5,15 @@
 //! exists to prevent, which is why this file reaches up two directories rather than embedding
 //! anything.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
 use fiki::{
-    signature_base, verify_request, verifying_key, Key, SignatureParams, VerifyOptions,
-    VECTORS_FORMAT,
+    signature_base, verify_request, verifying_key, Authorities, Key, Kind, Minimum,
+    SignatureParams, Verdict, VerifyOptions, VECTORS_FORMAT,
 };
 use serde::Deserialize;
+use serde_json::Value;
 
 fn load<T: for<'de> Deserialize<'de>>(name: &str) -> T {
     let path = format!("{}/../vectors/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -63,6 +64,7 @@ struct BaseCase {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RequestCase {
     id: String,
     method: String,
@@ -71,6 +73,16 @@ struct RequestCase {
     body: Option<String>,
     max_age: Option<i64>,
     now: Option<i64>,
+    /// "default" leaves the minimum unstated, null is the explicit opt-out, a list is that minimum
+    /// (format 3, `this.i` @524c8qgv).
+    minimum: Value,
+    /// null declines the check, a list is the hosts served. Anything else is a shape this port's
+    /// types cannot express, which only misuse.json carries.
+    authorities: Value,
+    expected_aid: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    note: Option<String>,
     #[serde(default)]
     aid: String,
     /// The keyid as it arrived, which format 2 pins on every accept case (`this.i` @5zrf8gjk).
@@ -80,16 +92,94 @@ struct RequestCase {
     covered: Vec<String>,
     #[serde(default)]
     error: String,
+    /// The policy fields a misuse case leaves out of the call altogether.
+    #[serde(default)]
+    omit: Vec<String>,
+}
+
+/// Every field a verify case carries is required, so a vector that drops one fails here rather than
+/// being read as a default; one this driver does not know fails through `deny_unknown_fields`
+/// (review V-M8).
+const REQUIRED: [&str; 10] = [
+    "id",
+    "method",
+    "url",
+    "headers",
+    "body",
+    "max_age",
+    "now",
+    "minimum",
+    "authorities",
+    "expected_aid",
+];
+
+fn verify_cases(name: &str) -> Vec<RequestCase> {
+    let file: File<Value> = load(name);
+    assert!(file.cases.len() > 5, "{name} has almost no cases");
+    file.cases
+        .into_iter()
+        .map(|raw| {
+            for field in REQUIRED {
+                assert!(
+                    raw.get(field).is_some(),
+                    "{name}: a case without {field}: {raw}"
+                );
+            }
+            serde_json::from_value(raw.clone()).unwrap_or_else(|e| panic!("{name}: {e}: {raw}"))
+        })
+        .collect()
 }
 
 impl RequestCase {
-    fn options(&self) -> VerifyOptions {
-        VerifyOptions {
+    /// The verifier's stated policy, or `Err` when the case's `authorities` is a shape
+    /// `Authorities` cannot hold, such as a bare string or a list holding a number.
+    fn options(&self) -> Result<VerifyOptions, String> {
+        let omitted = |field: &str| self.omit.iter().any(|f| f == field);
+        for field in &self.omit {
+            if !["minimum", "authorities", "expected_aid"].contains(&field.as_str()) {
+                return Err(format!(
+                    "omit names {field:?}, which this driver does not know"
+                ));
+            }
+        }
+        let minimum = match &self.minimum {
+            _ if omitted("minimum") => Minimum::Default,
+            Value::String(s) if s == "default" => Minimum::Default,
+            Value::Null => Minimum::Off,
+            list => Minimum::Of(
+                serde_json::from_value(list.clone()).map_err(|e| format!("minimum: {e}"))?,
+            ),
+        };
+        let authorities = match &self.authorities {
+            _ if omitted("authorities") => Authorities::Unstated,
+            Value::Null => Authorities::Unchecked,
+            hosts => Authorities::Served(
+                serde_json::from_value::<BTreeSet<String>>(hosts.clone())
+                    .map_err(|e| format!("authorities {hosts} is not a set of hosts: {e}"))?,
+            ),
+        };
+        Ok(VerifyOptions {
             max_age: self.max_age,
             body: self.body.as_ref().map(|b| b.as_bytes().to_vec()),
             now: self.now,
+            minimum,
+            authorities,
+            expected_aid: if omitted("expected_aid") {
+                None
+            } else {
+                self.expected_aid.clone()
+            },
             ..Default::default()
-        }
+        })
+    }
+
+    fn verify(&self) -> Result<Result<Verdict, fiki::Error>, String> {
+        Ok(verify_request(
+            &self.method,
+            &self.url,
+            &self.headers,
+            &self.options()?,
+        ))
     }
 }
 
@@ -108,6 +198,7 @@ fn this_port_satisfies_the_vectors_format_it_is_running() {
         "signature-base.json",
         "accepts.json",
         "refusals.json",
+        "misuse.json",
     ] {
         let header: FormatHeader = load(name);
         assert_eq!(header.vectors_format, VECTORS_FORMAT, "{name}");
@@ -211,12 +302,12 @@ fn each<T>(cases: Vec<T>, id: impl Fn(&T) -> String, check: impl Fn(&T) -> Resul
 
 #[test]
 fn accepts() {
-    let file: File<RequestCase> = load("accepts.json");
     each(
-        file.cases,
+        verify_cases("accepts.json"),
         |c| c.id.clone(),
         |case| {
-            let verdict = verify_request(&case.method, &case.url, &case.headers, &case.options())
+            let verdict = case
+                .verify()?
                 .map_err(|e| format!("should verify: {}: {e}", e.kind))?;
             if verdict.aid != case.aid {
                 return Err(format!("aid {}", verdict.aid));
@@ -235,16 +326,44 @@ fn accepts() {
 
 #[test]
 fn refusals() {
-    let file: File<RequestCase> = load("refusals.json");
     // Every entry names the kind fiki reports, so this port maps its own onto the same condition
     // rather than inventing a taxonomy of its own.
     each(
-        file.cases,
+        verify_cases("refusals.json"),
         |c| c.id.clone(),
-        |case| match verify_request(&case.method, &case.url, &case.headers, &case.options()) {
+        |case| match case.verify()? {
             Ok(_) => Err(format!("accepted; expected {}", case.error)),
             Err(e) if e.kind.to_string() == case.error => Ok(()),
             Err(e) => Err(format!("{}: {e}; expected {}", e.kind, case.error)),
+        },
+    );
+}
+
+#[test]
+fn misuse() {
+    // A mistake in the call is InvalidArgument, never one of the kinds a message earns
+    // (`this.i` @5zrf8gjk). Two of these cases, a bare string and a list holding a number, are
+    // mistakes Rust's types refuse before the program runs: `Authorities` holds a set of
+    // `String`s and `Authorities::served` takes no `&str`. For those the driver asserts that the
+    // vector's value cannot become an `Authorities` at all, which is this port's form of the
+    // refusal.
+    each(
+        verify_cases("misuse.json"),
+        |c| c.id.clone(),
+        |case| {
+            if case.error != "caller" {
+                return Err(format!("error {:?}, expected \"caller\"", case.error));
+            }
+            let options = match case.options() {
+                Ok(options) => options,
+                Err(why) if why.starts_with("authorities ") => return Ok(()),
+                Err(why) => return Err(why),
+            };
+            match verify_request(&case.method, &case.url, &case.headers, &options) {
+                Ok(_) => Err("accepted; expected InvalidArgument".into()),
+                Err(e) if e.kind == Kind::InvalidArgument => Ok(()),
+                Err(e) => Err(format!("{}: {e}; expected InvalidArgument", e.kind)),
+            }
         },
     );
 }

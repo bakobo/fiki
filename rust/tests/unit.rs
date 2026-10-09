@@ -5,9 +5,20 @@
 use std::collections::BTreeMap;
 
 use fiki::{
-    content_digest, sign_request, signature_base, verify_request, verifying_key, Key, Kind,
-    SignOptions, SignatureParams, VerifyOptions,
+    content_digest, sign_request, signature_base, verify_request, verifying_key, Authorities, Key,
+    Kind, Minimum, SignOptions, SignatureParams, VerifyOptions,
 };
+
+/// The policy fiki 0.8 applied when a caller stated none: no minimum and no authority check.
+/// Format 3 makes a minimum the default and authorities a required decision (`this.i` @524c8qgv),
+/// so a test whose subject is something else states that policy rather than relying on it.
+fn opted_out() -> VerifyOptions {
+    VerifyOptions {
+        minimum: Minimum::Off,
+        authorities: Authorities::Unchecked,
+        ..Default::default()
+    }
+}
 
 const SEED_AID: &str = "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4";
 const URL_QUERY: &str = "https://api.example.com/things?limit=1&sort=name";
@@ -155,10 +166,20 @@ fn derived_components() {
         ),
         r#""content-type": application/json"#
     );
-    // A fragment is not part of the request target and never reaches the base.
+    // A request target has no fragment, so a URL carrying one is refused rather than stripped
+    // (`this.i`, "Host is validated like any authority, ... a fragment is refused"): a caller error
+    // when signing. Format 3 changed this expectation; it used to be stripped.
     assert_eq!(
-        line("@path", "GET", "https://example.com/f#frag", &[]),
-        r#""@path": /f"#
+        signature_base(
+            "GET",
+            "https://example.com/f#frag",
+            &BTreeMap::new(),
+            &["@path".to_string()],
+            &params()
+        )
+        .unwrap_err()
+        .kind,
+        Kind::InvalidArgument
     );
     // A host with a non-numeric suffix after the colon is not a port.
     assert_eq!(
@@ -181,8 +202,9 @@ fn derived_components() {
         r#""@path": /a/../b/./%7Ec:d"#
     );
     assert_eq!(
-        line("@query", "GET", "https://x.example/f?a=%2f&b= c", &[]),
-        r#""@query": ?a=%2f&b= c"#
+        // A literal space was here until format 3, which refuses one anywhere in a target.
+        line("@query", "GET", "https://x.example/f?a=%2f&b=%20c", &[]),
+        r#""@query": ?a=%2f&b=%20c"#
     );
 }
 
@@ -255,7 +277,7 @@ fn sign_and_verify_round_trip() {
         &out,
         &VerifyOptions {
             body: Some(BODY.to_vec()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -307,7 +329,7 @@ fn a_chosen_covered_set_including_the_digest_signs_a_body() {
         &out,
         &VerifyOptions {
             body: Some(BODY.to_vec()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -340,7 +362,7 @@ fn a_caller_supplied_digest_is_used_rather_than_recomputed() {
         &all,
         &VerifyOptions {
             body: Some(BODY.to_vec()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -362,7 +384,7 @@ fn signing_without_a_created_uses_the_wall_clock() {
         &out,
         &VerifyOptions {
             max_age: Some(300),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -377,7 +399,7 @@ fn an_expected_aid_is_authoritative_over_the_inline_keyid() {
         &out,
         &VerifyOptions {
             expected_aid: Some(k.aid()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -388,7 +410,7 @@ fn an_expected_aid_is_authoritative_over_the_inline_keyid() {
         &out,
         &VerifyOptions {
             expected_aid: Some(stranger),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap_err();
@@ -404,7 +426,7 @@ fn a_malformed_expected_aid_is_refused() {
         &out,
         &VerifyOptions {
             expected_aid: Some("nope".into()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap_err();
@@ -418,7 +440,7 @@ fn a_covered_component_the_verifier_cannot_build_is_refused() {
         "Signature-Input".into(),
         out["Signature-Input"].replacen(r#"("@method""#, r#"("@target-uri""#, 1),
     );
-    let err = verify_request("POST", URL_QUERY, &out, &VerifyOptions::default()).unwrap_err();
+    let err = verify_request("POST", URL_QUERY, &out, &opted_out()).unwrap_err();
     assert_eq!(err.kind, Kind::UnsupportedComponent);
 }
 
@@ -473,7 +495,7 @@ fn digest_handling() {
             &all,
             &VerifyOptions {
                 body: Some(BODY.to_vec()),
-                ..Default::default()
+                ..opted_out()
             },
         );
         match expected {
@@ -535,7 +557,7 @@ fn a_sha512_digest_is_computed_and_compared() {
         &all,
         &VerifyOptions {
             body: Some(BODY.to_vec()),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap();
@@ -553,7 +575,7 @@ fn freshness() {
                 max_age,
                 skew,
                 now: Some(now),
-                ..Default::default()
+                ..opted_out()
             },
         )
     };
@@ -586,7 +608,7 @@ fn expires_is_enforced_even_when_max_age_is_declined() {
         &out,
         &VerifyOptions {
             now: Some(SIGNED_AT + 30),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .expect("before its expiry");
@@ -596,7 +618,7 @@ fn expires_is_enforced_even_when_max_age_is_declined() {
         &out,
         &VerifyOptions {
             now: Some(SIGNED_AT + 66),
-            ..Default::default()
+            ..opted_out()
         },
     )
     .unwrap_err();
@@ -616,7 +638,92 @@ fn a_request_signed_with_a_lowercase_method_does_not_verify_as_uppercase() {
         },
     )
     .unwrap();
-    verify_request("post", URL_QUERY, &out, &VerifyOptions::default()).unwrap();
-    let err = verify_request("POST", URL_QUERY, &out, &VerifyOptions::default()).unwrap_err();
+    verify_request("post", URL_QUERY, &out, &opted_out()).unwrap();
+    let err = verify_request("POST", URL_QUERY, &out, &opted_out()).unwrap_err();
     assert_eq!(err.kind, Kind::SignatureMismatch);
+}
+
+#[test]
+fn a_target_is_origin_form_or_absolute_with_an_authority() {
+    // `this.i` @524c8qgv, "A target beginning with a slash is origin-form": a caller error when
+    // signing, whatever else is wrong with it.
+    let host = [("Host", "api.example.com")];
+    for url in [
+        "http:/x",
+        "https:///x",
+        "https://?q",
+        "mailto:x",
+        "api.example.com:443",
+        "*",
+        "://api.example.com/x",
+        "1http://api.example.com/x",
+        "",
+        "/x#",
+    ] {
+        let err = signature_base(
+            "GET",
+            url,
+            &headers(&host),
+            &["@path".to_string()],
+            &params(),
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, Kind::InvalidArgument, "{url:?}");
+    }
+    // A target beginning with a slash is a path however many slashes follow, so "//evil.example"
+    // is not an authority and Host stays the authority.
+    assert_eq!(
+        line("@path", "GET", "//evil.example/p?q", &host),
+        r#""@path": //evil.example/p"#
+    );
+    assert_eq!(
+        line("@authority", "GET", "//evil.example/p", &host),
+        r#""@authority": api.example.com"#
+    );
+    // Host keeps its port, even one that would be a default, since without a scheme none is.
+    assert_eq!(
+        line(
+            "@authority",
+            "GET",
+            "/p",
+            &[("Host", "API.example.com:443")]
+        ),
+        r#""@authority": api.example.com:443"#
+    );
+    // A component read from no part of the target does not need it to be readable.
+    assert_eq!(line("@method", "GET", "http:/x", &[]), r#""@method": GET"#);
+    for bad in [
+        "api.example.com:65536",
+        "a@api.example.com",
+        "a.example, b.example",
+        "[::g]",
+    ] {
+        let err = signature_base(
+            "GET",
+            "/p",
+            &headers(&[("Host", bad)]),
+            &["@authority".to_string()],
+            &params(),
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, Kind::InvalidArgument, "{bad:?}");
+    }
+}
+
+#[test]
+fn authorities_built_from_a_list_of_hosts() {
+    assert_eq!(
+        fiki::Authorities::served(["api.example.com", "b.example"]),
+        fiki::Authorities::Served(
+            ["api.example.com".to_string(), "b.example".to_string()]
+                .into_iter()
+                .collect()
+        )
+    );
+    assert_eq!(fiki::Minimum::default(), fiki::Minimum::Default);
+    assert_eq!(fiki::Authorities::default(), fiki::Authorities::Unstated);
+    assert_eq!(
+        fiki::DEFAULT_MINIMUM,
+        ["@method", "@authority", "@path", "@query"]
+    );
 }

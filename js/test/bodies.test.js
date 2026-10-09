@@ -19,6 +19,12 @@ import {
   verifyResponse,
 } from '../src/index.js';
 
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
+
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const URL_ = 'https://keria.example.com/identifiers?type=rot';
 const TEXT = '{"hello": "world"}';
@@ -39,14 +45,14 @@ describe('bodies of every accepted type', () => {
     it(`signs and verifies ${id} as the same bytes`, async () => {
       const headers = await signRequest({ key: KEY, method: 'POST', url: URL_, body, created: AT });
       for (const [, other] of shapes(BYTES)) {
-        await verifyRequest({ method: 'POST', url: URL_, headers, body: other, maxAge: null, minimum: REQUEST_MINIMUM });
+        await verifyRequest({ ...POLICY, method: 'POST', url: URL_, headers, body: other, maxAge: null, minimum: REQUEST_MINIMUM });
       }
     });
 
     it(`refuses ${id} arriving under a signature that does not cover it`, async () => {
       const headers = await signRequest({ key: KEY, method: 'POST', url: URL_, created: AT });
       await assert.rejects(
-        () => verifyRequest({ method: 'POST', url: URL_, headers, body, maxAge: null, minimum: REQUEST_MINIMUM }),
+        () => verifyRequest({ ...POLICY, method: 'POST', url: URL_, headers, body, maxAge: null, minimum: REQUEST_MINIMUM }),
         errors.InsufficientCoverage,
       );
     });
@@ -81,7 +87,7 @@ describe('bodies of every accepted type', () => {
   it('treats an empty body of any type as no content', async () => {
     const headers = await signRequest({ key: KEY, method: 'GET', url: URL_, created: AT });
     for (const [, body] of shapes(new Uint8Array(0))) {
-      await verifyRequest({ method: 'GET', url: URL_, headers, body, maxAge: null, minimum: REQUEST_MINIMUM });
+      await verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, body, maxAge: null, minimum: REQUEST_MINIMUM });
     }
   });
 
@@ -94,7 +100,7 @@ describe('bodies of every accepted type', () => {
     it(`refuses ${id} as a body with a TypeError rather than treating it as absent`, async () => {
       await assert.rejects(() => signRequest({ key: KEY, method: 'POST', url: URL_, body, created: AT }), TypeError);
       const headers = await signRequest({ key: KEY, method: 'GET', url: URL_, created: AT });
-      await assert.rejects(() => verifyRequest({ method: 'GET', url: URL_, headers, body, maxAge: null }), TypeError);
+      await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, body, maxAge: null }), TypeError);
       const request = { method: 'GET', url: URL_ };
       const response = await signResponse({ key: KEY, status: 200, request, created: AT });
       await assert.rejects(() => verifyResponse({ status: 200, headers: response, body, request, maxAge: null }), TypeError);

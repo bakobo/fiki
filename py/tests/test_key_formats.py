@@ -39,7 +39,8 @@ def _echoes(error: MalformedKey, text: str) -> bool:
     """Whether ``error`` carries ``text``, or any run of it long enough to hold key material."""
     message = str(error)
     runs = re.findall(r"[A-Za-z0-9+/=_-]{12,}", text)
-    return bool(error.keyid) or any(run in message for run in runs) or (len(text) >= 12 and text in message)
+    whole = len(text) >= 12 and text in message
+    return bool(error.keyid) or any(run in message for run in runs) or whole
 
 
 @pytest.mark.parametrize("case", _cases("public", "refusals"))
@@ -145,6 +146,7 @@ def test_an_ssh_key_signs_a_request_that_verifies_against_its_registered_public_
     key = Key.from_openssh(private["input"])
     headers = sign_request(key=key, method="GET", url="https://example.com/x")
     verdict = verify_request(
+        authorities=None,
         method="GET", url="https://example.com/x", headers=headers, max_age=60,
         expected_aid=aid_from(public["input"]),
     )

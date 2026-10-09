@@ -173,8 +173,16 @@ class KeriVectorsTest {
         }
         return Fiki.verifyRequest(request.get("method").asText(), request.get("url").asText(),
             headers(request.get("headers")),
-            common.withBody(body(request)).withMinimum(strings(policy.get("request_minimum")))
-                .withAuthorities(authorities == null ? null : new HashSet<>(strings(authorities))));
+            withAuthorities(common.withBody(body(request)).withMinimum(strings(policy.get("request_minimum"))),
+                authorities));
+    }
+
+    /**
+     * The file's policy names no authorities unless a case adds them, which is the KERI generator's
+     * authorities=None: the check declined, stated explicitly as format 3 requires (@524c8qgv).
+     */
+    private static Fiki.VerifyOptions withAuthorities(Fiki.VerifyOptions opts, JsonNode authorities) {
+        return authorities == null ? opts.withoutAuthorityCheck() : opts.withAuthorities(strings(authorities));
     }
 
     private static Fiki.Verdict run(JsonNode c, JsonNode data) {

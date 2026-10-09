@@ -1,8 +1,14 @@
 {
   "about": "Signature bases and the signatures over them, byte for byte.",
-  "vectors_format": 2,
+  "vectors_format": 3,
   "generated_by": "vectors/generate.py",
   "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
     "@method",
     "@authority",
     "@path",
@@ -245,6 +251,27 @@
       "signature": "Qk9PQRR5r8DVK4AQeofYiAOXgQFo+XLuI9dVOcFMLnhnUFmRXcdJHdT6n1ENUDCbYACECQpnCaerCZS3R9xnAg==",
       "alg": "ed25519",
       "note": "RFC 9110 section 5.5: SP and HTAB around a field value are not part of it."
+    },
+    {
+      "id": "origin-form-path-with-a-leading-double-slash",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "//evil.example/p?x=1",
+      "headers": {
+        "Host": "victim.example"
+      },
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "base": "\"@method\": GET\n\"@authority\": victim.example\n\"@path\": //evil.example/p\n\"@query\": ?x=1\n\"@signature-params\": (\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+      "signature": "41no2adgv6iwGpgLLVqHcRz6IOkVApmR2+RC3Y+udVVlCzoS2Yigu1LNYv4MnEjea45s0Agu22shPfuLY2CABQ==",
+      "alg": "ed25519",
+      "note": "A target that begins with a slash is origin-form (RFC 9112 section 3.2.1): @path is //evil.example/p and @authority is the Host header (@524c8qgv). Read as a network-path reference, the sender would choose the authority."
     }
   ]
 }

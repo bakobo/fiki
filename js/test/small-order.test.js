@@ -11,6 +11,12 @@ import { describe, it } from 'node:test';
 import { errors, toAid, verifyRequest, verifyingKey } from '../src/index.js';
 import { SMALL_ORDER } from '../src/keys.js';
 
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
+
 const IDENTITY = new Uint8Array(32);
 IDENTITY[0] = 1;
 // The order-8 point libsodium lists first, with its sign bit set: a second, independent case.
@@ -29,7 +35,7 @@ function forged(keyid) {
   };
 }
 
-const verify = (headers, overrides = {}) => verifyRequest({ method: 'GET', url: URL_, headers, maxAge: null, ...overrides });
+const verify = (headers, overrides = {}) => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null, ...overrides });
 
 // --- an independent oracle for the blocklist: each entry decodes to a point whose order divides 8 ---
 

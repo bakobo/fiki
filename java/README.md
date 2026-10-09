@@ -27,14 +27,16 @@ By default the signature binds the method, the host, the path, the query string,
 
 ```java
 Fiki.Verdict verdict = Fiki.verifyRequest(method, url, headers,
-    Fiki.VerifyOptions.maxAge(300).withBody(body));
+    Fiki.VerifyOptions.maxAge(300).withBody(body).withAuthorities(Set.of("api.example.com")));
 ```
 
 There is no `VerifyOptions` constructor that leaves the freshness policy unstated: it is either `maxAge(seconds)` or `decliningFreshness()`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the choice exists to prevent. An `expires` the signer declared is enforced either way.
 
+The authorities a request verifier serves are a required decision too (@524c8qgv): `withAuthorities(collection)` names the hosts, compared exactly with the derived `@authority`, and `withoutAuthorityCheck()` declines the check. `verifyRequest` refuses options that state neither with an `IllegalArgumentException`, as it refuses an empty collection or one holding anything but strings. A minimum left unstated is `Fiki.DEFAULT_MINIMUM`, fiki's own signing default, so a verifier at its defaults accepts what a fiki signer produces and nothing that covers less; `withoutMinimum()` opts out.
+
 ## The KERI profile
 
-The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 4` beside `Fiki.VECTORS_FORMAT = 2`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
+The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 4` beside `Fiki.VECTORS_FORMAT = 3`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
 
 ```java
 Map<String, String> headers = Fiki.signRequest(key, "POST", url, Map.of(),
@@ -43,7 +45,8 @@ Map<String, String> headers = Fiki.signRequest(key, "POST", url, Map.of(),
 Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
     Fiki.VerifyOptions.maxAge(300).withBody(body)
         .withResolver(keyid -> keyState.get(keyid))      // 32 raw bytes, or null if unknown
-        .withMinimum(Fiki.REQUEST_MINIMUM));
+        .withMinimum(Fiki.REQUEST_MINIMUM)
+        .withAuthorities(Set.of("keria.example.com")));
 ```
 
 ## Differences from the Python port

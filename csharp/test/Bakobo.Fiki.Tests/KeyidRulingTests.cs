@@ -23,7 +23,7 @@ namespace Bakobo.Fiki.Tests
                 .ToDictionary(h => h.Key, h => h.Value);
             var keyId = signed["Signature-Input"].Split(new[] { ";keyid=\"" }, StringSplitOptions.None)[1].Split('"')[0];
             signed["Signature-Input"] = signed["Signature-Input"].Replace($";keyid=\"{keyId}\"", "");
-            var options = VerifyOptions.DecliningFreshness().WithBody(Body).WithExpectedAid(Signer.Aid);
+            var options = Verifying.DecliningFreshness().WithBody(Body).WithExpectedAid(Signer.Aid);
 
             // Without a minimum RFC 9421 lets the key be named instead: the keyid-less base was not
             // what was signed, so this reaches the signature and fails there.
@@ -46,7 +46,7 @@ namespace Bakobo.Fiki.Tests
             signed["Signature-Input"] = signed["Signature-Input"].Replace(";keyid=\"k\"", "");
             var request = new Request("GET", Url);
             Assert.Equal(FikiErrorKind.MissingKey, Assert.Throws<FikiException>(() => HttpSignatures.VerifyResponse(204, signed,
-                VerifyOptions.DecliningFreshness().WithExpectedAid(Signer.Aid).WithMinimum(new[] { "@status" }.Concat(HttpSignatures.ResponseMinimum.Skip(1))).WithRequest(request))).Kind);
+                Verifying.DecliningFreshness().WithExpectedAid(Signer.Aid).WithMinimum(new[] { "@status" }.Concat(HttpSignatures.ResponseMinimum.Skip(1))).WithRequest(request))).Kind);
         }
     }
 }

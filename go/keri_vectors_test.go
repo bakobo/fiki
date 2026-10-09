@@ -234,7 +234,10 @@ func keriVerify(request keriMessage, response *keriMessage, now int64, policy ke
 	}
 	opts.Body = request.body()
 	opts.Minimum = policy.RequestMinimum
+	// The KERI profile's policy names authorities only where a case does; elsewhere it declines
+	// the check, which format 3 requires saying aloud (@524c8qgv).
 	opts.Authorities = policy.Authorities
+	opts.AnyAuthority = policy.Authorities == nil
 	return VerifyRequest(request.Method, request.URL, request.Headers, opts)
 }
 

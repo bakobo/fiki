@@ -151,7 +151,7 @@ namespace Bakobo.Fiki.Tests
                 return value;
             }
 
-            var options = VerifyOptions.MaxAge(Policy("max_age", out _).GetInt64())
+            var options = Verifying.MaxAge(Policy("max_age", out _).GetInt64())
                 .WithSkew(Policy("skew", out _).GetInt64())
                 .WithNow(now)
                 .WithResolver(Resolver(keys));

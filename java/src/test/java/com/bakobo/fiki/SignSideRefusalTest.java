@@ -45,7 +45,7 @@ class SignSideRefusalTest {
     void ordinaryStringsAndLabelsStillSign() {
         Map<String, String> out = sign(Fiki.SignOptions.none().withCreated(1).withNonce("n o~\"\\").withTag("app")
             .withLabel("*sig-1._x"));
-        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, out, Fiki.VerifyOptions.decliningFreshness()).aid());
+        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, out, OptedOut.decliningFreshness()).aid());
     }
 
     @Test
@@ -58,7 +58,7 @@ class SignSideRefusalTest {
         assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(-1)));
         Map<String, String> edge = sign(Fiki.SignOptions.none().withCreated(999_999_999_999_999L)
             .withExpires(0));
-        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, edge, Fiki.VerifyOptions.decliningFreshness()
+        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, edge, OptedOut.decliningFreshness()
             .withNow(0)).aid());
     }
 }

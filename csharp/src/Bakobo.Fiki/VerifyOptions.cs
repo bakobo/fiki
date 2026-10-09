@@ -47,6 +47,12 @@ namespace Bakobo.Fiki
 
         internal IReadOnlyList<string>? Minimum { get; private set; }
 
+        /// <summary>True once <see cref="WithMinimum"/> or <see cref="WithoutMinimum"/> has been called.</summary>
+        internal bool MinimumStated { get; private set; }
+
+        /// <summary>True once <see cref="WithAuthorities(IEnumerable{string})"/> or <see cref="DecliningAuthorityCheck"/> has been called.</summary>
+        internal bool AuthoritiesStated { get; private set; }
+
         internal string? ExpectedKeyId { get; private set; }
 
         internal ICollection<string>? Authorities { get; private set; }
@@ -111,12 +117,30 @@ namespace Bakobo.Fiki
         /// The verifier's own covered-set policy: <see cref="HttpSignatures.RequestMinimum"/> or
         /// <see cref="HttpSignatures.ResponseMinimum"/>, or a superset (a smaller one is an
         /// ArgumentException). A signature covering less is refused even though it verifies, and so
-        /// is a body without a covered content-digest. A minimum also makes <c>created</c> required.
+        /// is a body without a covered content-digest. A minimum also makes <c>created</c> required,
+        /// and a keyid even beside <see cref="WithExpectedAid"/>. Unstated, a request is held to
+        /// <see cref="HttpSignatures.DefaultMinimum"/> (this.i @524c8qgv) and a response to none;
+        /// <see cref="WithoutMinimum"/> opts out.
         /// </summary>
         public VerifyOptions WithMinimum(IEnumerable<string> minimum)
         {
             var copy = Copy();
             copy.Minimum = new List<string>(minimum);
+            copy.MinimumStated = true;
+            return copy;
+        }
+
+        /// <summary>
+        /// Enforce no minimum covered set, not even <see cref="HttpSignatures.DefaultMinimum"/>, and
+        /// so no body rule: a body with no covered content-digest is accepted, and the verdict's
+        /// <see cref="Verdict.Covered"/> is the only place that shows it (@2f227n4r). The explicit
+        /// opt-out, distinct from leaving the minimum unstated (this.i @524c8qgv).
+        /// </summary>
+        public VerifyOptions WithoutMinimum()
+        {
+            var copy = Copy();
+            copy.Minimum = null;
+            copy.MinimumStated = true;
             return copy;
         }
 
@@ -128,11 +152,56 @@ namespace Bakobo.Fiki
             return copy;
         }
 
-        /// <summary>The @authority values this verifier serves; a covered authority outside them is a SignatureMismatch, and supplying them makes @authority required, so a signature that does not cover it is InsufficientCoverage (@605z9tnw). Requests only.</summary>
+        /// <summary>
+        /// The @authority values this verifier serves, compared exactly with the derived one: a
+        /// covered authority outside them is a SignatureMismatch, because a request signed for one
+        /// service must not replay to another (@2f227n4r), and supplying them makes @authority
+        /// required, so a signature that does not cover it is InsufficientCoverage (@605z9tnw).
+        /// Requests only. Verifying a request needs this or <see cref="DecliningAuthorityCheck"/>:
+        /// the decision has no default (this.i @524c8qgv).
+        /// </summary>
+        /// <exception cref="ArgumentException">The collection is null or empty, or holds a null.</exception>
         public VerifyOptions WithAuthorities(IEnumerable<string> authorities)
         {
+            if (authorities == null)
+            {
+                throw new ArgumentNullException(nameof(authorities), "authorities is a collection of the hosts this verifier serves; call DecliningAuthorityCheck to decline the check.");
+            }
+            var served = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var host in authorities)
+            {
+                served.Add(host ?? throw new ArgumentException("Every authority is a host; this collection holds a null.", nameof(authorities)));
+            }
+            if (served.Count == 0)
+            {
+                throw new ArgumentException("authorities is empty, which serves no host at all; call DecliningAuthorityCheck to decline the check.", nameof(authorities));
+            }
             var copy = Copy();
-            copy.Authorities = new HashSet<string>(authorities, StringComparer.Ordinal);
+            copy.Authorities = served;
+            copy.AuthoritiesStated = true;
+            return copy;
+        }
+
+        /// <summary>
+        /// Not callable: one host is <c>new[] { host }</c>. A string where a collection of hosts
+        /// belongs is a mistake in the call (this.i @524c8qgv), which this overload turns into a
+        /// compile error rather than a substring test.
+        /// </summary>
+        /// <exception cref="ArgumentException">Always, when reached by reflection or dynamic dispatch.</exception>
+        [Obsolete("authorities is a collection of hosts, such as new[] { \"api.example.com\" }, never a single string.", error: true)]
+        public VerifyOptions WithAuthorities(string authorities) =>
+            throw new ArgumentException($"authorities is a collection of the hosts this verifier serves, such as new[] {{ \"{authorities}\" }}, never a single string.", nameof(authorities));
+
+        /// <summary>
+        /// Decline the served-authority check, because the host a request was signed for is
+        /// checked elsewhere or does not matter. The explicit alternative to
+        /// <see cref="WithAuthorities(IEnumerable{string})"/> (this.i @524c8qgv).
+        /// </summary>
+        public VerifyOptions DecliningAuthorityCheck()
+        {
+            var copy = Copy();
+            copy.Authorities = null;
+            copy.AuthoritiesStated = true;
             return copy;
         }
 

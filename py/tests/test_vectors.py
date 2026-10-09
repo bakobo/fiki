@@ -34,7 +34,8 @@ def cases(name: str):
     return [pytest.param(case, id=case["id"]) for case in data["cases"]]
 
 
-@pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json"])
+@pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json",
+                                  "misuse.json"])
 def test_this_port_satisfies_the_vectors_format_it_is_running(name):
     """A port running newer vectors fails here rather than passing a subset (@4fhrre0m).
 
@@ -101,6 +102,48 @@ def test_signature_vectors(case):
     assert base64.b64encode(signature).decode("ascii") == case["signature"]
 
 
+# Every field a verify case may carry. A field this driver does not know fails the case rather
+# than being ignored, so a field added to the vectors cannot be silently dropped by a port that
+# never learned it (review V-M8).
+_VERIFY_FIELDS = {"id", "method", "url", "headers", "body", "max_age", "now", "minimum",
+                  "authorities", "expected_aid", "note", "error", "aid", "keyid", "covered",
+                  "omit"}
+
+
+def _policy(case) -> dict:
+    """The verifier's stated policy (format 3, @524c8qgv): "default" is the port's own default,
+    null the explicit opt-out, a list that minimum. authorities is always stated."""
+    assert set(case) <= _VERIFY_FIELDS, f"unknown fields {set(case) - _VERIFY_FIELDS}"
+    policy = {"authorities": case["authorities"], "expected_aid": case["expected_aid"]}
+    if case["minimum"] != "default":
+        policy["minimum"] = case["minimum"]
+    for name in case.get("omit", []):
+        del policy[name]
+    return policy
+
+
+@pytest.mark.parametrize("name", ["accepts.json", "refusals.json", "misuse.json"])
+def test_the_verify_vectors_are_not_empty(name):
+    assert len(load(name)["cases"]) > 5
+
+
+@pytest.mark.parametrize("case", cases("misuse.json"))
+def test_misuse_vectors(case):
+    """A mistake in the call is Python's TypeError or ValueError, never a FikiError (@5zrf8gjk)."""
+    assert case["error"] == "caller"
+    with pytest.raises((TypeError, ValueError)) as caught:
+        verify_request(
+            method=case["method"],
+            url=case["url"],
+            headers=case["headers"],
+            body=None if case["body"] is None else case["body"].encode("utf-8"),
+            max_age=case["max_age"],
+            now=case["now"],
+            **_policy(case),
+        )
+    assert not isinstance(caught.value, FikiError)
+
+
 @pytest.mark.parametrize("case", cases("refusals.json"))
 def test_refusal_vectors(case):
     """The negative half. A port that verifies these instead of refusing them is not fiki.
@@ -114,8 +157,9 @@ def test_refusal_vectors(case):
             url=case["url"],
             headers=case["headers"],
             body=None if case["body"] is None else case["body"].encode("utf-8"),
-            max_age=case.get("max_age"),
-            now=case.get("now"),
+            max_age=case["max_age"],
+            now=case["now"],
+            **_policy(case),
         )
     assert type(caught.value).__name__ == case["error"]
 
@@ -135,6 +179,7 @@ def test_accept_vectors(case):
         body=None if case["body"] is None else case["body"].encode("utf-8"),
         max_age=case["max_age"],
         now=case["now"],
+        **_policy(case),
     )
     assert verdict.aid == case["aid"]
     # Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.

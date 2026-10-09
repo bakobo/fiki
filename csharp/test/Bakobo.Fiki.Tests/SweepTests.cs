@@ -47,13 +47,13 @@ namespace Bakobo.Fiki.Tests
         public void ANullHeaderNameOrValueIsTheCallersMistakeEverywhere(KeyValuePair<string, string>[] headers)
         {
             Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.SignRequest(TheKey, "GET", Url, headers, created: At));
-            Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.VerifyRequest("GET", Url, headers, VerifyOptions.DecliningFreshness()));
+            Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.VerifyRequest("GET", Url, headers, Verifying.DecliningFreshness()));
             Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.SignatureBase("GET", Url, headers, new[] { "@path" }, At, "k"));
             Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.SignResponse(TheKey, 200, headers: headers, created: At));
             var request = new Request("GET", Url, headers);
             Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.SignResponse(TheKey, 200, request, created: At));
             Assert.ThrowsAny<ArgumentException>(() => HttpSignatures.VerifyResponse(200, new Dictionary<string, string>(),
-                VerifyOptions.DecliningFreshness().WithRequest(request)));
+                Verifying.DecliningFreshness().WithRequest(request)));
         }
 
         // --- A6: parsing is linear ---
@@ -111,7 +111,7 @@ namespace Bakobo.Fiki.Tests
             var headers = new[] { H("Content-Digest", digest) };
             var signed = HttpSignatures.SignRequest(TheKey, "POST", Url, headers, Body, created: At);
             Assert.False(signed.ContainsKey("Content-Digest"));
-            HttpSignatures.VerifyRequest("POST", Url, Merged(headers, signed), VerifyOptions.DecliningFreshness().WithBody(Body));
+            HttpSignatures.VerifyRequest("POST", Url, Merged(headers, signed), Verifying.DecliningFreshness().WithBody(Body));
         }
 
         [Fact]
@@ -130,7 +130,7 @@ namespace Bakobo.Fiki.Tests
             var headers = new[] { H("__proto__", "p"), H("constructor", "c"), H("tostring", "t"), H("Content-Digest", HttpSignatures.ContentDigest(Body) + ", constructor=:AAAA:") };
             var covered = new[] { "@method", "__proto__", "constructor", "tostring", "content-digest" };
             var signed = HttpSignatures.SignRequest(TheKey, "POST", Url, headers, Body, covered, At);
-            var verdict = HttpSignatures.VerifyRequest("POST", Url, Merged(headers, signed), VerifyOptions.DecliningFreshness().WithBody(Body));
+            var verdict = HttpSignatures.VerifyRequest("POST", Url, Merged(headers, signed), Verifying.DecliningFreshness().WithBody(Body));
             Assert.Equal(covered, verdict.Covered.ToArray());
             Assert.Equal(FikiErrorKind.MissingComponent,
                 KindOf(() => HttpSignatures.SignatureBase("GET", Url, new KeyValuePair<string, string>[0], new[] { "hasownproperty" }, At, "k")));
@@ -144,7 +144,7 @@ namespace Bakobo.Fiki.Tests
             var keyId = Aids.Qb64('E', Bytes.Range(1, 32));
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At, keyId: keyId);
             var asked = 0;
-            var options = VerifyOptions.DecliningFreshness()
+            var options = Verifying.DecliningFreshness()
                 .WithResolver(k => { asked++; return null; })
                 .WithExpectedKeyId(Aids.Qb64('E', Bytes.Range(2, 32)));
             Assert.Equal(FikiErrorKind.UnknownKey, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed, options)));
@@ -157,11 +157,11 @@ namespace Bakobo.Fiki.Tests
             var resolved = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At, keyId: KeysTests.PaddingBitAlias(Aids.Qb64('E', Bytes.Range(1, 32))));
             var asked = 0;
             Assert.Equal(FikiErrorKind.MalformedKey, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, resolved,
-                VerifyOptions.DecliningFreshness().WithResolver(k => { asked++; return null; }).WithExpectedKeyId("someone-else"))));
+                Verifying.DecliningFreshness().WithResolver(k => { asked++; return null; }).WithExpectedKeyId("someone-else"))));
             Assert.Equal(0, asked);
             var raw = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At, keyId: "not-a-raw-key");
             Assert.Equal(FikiErrorKind.MalformedKey, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, raw,
-                VerifyOptions.DecliningFreshness().WithExpectedKeyId("someone-else"))));
+                Verifying.DecliningFreshness().WithExpectedKeyId("someone-else"))));
         }
 
         // --- B13: the method is a token wherever a request message is built ---
@@ -179,11 +179,11 @@ namespace Bakobo.Fiki.Tests
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(TheKey, method, Url, covered: path, created: At));
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignatureBase(method, Url, new KeyValuePair<string, string>[0], path, At, "k"));
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, covered: path, created: At);
-            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest(method, Url, signed, VerifyOptions.DecliningFreshness()));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest(method, Url, signed, Verifying.DecliningFreshness()));
             var request = new Request(method, Url);
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignResponse(TheKey, 200, request, covered: new[] { "@status" }, created: At));
             var response = HttpSignatures.SignResponse(TheKey, 200, covered: new[] { "@status" }, created: At);
-            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyResponse(200, response, VerifyOptions.DecliningFreshness().WithRequest(request)));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyResponse(200, response, Verifying.DecliningFreshness().WithRequest(request)));
         }
 
         [Theory]
@@ -193,7 +193,7 @@ namespace Bakobo.Fiki.Tests
         public void AnyTokenIsAMethodKeptAsSent(string method)
         {
             var signed = HttpSignatures.SignRequest(TheKey, method, Url, created: At);
-            HttpSignatures.VerifyRequest(method, Url, signed, VerifyOptions.DecliningFreshness());
+            HttpSignatures.VerifyRequest(method, Url, signed, Verifying.DecliningFreshness());
             Assert.StartsWith("\"@method\": " + method + "\n", Bytes.Text(HttpSignatures.SignatureBase(method, Url, new KeyValuePair<string, string>[0], new[] { "@method" }, At, "k")));
         }
 
@@ -219,14 +219,14 @@ namespace Bakobo.Fiki.Tests
         public void AnUnreadableAuthorityIsAMismatchOnlyWhenItIsCovered(string url)
         {
             var path = HttpSignatures.SignRequest(TheKey, "GET", url, covered: new[] { "@path", "@query" }, created: At);
-            Assert.Equal(new[] { "@path", "@query" }, HttpSignatures.VerifyRequest("GET", url, path, VerifyOptions.DecliningFreshness()).Covered.ToArray());
+            Assert.Equal(new[] { "@path", "@query" }, HttpSignatures.VerifyRequest("GET", url, path, Verifying.DecliningFreshness()).Covered.ToArray());
             var good = HttpSignatures.SignRequest(TheKey, "GET", "https://api.example.com/x", created: At);
-            Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyRequest("GET", url, good, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyRequest("GET", url, good, Verifying.DecliningFreshness())));
             var request = new Request("GET", url);
             var response = HttpSignatures.SignResponse(TheKey, 200, new Request("GET", "https://api.example.com/x"),
                 covered: new[] { "@status", HttpSignatures.Req("@authority") }, created: At);
             Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyResponse(200, response,
-                VerifyOptions.DecliningFreshness().WithRequest(request))));
+                Verifying.DecliningFreshness().WithRequest(request))));
         }
 
         [Theory]
@@ -264,7 +264,7 @@ namespace Bakobo.Fiki.Tests
             var url = "https://[" + inside + "]/x";
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(TheKey, "GET", url, created: At));
             var good = HttpSignatures.SignRequest(TheKey, "GET", "https://[::1]/x", created: At);
-            Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyRequest("GET", url, good, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.SignatureMismatch, KindOf(() => HttpSignatures.VerifyRequest("GET", url, good, Verifying.DecliningFreshness())));
         }
 
         [Fact]
@@ -287,10 +287,10 @@ namespace Bakobo.Fiki.Tests
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At);
             var signature = signed.ToDictionary(h => h.Key, h => h.Value);
             signature["Signature"] = value;
-            Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signature, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signature, Verifying.DecliningFreshness())));
             var input = signed.ToDictionary(h => h.Key, h => h.Value);
             input["Signature-Input"] = value;
-            Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, input, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, input, Verifying.DecliningFreshness())));
         }
 
         // --- B15: what the signer serializes must be serializable ---
@@ -343,7 +343,7 @@ namespace Bakobo.Fiki.Tests
         {
             var headers = new[] { H("X-Role", "member") };
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, headers, covered: new[] { "X-Role" }, created: At);
-            Assert.Equal(new[] { "x-role" }, HttpSignatures.VerifyRequest("GET", Url, Merged(headers, signed), VerifyOptions.DecliningFreshness()).Covered.ToArray());
+            Assert.Equal(new[] { "x-role" }, HttpSignatures.VerifyRequest("GET", Url, Merged(headers, signed), Verifying.DecliningFreshness()).Covered.ToArray());
             // E6: a derived component fiki does not build names itself in the refusal.
             Assert.Equal(FikiErrorKind.UnsupportedComponent, KindOf(() => HttpSignatures.SignRequest(TheKey, "GET", Url, covered: new[] { "@target-uri" }, created: At)));
         }
@@ -380,22 +380,22 @@ namespace Bakobo.Fiki.Tests
         [InlineData(long.MinValue)]
         public void AFreshnessWindowThatIsNotPositiveIsTheCallersMistake(long value)
         {
-            Assert.ThrowsAny<ArgumentException>(() => VerifyOptions.MaxAge(value));
-            Assert.ThrowsAny<ArgumentException>(() => VerifyOptions.DecliningFreshness().WithSkew(value));
-            Assert.ThrowsAny<ArgumentException>(() => VerifyOptions.MaxAge(300).WithSkew(value));
+            Assert.ThrowsAny<ArgumentException>(() => Verifying.MaxAge(value));
+            Assert.ThrowsAny<ArgumentException>(() => Verifying.DecliningFreshness().WithSkew(value));
+            Assert.ThrowsAny<ArgumentException>(() => Verifying.MaxAge(300).WithSkew(value));
         }
 
         [Fact]
         public void VastWindowsAndClocksDoNotOverflow()
         {
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: 0, expires: 999_999_999_999_999);
-            HttpSignatures.VerifyRequest("GET", Url, signed, VerifyOptions.MaxAge(long.MaxValue).WithSkew(long.MaxValue).WithNow(long.MaxValue));
+            HttpSignatures.VerifyRequest("GET", Url, signed, Verifying.MaxAge(long.MaxValue).WithSkew(long.MaxValue).WithNow(long.MaxValue));
             Assert.Equal(FikiErrorKind.SignatureTooOld, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed,
-                VerifyOptions.MaxAge(long.MaxValue - 2).WithSkew(1).WithNow(long.MaxValue))));
+                Verifying.MaxAge(long.MaxValue - 2).WithSkew(1).WithNow(long.MaxValue))));
             Assert.Equal(FikiErrorKind.SignatureTooOld, KindOf(() => HttpSignatures.VerifyRequest("GET", Url,
                 HttpSignatures.SignRequest(TheKey, "GET", Url, created: 999_999_999_999_999),
-                VerifyOptions.MaxAge(1).WithSkew(1).WithNow(long.MinValue))));
-            HttpSignatures.VerifyRequest("GET", Url, signed, VerifyOptions.DecliningFreshness().WithNow(long.MinValue));
+                Verifying.MaxAge(1).WithSkew(1).WithNow(long.MinValue))));
+            HttpSignatures.VerifyRequest("GET", Url, signed, Verifying.DecliningFreshness().WithNow(long.MinValue));
         }
 
         // --- B18: the verdict's keyid is the wire's, and its AID is who vouched ---
@@ -404,7 +404,7 @@ namespace Bakobo.Fiki.Tests
         public void TheVerdictReportsTheWireKeyidAndWhoVouched()
         {
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At, keyId: "claimed");
-            var verdict = HttpSignatures.VerifyRequest("GET", Url, signed, VerifyOptions.DecliningFreshness().WithExpectedAid(TheKey.Aid));
+            var verdict = HttpSignatures.VerifyRequest("GET", Url, signed, Verifying.DecliningFreshness().WithExpectedAid(TheKey.Aid));
             Assert.Equal("claimed", verdict.KeyId);
             Assert.Equal(TheKey.Aid, verdict.Aid);
 
@@ -416,7 +416,7 @@ namespace Bakobo.Fiki.Tests
                 { "Signature-Input", "sig=" + parameters },
                 { "Signature", "sig=:" + Convert.ToBase64String(TheKey.Sign(Bytes.Utf8(text.Replace(";keyid=\"k\"", "")))) + ":" },
             };
-            verdict = HttpSignatures.VerifyRequest("GET", Url, unnamed, VerifyOptions.DecliningFreshness().WithExpectedAid(TheKey.Aid));
+            verdict = HttpSignatures.VerifyRequest("GET", Url, unnamed, Verifying.DecliningFreshness().WithExpectedAid(TheKey.Aid));
             Assert.Null(verdict.KeyId);
             Assert.Equal(TheKey.Aid, verdict.Aid);
         }
@@ -437,7 +437,7 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void TheFormatsAndBoundsAreExported()
         {
-            Assert.Equal(2, HttpSignatures.VectorsFormat);
+            Assert.Equal(3, HttpSignatures.VectorsFormat);
             Assert.Equal(4, HttpSignatures.KeriVectorsFormat);
             Assert.Equal(8192, HttpSignatures.MaxFieldBytes);
             Assert.Equal(16, HttpSignatures.MaxDictionaryMembers);
@@ -452,7 +452,7 @@ namespace Bakobo.Fiki.Tests
         {
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At).ToDictionary(h => h.Key, h => h.Value);
             signed["Signature"] += new string(' ', HttpSignatures.MaxFieldBytes + 1 - signed["Signature"].Length);
-            Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.MalformedSignature, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed, Verifying.DecliningFreshness())));
         }
 
         [Fact]
@@ -463,7 +463,7 @@ namespace Bakobo.Fiki.Tests
             var signed = HttpSignatures.SignRequest(TheKey, "GET", Url, created: At).ToDictionary(h => h.Key, h => h.Value);
             var many = string.Concat(Enumerable.Range(0, 17).Select(i => ";p" + i));
             signed["Signature-Input"] = signed["Signature-Input"].Replace("\"@path\"", "\"@path\"" + many);
-            Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed, VerifyOptions.DecliningFreshness())));
+            Assert.Equal(FikiErrorKind.MalformedSignatureInput, KindOf(() => HttpSignatures.VerifyRequest("GET", Url, signed, Verifying.DecliningFreshness())));
         }
     }
 }

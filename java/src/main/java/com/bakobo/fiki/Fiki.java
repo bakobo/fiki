@@ -5,11 +5,13 @@ import java.security.MessageDigest;
 import java.security.Signature;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -45,7 +47,7 @@ public final class Fiki {
      * a conformance contract has no meaningful minor: an implementation either satisfies the
      * vectors or it does not.
      */
-    public static final int VECTORS_FORMAT = 2;
+    public static final int VECTORS_FORMAT = 3;
 
     /**
      * The KERI profile's vector set this port satisfies, vectors/keri/ (this.i @8vwrexxc). A
@@ -91,6 +93,16 @@ public final class Fiki {
      * {@code content-digest} on top.
      */
     public static final List<String> REQUEST_MINIMUM = List.of("@method", "@path", "@query");
+
+    /**
+     * What {@link #verifyRequest} requires when the caller states no minimum of its own
+     * (@524c8qgv): fiki's own signing default, so a verifier left at its defaults accepts what a
+     * fiki signer produces and nothing that covers less. Being a minimum, it also brings the body
+     * rule, a required {@code created}, and a required {@code keyid} even beside an expected AID.
+     * {@link VerifyOptions#withoutMinimum()} opts out.
+     */
+    public static final List<String> DEFAULT_MINIMUM =
+        List.of("@method", "@authority", "@path", "@query");
 
     /**
      * The KERI profile's minimum covered set for a response (section 3). A body adds
@@ -288,15 +300,86 @@ public final class Fiki {
     }
 
     /**
+     * A verifier's covered-set policy for {@link VerifyOptions}: the components a signature must
+     * cover, or {@link #DECLINED}. A value rather than a nullable list, so that "not stated", which
+     * {@link #verifyRequest} reads as {@link #DEFAULT_MINIMUM}, cannot be confused with the explicit
+     * opt-out (@524c8qgv).
+     */
+    public record Minimum(List<String> components) {
+        /** No minimum at all, and so no body rule and no required {@code created} (@2f227n4r). */
+        public static final Minimum DECLINED = new Minimum(null);
+
+        public Minimum {
+            if (components != null) {
+                for (Object spec : components) {
+                    if (!(spec instanceof String)) {
+                        throw new IllegalArgumentException(
+                            "Every component in a minimum is a string naming it; " + spec + " is not.");
+                    }
+                }
+                components = List.copyOf(components);
+            }
+        }
+    }
+
+    /**
+     * The {@code @authority} values a request verifier serves, or {@link #DECLINED}. Required, like
+     * a {@link Freshness}: {@link #verifyRequest} refuses options that state neither (@524c8qgv).
+     * Compared exactly with the {@code @authority} fiki derives — lowercase host, a scheme's default
+     * port omitted, any other port kept.
+     */
+    public record Authorities(Set<String> hosts) {
+        /** The authority check, explicitly declined. */
+        public static final Authorities DECLINED = new Authorities(null);
+
+        public Authorities {
+            if (hosts != null) {
+                hosts = Authorities.checked(hosts);
+            }
+        }
+
+        /** The hosts served, as any collection of strings. */
+        public static Authorities of(Collection<String> hosts) {
+            if (hosts == null) {
+                throw new IllegalArgumentException(
+                    "authorities is a collection of the hosts this verifier serves; to decline the check, "
+                        + "say so with withoutAuthorityCheck().");
+            }
+            return new Authorities(new LinkedHashSet<>(hosts));
+        }
+
+        // Raw and unchecked callers can reach here with anything in the collection, so each member
+        // is checked as an Object rather than trusted to be the String the type says.
+        private static Set<String> checked(Collection<?> hosts) {
+            if (hosts.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "authorities is empty, which serves no host at all; to decline the check, say so with "
+                        + "withoutAuthorityCheck().");
+            }
+            Set<String> out = new LinkedHashSet<>();
+            for (Object host : hosts) {
+                if (!(host instanceof String text)) {
+                    throw new IllegalArgumentException("Every authority is a string; " + host + " is not.");
+                }
+                out.add(text);
+            }
+            return Collections.unmodifiableSet(out);
+        }
+    }
+
+    /**
      * The verifier's policy and the body it has in hand.
      *
      * <p>There is no default freshness: {@link #maxAge(long)} or {@link #decliningFreshness()},
      * and the canonical constructor refuses a null {@link Freshness}. Both defaults would be wrong
-     * (this.i @67shl6c5).
+     * (this.i @67shl6c5). A request verifier must also state its authorities, with
+     * {@link #withAuthorities} or {@link #withoutAuthorityCheck()}, and {@link #verifyRequest}
+     * refuses options that do neither (@524c8qgv). The minimum may be left unstated, which for a
+     * request is {@link #DEFAULT_MINIMUM} and for a response is none.
      */
     public record VerifyOptions(
             Freshness freshness, byte[] body, String expectedAid, Long skew, Long now, Resolver resolver,
-            List<String> minimum, String expectedKeyid, Set<String> authorities) {
+            Minimum minimum, String expectedKeyid, Authorities authorities) {
 
         public VerifyOptions {
             if (freshness == null) {
@@ -347,10 +430,26 @@ public final class Fiki {
         /**
          * The verifier's covered-set policy, {@link #REQUEST_MINIMUM} or {@link #RESPONSE_MINIMUM}
          * or a superset, which also enforces the body rule and requires {@code created}. A
-         * signature covering less is refused even though it verifies (@7f28p7xk).
+         * signature covering less is refused even though it verifies (@7f28p7xk). Left unstated, a
+         * request's is {@link #DEFAULT_MINIMUM}; {@link #withoutMinimum()} opts out.
          */
         public VerifyOptions withMinimum(List<String> minimum) {
-            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+            if (minimum == null) {
+                throw new IllegalArgumentException(
+                    "A minimum is a list of components; to apply none, say so with withoutMinimum().");
+            }
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, new Minimum(minimum),
+                expectedKeyid, authorities);
+        }
+
+        /**
+         * No minimum at all, explicitly (@524c8qgv): no body rule either, so a body handed over with
+         * no covered {@code content-digest} is accepted, and the verdict's {@code covered} is the
+         * only place that shows it (@2f227n4r).
+         */
+        public VerifyOptions withoutMinimum() {
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, Minimum.DECLINED,
+                expectedKeyid, authorities);
         }
 
         /** Refuse a signature by any other keyid, as {@code UnknownKey} (profile R1). */
@@ -359,13 +458,20 @@ public final class Fiki {
         }
 
         /**
-         * The {@code @authority} values this verifier serves; a covered one outside the set is a
-         * {@code SignatureMismatch}, and supplying them makes {@code @authority} required, so a
-         * signature that does not cover it is {@code InsufficientCoverage} (@605z9tnw). Requests
-         * only (@3cceqvg3).
+         * The {@code @authority} values this verifier serves, a non-empty collection of strings
+         * compared exactly; a covered one outside them is a {@code SignatureMismatch}, and stating
+         * them makes {@code @authority} required, so a signature that does not cover it is
+         * {@code InsufficientCoverage} (@605z9tnw). Requests only (@3cceqvg3).
          */
-        public VerifyOptions withAuthorities(Set<String> authorities) {
-            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid, authorities);
+        public VerifyOptions withAuthorities(Collection<String> authorities) {
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid,
+                Authorities.of(authorities));
+        }
+
+        /** Decline the authority check, explicitly (@524c8qgv). */
+        public VerifyOptions withoutAuthorityCheck() {
+            return new VerifyOptions(freshness, body, expectedAid, skew, now, resolver, minimum, expectedKeyid,
+                Authorities.DECLINED);
         }
     }
 
@@ -492,15 +598,24 @@ public final class Fiki {
      * mistake (@2r05k9g0).
      */
     private record Message(
-            Map<String, String> headers, String method, Target target, Integer status, Message request,
-            boolean received) {}
+            Map<String, String> headers, String method, String url, Integer status, Message request,
+            boolean received) {
+
+        /**
+         * The target, read when a component needs it, so a target that cannot be read is refused
+         * only by a signature that covers something drawn from it, as in every other port.
+         */
+        Target target() {
+            return Target.split(url, received);
+        }
+    }
 
     private static Message requestMessage(String method, String url, Map<String, String> headers, boolean received) {
         requireMethod(method);
         if (url == null) {
             throw new IllegalArgumentException("A request needs a URL.");
         }
-        return new Message(lowered(headers), method, Target.split(url), null, null, received);
+        return new Message(lowered(headers), method, url, null, null, received);
     }
 
     private static Message responseMessage(int status, Map<String, String> headers, Request request, boolean received) {
@@ -706,40 +821,55 @@ public final class Fiki {
         return fieldValue(value, specOf(item));
     }
 
+    // A scheme, "://", and at least one character of authority (RFC 3986 section 3), in ASCII: a
+    // Unicode letter is no scheme character, whatever Character.isLetter says (review B4).
+    private static final Pattern ABSOLUTE = Pattern.compile("[A-Za-z][A-Za-z0-9+.-]*://[^/?#]");
+
     /**
-     * A request target split without a URI parser doing the work: fiki needs the scheme, authority,
-     * path and RAW query, and {@link java.net.URI} normalizes in ways RFC 9421 sections 2.2.6 and
-     * 2.2.7 say not to (@8yucn7nv).
+     * A request target as RFC 9112 section 3.2 reads it (@524c8qgv), split without a URI parser
+     * doing the work: fiki needs the scheme, authority, path and RAW query, and
+     * {@link java.net.URI} normalizes in ways RFC 9421 sections 2.2.6 and 2.2.7 say not to
+     * (@8yucn7nv).
+     *
+     * <p>A target beginning with "/" is origin-form: everything before the first "?" is the path,
+     * verbatim, however many slashes it starts with, and it has no authority of its own, so the
+     * Host header supplies it. Reading "//evil.example/p" as a network-path reference would let the
+     * sender choose the authority (review A1). Anything else must be an absolute URI with a
+     * non-empty authority. A space or an ASCII control anywhere is refused rather than stripped,
+     * since stripping made "/\nx" verify as "/x", and so is a fragment, which no request target
+     * has.
      */
     record Target(String scheme, String authority, String path, String query) {
-        static Target split(String given) {
-            // Leading C0 controls and spaces are stripped, and TAB, CR and LF anywhere are removed,
-            // before the URL is read, as the WHATWG URL standard and Python's urlsplit do, so every
-            // port reads one URL the same way (@5zrf8gjk, the conductor's ruling, @420qvvxw).
-            // Trailing ones stay, and a covered component carrying one is refused as ever.
-            String raw = given.replaceFirst("^[\\x00-\\x20]+", "").replaceAll("[\t\r\n]", "");
-            String scheme = null;
-            String rest = raw;
-            int at = raw.indexOf("://");
-            if (at > 0 && raw.substring(0, at).chars().allMatch(c -> Character.isLetterOrDigit(c) || "+-.".indexOf(c) >= 0)) {
-                scheme = raw.substring(0, at).toLowerCase(Locale.ROOT);
-                rest = raw.substring(at + 3);
+        static Target split(String url, boolean received) {
+            for (int i = 0; i < url.length(); i++) {
+                char ch = url.charAt(i);
+                if (ch <= ' ' || ch == 0x7f) {
+                    throw unreadable("The URL contains a space or a control character.", received);
+                }
             }
+            if (url.indexOf('#') >= 0) {
+                throw unreadable("The URL carries a fragment, which no request target has.", received);
+            }
+            String scheme = null;
             String authority = null;
-            if (scheme != null) {
+            String rest = url;
+            if (!url.startsWith("/")) {
+                if (!ABSOLUTE.matcher(url).lookingAt()) {
+                    throw unreadable("The URL is neither origin-form, beginning with a slash, nor an absolute "
+                        + "URI with a scheme and an authority.", received);
+                }
+                int at = url.indexOf("://");
+                scheme = lower(url.substring(0, at));
+                rest = url.substring(at + 3);
                 int end = rest.length();
                 for (int i = 0; i < rest.length(); i++) {
-                    if ("/?#".indexOf(rest.charAt(i)) >= 0) {
+                    if ("/?".indexOf(rest.charAt(i)) >= 0) {
                         end = i;
                         break;
                     }
                 }
                 authority = rest.substring(0, end);
                 rest = rest.substring(end);
-            }
-            int hash = rest.indexOf('#');
-            if (hash >= 0) {
-                rest = rest.substring(0, hash);
             }
             int question = rest.indexOf('?');
             String path = question >= 0 ? rest.substring(0, question) : rest;
@@ -774,12 +904,13 @@ public final class Fiki {
      * Userinfo is dropped and the port compared as a number, as fiki-py's urlsplit does; an IPv6
      * literal keeps its brackets, as RFC 3986 section 3.2.2 writes it (@8yucn7nv).
      *
-     * <p>A relative URL falls back to the Host header, which in HTTP/1.1 *is* the authority — the
-     * shape a server-side verifier actually holds. Nothing is normalized away there, because
-     * without a scheme no port is a default port.
+     * <p>An origin-form target takes the Host header, which in HTTP/1.1 *is* the authority — the
+     * shape a server-side verifier actually holds. It passes every check an absolute URL's
+     * authority does, and holds no userinfo and no list of hosts; with no scheme, no port is a
+     * default one, so its port is always kept (this.i, "Host is validated like any authority").
      */
     private static String authority(Target target, Map<String, String> headers, boolean received) {
-        if (target.authority() == null || target.authority().isEmpty()) {
+        if (target.authority() == null) {
             String host = headers.get("host");
             if (host == null) {
                 throw new FikiException(
@@ -788,10 +919,20 @@ public final class Fiki {
                         + "request has no Host header, so there is nothing to derive it from.",
                     "@authority");
             }
-            return lower(fieldValue(host, "@authority"));
+            host = fieldValue(host, "@authority");
+            if (host.indexOf('@') >= 0 || host.indexOf(',') >= 0) {
+                throw unreadable("The Host header " + host + " is not a single host and optional port.", received);
+            }
+            return hostport(host, null, received);
         }
         String raw = target.authority();
-        raw = raw.substring(raw.lastIndexOf('@') + 1);
+        return hostport(raw.substring(raw.lastIndexOf('@') + 1), target.scheme(), received);
+    }
+
+    /** host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built. */
+    private static String hostport(String raw, String scheme, boolean received) {
+        // lower() touches ASCII only, so U+212A KELVIN SIGN stays what it is rather than becoming
+        // a "k", and the value check refuses it as it refuses any non-ASCII host (review B5).
         String host;
         String port;
         if (raw.startsWith("[")) {
@@ -803,7 +944,7 @@ public final class Fiki {
             if (!IP_LITERAL.matcher(raw.substring(1, close)).matches()) {
                 throw unreadable("The URL's IP-literal " + raw + " is not an IPv6 address or IPvFuture.", received);
             }
-            raw = raw.toLowerCase(Locale.ROOT);
+            raw = lower(raw);
             host = raw.substring(0, close + 1);
             String after = raw.substring(close + 1);
             if (!after.isEmpty() && !after.startsWith(":")) {
@@ -811,8 +952,10 @@ public final class Fiki {
             }
             port = after.isEmpty() ? "" : after.substring(1);
         } else {
-            raw = raw.toLowerCase(Locale.ROOT);
-            int colon = raw.lastIndexOf(':');
+            raw = lower(raw);
+            // At the FIRST colon, so "a:1:2" and an unbracketed "::1" leave a port that is not a
+            // number, rather than a host that swallowed one (review B4).
+            int colon = raw.indexOf(':');
             host = colon < 0 ? raw : raw.substring(0, colon);
             port = colon < 0 ? "" : raw.substring(colon + 1);
             if (host.indexOf('[') >= 0 || host.indexOf(']') >= 0) {
@@ -830,8 +973,8 @@ public final class Fiki {
                 "The URL's port " + port + " is not a number from 0 to 65535.", received);
         }
         int number = Integer.parseInt(digits);
-        // Only a URL with a scheme has an authority of its own, so the scheme is never null here.
-        Integer defaultPort = DEFAULT_PORTS.get(target.scheme());
+        // A Host header has no scheme, so no port of its is a default one.
+        Integer defaultPort = scheme == null ? null : DEFAULT_PORTS.get(scheme);
         return defaultPort != null && number == defaultPort ? host : host + ":" + number;
     }
 
@@ -874,8 +1017,20 @@ public final class Fiki {
         return out;
     }
 
+    /**
+     * ASCII lowercase, and nothing else. String.toLowerCase maps U+212A KELVIN SIGN to "k" and
+     * U+0130 to "i" plus a combining dot, so a header name or host spelled with one would match the
+     * ASCII name it imitates (review B5). Every name fiki compares is ASCII, so anything else is
+     * left as it is and matches nothing.
+     */
     private static String lower(String text) {
-        return text.toLowerCase(Locale.ROOT);
+        char[] out = text.toCharArray();
+        for (int i = 0; i < out.length; i++) {
+            if (out[i] >= 'A' && out[i] <= 'Z') {
+                out[i] = (char) (out[i] + ('a' - 'A'));
+            }
+        }
+        return new String(out);
     }
 
     /* ------------------------------------------------------------------------- signing */
@@ -910,7 +1065,8 @@ public final class Fiki {
         if (!missing.isEmpty()) {
             throw new IllegalArgumentException(
                 "A minimum covered set must include the profile's own, " + String.join(", ", floor)
-                    + "; this one leaves out " + String.join(", ", missing) + ". Pass null to apply no minimum at all.");
+                    + "; this one leaves out " + String.join(", ", missing) + ". To apply no minimum at all, leave it "
+                    + "out of a signer's options, or say so with withoutMinimum() on a verifier's.");
         }
     }
 
@@ -1078,8 +1234,17 @@ public final class Fiki {
      */
     public static Verdict verifyRequest(
             String method, String url, Map<String, String> headers, VerifyOptions opts) {
-        floored(opts.minimum(), REQUEST_MINIMUM);
-        return verify(requestMessage(method, url, headers, true), false, null, opts);
+        // A required decision, enforced here because a builder cannot make it at compile time
+        // (@524c8qgv): stating no authorities is a mistake in the call, like stating no freshness.
+        if (opts.authorities() == null) {
+            throw new IllegalArgumentException(
+                "State the authorities this verifier serves, with withAuthorities(Set.of(\"api.example.com\")), "
+                    + "or decline the check with withoutAuthorityCheck().");
+        }
+        Minimum stated = opts.minimum() == null ? new Minimum(DEFAULT_MINIMUM) : opts.minimum();
+        floored(stated.components(), REQUEST_MINIMUM);
+        return verify(requestMessage(method, url, headers, true), false, null, stated.components(),
+            opts.authorities().hosts(), opts);
     }
 
     /**
@@ -1093,8 +1258,9 @@ public final class Fiki {
      */
     public static Verdict verifyResponse(
             int status, Map<String, String> headers, Request request, VerifyOptions opts) {
-        floored(opts.minimum(), RESPONSE_MINIMUM);
-        if (opts.authorities() != null) {
+        List<String> minimum = opts.minimum() == null ? null : opts.minimum().components();
+        floored(minimum, RESPONSE_MINIMUM);
+        if (opts.authorities() != null && opts.authorities().hosts() != null) {
             throw new IllegalArgumentException(
                 "Served authorities are a request policy; a response has no @authority of its own to check.");
         }
@@ -1107,7 +1273,7 @@ public final class Fiki {
                 "The server answered 401 without signing the answer, so the request was not "
                     + "authenticated and the body of the refusal cannot be trusted.");
         }
-        return verify(message, true, request, opts);
+        return verify(message, true, request, minimum, null, opts);
     }
 
     private record Parsed(Sfv.InnerList inner, byte[] signature) {}
@@ -1119,27 +1285,28 @@ public final class Fiki {
      * header is read from the message's one canonical map (@0ms4j0ef).
      */
     private static Verdict verify(
-            Message message, boolean response, Request request, VerifyOptions opts) {
+            Message message, boolean response, Request request, List<String> minimum, Set<String> authorities,
+            VerifyOptions opts) {
         if (opts.expectedAid() != null && opts.resolver() != null) {
             throw new IllegalArgumentException("Pass an expected AID or a resolver, not both; each decides the key alone.");
         }
         Map<String, String> found = message.headers();
         // Under a minimum the profile applies, and it makes keyid REQUIRED whoever names the key
         // (@6hsuwdh8); otherwise only a verifier with no key of its own needs one.
-        boolean profile = opts.minimum() != null;
+        boolean profile = minimum != null;
         Parsed parsed = read(found, opts.expectedAid() == null || profile, profile);
         Sfv.InnerList inner = parsed.inner();
         List<Sfv.Item> items = inner.items();
         checkCovered(items, response);
-        if (opts.minimum() != null) {
-            checkMinimum(items, opts.minimum(),
+        if (minimum != null) {
+            checkMinimum(items, minimum,
                 response ? hasContent(opts.body()) : requestHasBody(found, opts.body()),
                 // By the request's content alone, as signResponse decides it (@7p9s3g9k).
                 request != null && hasContent(request.body()));
         }
         // Served authorities bind the signature to a host only if it commits to one, so supplying
         // them makes @authority required (@605z9tnw): coverage, before the key, as section 9 orders.
-        if (opts.authorities() != null) {
+        if (authorities != null) {
             checkMinimum(items, List.of("@authority"), false, false);
         }
 
@@ -1170,9 +1337,9 @@ public final class Fiki {
                     + "cannot be treated as authentic.");
         }
 
-        if (opts.authorities() != null) {
+        if (authorities != null) {
             for (Sfv.Item item : items) {
-                if (name(item).equals("@authority") && !opts.authorities().contains(valueOf(item, message))) {
+                if (name(item).equals("@authority") && !authorities.contains(valueOf(item, message))) {
                     throw new FikiException(
                         FikiException.Kind.SignatureMismatch,
                         "The signature covers the authority \"" + valueOf(item, message) + "\", which this "

@@ -98,7 +98,8 @@ class UnitTest {
         assertEquals("\"@authority\": example.com:8443",
             line("@authority", "GET", "https://example.com:8443/f", Map.of()));
         assertEquals("\"@path\": /", line("@path", "GET", "https://example.com", Map.of()));
-        assertEquals("\"@path\": /f", line("@path", "GET", "https://example.com/f#frag", Map.of()));
+        // Format 3 refuses a fragment, which no request target has, rather than dropping it.
+        assertThrows(IllegalArgumentException.class, () -> line("@path", "GET", "https://example.com/f#frag", Map.of()));
         assertEquals("\"@query\": ?", line("@query", "GET", "https://example.com/f", Map.of()));
         assertEquals("\"@query\": ?baz=bat%2Dman",
             line("@query", "GET", "https://example.com/p?baz=bat%2Dman", Map.of()));
@@ -135,7 +136,7 @@ class UnitTest {
         Map<String, String> out = signed(Fiki.SignOptions.none().withBody(BODY));
         assertTrue(out.containsKey("Content-Digest"));
         Fiki.Verdict verdict = Fiki.verifyRequest("POST", URL_QUERY, out,
-            Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+            OptedOut.decliningFreshness().withBody(BODY));
         assertEquals(SEED_AID, verdict.aid());
         assertTrue(verdict.covered().contains("content-digest"));
     }
@@ -160,7 +161,7 @@ class UnitTest {
             .withCovered(List.of("@method", "@path", "content-digest")).withLabel("mine"));
         assertTrue(out.get("Signature-Input").startsWith("mine="));
         Fiki.verifyRequest("POST", URL_QUERY, out,
-            Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+            OptedOut.decliningFreshness().withBody(BODY));
     }
 
     @Test
@@ -172,31 +173,31 @@ class UnitTest {
         Map<String, String> all = new LinkedHashMap<>(supplied);
         all.putAll(out);
         Fiki.verifyRequest("POST", URL_QUERY, all,
-            Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+            OptedOut.decliningFreshness().withBody(BODY));
     }
 
     @Test
     void signingWithoutACreatedUsesTheWallClock() {
         Map<String, String> out =
             Fiki.signRequest(key(), "GET", URL_QUERY, null, Fiki.SignOptions.none());
-        Fiki.verifyRequest("GET", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300));
+        Fiki.verifyRequest("GET", URL_QUERY, out, OptedOut.maxAge(300));
     }
 
     @Test
     void anExpectedAidIsAuthoritativeOverTheInlineKeyid() {
         Map<String, String> out = signed(Fiki.SignOptions.none());
         assertEquals(SEED_AID, Fiki.verifyRequest("POST", URL_QUERY, out,
-            Fiki.VerifyOptions.decliningFreshness().withExpectedAid(SEED_AID)).aid());
+            OptedOut.decliningFreshness().withExpectedAid(SEED_AID)).aid());
         String stranger = Key.generate().aid();
         assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.decliningFreshness().withExpectedAid(stranger))));
+            "POST", URL_QUERY, out, OptedOut.decliningFreshness().withExpectedAid(stranger))));
     }
 
     @Test
     void aMalformedExpectedAidIsRefused() {
         Map<String, String> out = signed(Fiki.SignOptions.none());
         assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.decliningFreshness().withExpectedAid("nope"))));
+            "POST", URL_QUERY, out, OptedOut.decliningFreshness().withExpectedAid("nope"))));
     }
 
     @Test
@@ -205,7 +206,7 @@ class UnitTest {
         out.put("Signature-Input",
             out.get("Signature-Input").replaceFirst("\\(\"@method\"", "(\"@target-uri\""));
         assertEquals(FikiException.Kind.UnsupportedComponent, kindOf(() ->
-            Fiki.verifyRequest("POST", URL_QUERY, out, Fiki.VerifyOptions.decliningFreshness())));
+            Fiki.verifyRequest("POST", URL_QUERY, out, OptedOut.decliningFreshness())));
     }
 
     @Test
@@ -216,7 +217,7 @@ class UnitTest {
         Map<String, String> all = new LinkedHashMap<>(supplied);
         all.putAll(Fiki.signRequest(key(), "POST", URL_QUERY, supplied,
             Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)));
-        Fiki.verifyRequest("POST", URL_QUERY, all, Fiki.VerifyOptions.decliningFreshness().withBody(BODY));
+        Fiki.verifyRequest("POST", URL_QUERY, all, OptedOut.decliningFreshness().withBody(BODY));
         for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
             // The call's mistake at signing (@5zrf8gjk, E5).
             assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(key(), "POST", URL_QUERY,
@@ -232,32 +233,32 @@ class UnitTest {
             received.put("Signature-Input", "sig=" + text.substring(text.lastIndexOf(": (") + 2));
             received.put("Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(key().sign(base)) + ":");
             assertEquals(FikiException.Kind.MalformedDigest, kindOf(() -> Fiki.verifyRequest("POST", URL_QUERY,
-                received, Fiki.VerifyOptions.decliningFreshness().withBody(BODY))), digest);
+                received, OptedOut.decliningFreshness().withBody(BODY))), digest);
         }
     }
 
     @Test
     void freshness() {
         Map<String, String> out = signed(Fiki.SignOptions.none());
-        Fiki.verifyRequest("POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT + 299));
-        Fiki.verifyRequest("POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT + 303));
+        Fiki.verifyRequest("POST", URL_QUERY, out, OptedOut.maxAge(300).withNow(SIGNED_AT + 299));
+        Fiki.verifyRequest("POST", URL_QUERY, out, OptedOut.maxAge(300).withNow(SIGNED_AT + 303));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT + 400))));
+            "POST", URL_QUERY, out, OptedOut.maxAge(300).withNow(SIGNED_AT + 400))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withSkew(1).withNow(SIGNED_AT + 302))));
+            "POST", URL_QUERY, out, OptedOut.maxAge(300).withSkew(1).withNow(SIGNED_AT + 302))));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.maxAge(300).withNow(SIGNED_AT - 60))));
+            "POST", URL_QUERY, out, OptedOut.maxAge(300).withNow(SIGNED_AT - 60))));
         Fiki.verifyRequest("POST", URL_QUERY, out,
-            Fiki.VerifyOptions.decliningFreshness().withNow(SIGNED_AT + 1_000_000));
+            OptedOut.decliningFreshness().withNow(SIGNED_AT + 1_000_000));
     }
 
     @Test
     void expiresIsEnforcedEvenWhenMaxAgeIsDeclined() {
         Map<String, String> out = signed(Fiki.SignOptions.none().withExpires(SIGNED_AT + 60));
         Fiki.verifyRequest("POST", URL_QUERY, out,
-            Fiki.VerifyOptions.decliningFreshness().withNow(SIGNED_AT + 30));
+            OptedOut.decliningFreshness().withNow(SIGNED_AT + 30));
         assertEquals(FikiException.Kind.SignatureExpired, kindOf(() -> Fiki.verifyRequest(
-            "POST", URL_QUERY, out, Fiki.VerifyOptions.decliningFreshness().withNow(SIGNED_AT + 66))));
+            "POST", URL_QUERY, out, OptedOut.decliningFreshness().withNow(SIGNED_AT + 66))));
     }
 
     @ParameterizedTest

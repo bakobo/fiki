@@ -128,7 +128,7 @@ namespace Bakobo.Fiki.Tests
         }
 
         private static FikiException Refused(Dictionary<string, string> headers, VerifyOptions? options = null) =>
-            Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest("POST", Url, headers, (options ?? VerifyOptions.DecliningFreshness()).WithBody(Body)));
+            Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest("POST", Url, headers, (options ?? Verifying.DecliningFreshness()).WithBody(Body)));
 
         [Fact]
         public void TheIdentityKeyidWithTheUniversalForgeryIsAMalformedKey()
@@ -157,7 +157,7 @@ namespace Bakobo.Fiki.Tests
         public void EveryEncodingOfASmallOrderPointIsAMalformedResolvedKey(string name, string hex)
         {
             var aid = Aids.Qb64('E', new byte[32]);
-            var caught = Refused(Forged(aid), VerifyOptions.DecliningFreshness().WithResolver(_ => Bytes.FromHex(hex)));
+            var caught = Refused(Forged(aid), Verifying.DecliningFreshness().WithResolver(_ => Bytes.FromHex(hex)));
             Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
             Assert.Equal(aid, caught.KeyId);
             Assert.NotNull(name);
@@ -171,7 +171,7 @@ namespace Bakobo.Fiki.Tests
             var aid = Aids.Qb64('B', raw);
             Assert.Equal(FikiErrorKind.MalformedKey, Assert.Throws<FikiException>(() => Key.VerifyingKey(aid)).Kind);
             Assert.Equal(FikiErrorKind.MalformedKey, Refused(Forged(Bytes.B64Url(Key.VerifyingKey(Signer.Aid).ToBytes())),
-                VerifyOptions.DecliningFreshness().WithExpectedAid(aid)).Kind);
+                Verifying.DecliningFreshness().WithExpectedAid(aid)).Kind);
             Assert.Throws<ArgumentException>(() => Key.ToAid(raw));
             Assert.NotNull(name);
         }
@@ -194,7 +194,7 @@ namespace Bakobo.Fiki.Tests
         public void ARealKeyStillVerifies()
         {
             var headers = HttpSignatures.SignRequest(Signer, "POST", Url, body: Body);
-            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, headers, VerifyOptions.MaxAge(60).WithBody(Body)).Aid);
+            Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, headers, Verifying.MaxAge(60).WithBody(Body)).Aid);
             Assert.Equal(Signer.Aid, Key.ToAid(Key.VerifyingKey(Signer.Aid).ToBytes()));
         }
     }

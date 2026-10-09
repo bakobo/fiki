@@ -300,42 +300,50 @@ pub(crate) struct Target {
     pub query: String,
 }
 
-/// The URL as every port reads it, which is how Python's `urlsplit` reads it (`this.i` @2n99rej7,
-/// ruled by the conductor for the 0.8.0 sweep): leading C0 controls and spaces stripped, trailing
-/// ones kept, and TAB, CR and LF removed wherever they are, as the WHATWG URL parser does.
-fn cleaned(raw: &str) -> String {
-    raw.trim_start_matches(|c: char| c <= ' ')
-        .chars()
-        .filter(|c| !matches!(c, '\t' | '\r' | '\n'))
-        .collect()
-}
-
-pub(crate) fn split_target(raw: &str) -> Target {
-    let raw = cleaned(raw);
-    let raw = raw.as_str();
-    let (scheme, rest) = match raw.find("://") {
-        Some(at)
-            if raw[..at]
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c)) =>
-        {
-            (Some(raw[..at].to_ascii_lowercase()), &raw[at + 3..])
-        }
-        _ => (None, raw),
+/// The target as RFC 9112 section 3.2 reads it (`this.i` @524c8qgv), or why it cannot be read.
+///
+/// A target beginning with "/" is origin-form: everything before the first "?" is the path,
+/// verbatim, however many slashes it starts with, and it has no authority of its own, so
+/// `@authority` comes from the Host header. Anything else must be an absolute URI, a scheme, "://"
+/// and a non-empty authority. A space or an ASCII control anywhere is refused rather than
+/// stripped, so "/\nx" is never read as "/x", and so is a "#", since a request target has no
+/// fragment and a component one port strips and another keeps is a divergence.
+pub(crate) fn split_target(raw: &str) -> std::result::Result<Target, &'static str> {
+    if raw.chars().any(|c| c <= ' ' || c == '\x7f') {
+        return Err("it contains a space or a control character.");
+    }
+    if raw.contains('#') {
+        return Err("it carries a fragment, which no request target has.");
+    }
+    let (scheme, authority, rest) = if raw.starts_with('/') {
+        (None, None, raw)
+    } else {
+        // A scheme, "://", and at least one character of authority (RFC 3986 section 3).
+        let absolute = raw.find("://").filter(|&at| {
+            let scheme = &raw[..at];
+            scheme.starts_with(|c: char| c.is_ascii_alphabetic())
+                && scheme
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+                && !raw[at + 3..].is_empty()
+                && !raw[at + 3..].starts_with(['/', '?'])
+        });
+        let Some(at) = absolute else {
+            return Err(
+                "it is neither origin-form, beginning with a slash, nor an absolute URI \
+                        with a scheme and an authority.",
+            );
+        };
+        let rest = &raw[at + 3..];
+        let end = rest.find(['/', '?']).unwrap_or(rest.len());
+        (
+            Some(raw[..at].to_ascii_lowercase()),
+            Some(rest[..end].to_string()),
+            &rest[end..],
+        )
     };
-    let (authority, rest) = match scheme {
-        Some(_) => {
-            let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-            (Some(rest[..end].to_string()), &rest[end..])
-        }
-        None => (None, rest),
-    };
-    let rest = rest.split('#').next().unwrap_or("");
-    let (path, query) = match rest.find('?') {
-        Some(at) => (&rest[..at], &rest[at + 1..]),
-        None => (rest, ""),
-    };
-    Target {
+    let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
+    Ok(Target {
         scheme,
         authority,
         path: if path.is_empty() {
@@ -344,7 +352,7 @@ pub(crate) fn split_target(raw: &str) -> Target {
             path.to_string()
         },
         query: query.to_string(),
-    }
+    })
 }
 
 /// A message whose components fiki can read: a request, or a response and the request it answers.
@@ -356,7 +364,7 @@ pub(crate) struct Message {
     headers: BTreeMap<String, String>,
     method: Option<String>,
     url: String,
-    target: Option<Target>,
+    target: Option<std::result::Result<Target, &'static str>>,
     status: Option<u16>,
     request: Option<Box<Message>>,
     received: bool,
@@ -511,66 +519,70 @@ fn ipv4(text: &str) -> bool {
 }
 
 fn authority(target: &Target, message: &Message) -> Result<String> {
-    // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to
+    // RFC 9421 section 2.2.3: lowercase host, default port omitted. An origin-form target takes
     // the Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier
-    // actually holds. Nothing is normalized away there, because without a scheme no port is a
-    // default port.
-    let headers = &message.headers;
+    // actually holds.
     if let Some(raw) = &target.authority {
-        // Read as written, after any userinfo. An IP-literal keeps its brackets, as RFC 3986
-        // section 3.2.2 makes them part of the host, and nothing but a port may follow its ']'.
+        // Read as written, after any userinfo.
         let hostport = raw
             .rsplit_once('@')
             .map_or(raw.as_str(), |(_, after)| after);
-        let (host, port_text) = match hostport.strip_prefix('[') {
-            Some(literal) => {
-                let Some((inside, rest)) = literal.split_once(']') else {
-                    return Err(message.unreadable("its IP-literal has no closing ']'."));
-                };
-                let Some(port_text) = rest.strip_prefix(':').or((rest.is_empty()).then_some(""))
-                else {
-                    return Err(message.unreadable(
-                        "something other than a port follows the ']' of its IP-literal.",
-                    ));
-                };
-                if !ip_literal(inside) {
-                    return Err(
-                        message.unreadable("its IP-literal is not an IPv6 address or IPvFuture.")
-                    );
-                }
-                (format!("[{inside}]"), port_text)
-            }
-            None if hostport.contains(['[', ']']) => {
-                return Err(message.unreadable("it has a ']' with no IP-literal to close."));
-            }
-            None => {
-                let (host, port_text) = hostport.split_once(':').unwrap_or((hostport, ""));
-                (host.to_string(), port_text)
-            }
-        };
-        let host = host.to_ascii_lowercase();
-        let port = port(port_text, message)?;
-        let default = target
-            .scheme
-            .as_deref()
-            .and_then(|s| DEFAULT_PORTS.iter().find(|(name, _)| *name == s))
-            .map(|(_, port)| *port);
-        return Ok(match port {
-            Some(port) if Some(port) != default => format!("{host}:{port}"),
-            _ => host,
-        });
+        return host_and_port(hostport, target.scheme.as_deref(), message);
     }
-    headers
-        .get("host")
-        .map(|h| h.to_ascii_lowercase())
-        .ok_or_else(|| {
-            Error::detailed(
-                Kind::MissingComponent,
-                "The signature covers \"@authority\", but the URL carries no authority and the \
-                 request has no Host header, so there is nothing to derive it from.",
-                "@authority",
-            )
-        })
+    let host = message.headers.get("host").ok_or_else(|| {
+        Error::detailed(
+            Kind::MissingComponent,
+            "The signature covers \"@authority\", but the URL carries no authority and the \
+             request has no Host header, so there is nothing to derive it from.",
+            "@authority",
+        )
+    })?;
+    // Host is an origin-form request's authority, so it passes the same checks as an absolute
+    // URL's, and with no scheme no port is a default one (`this.i`, "Host is validated like any
+    // authority"). Userinfo and a list of hosts have no place in it.
+    if host.contains(['@', ',']) {
+        return Err(message.unreadable("its Host header is not a single host and optional port."));
+    }
+    host_and_port(host, None, message)
+}
+
+/// `host[:port]` normalized per RFC 9421 section 2.2.3, or a base that cannot be built. An
+/// IP-literal keeps its brackets, as RFC 3986 section 3.2.2 makes them part of the host, and
+/// nothing but a port may follow its ']'.
+fn host_and_port(hostport: &str, scheme: Option<&str>, message: &Message) -> Result<String> {
+    let (host, port_text) = match hostport.strip_prefix('[') {
+        Some(literal) => {
+            let Some((inside, rest)) = literal.split_once(']') else {
+                return Err(message.unreadable("its IP-literal has no closing ']'."));
+            };
+            let Some(port_text) = rest.strip_prefix(':').or((rest.is_empty()).then_some("")) else {
+                return Err(message
+                    .unreadable("something other than a port follows the ']' of its IP-literal."));
+            };
+            if !ip_literal(inside) {
+                return Err(
+                    message.unreadable("its IP-literal is not an IPv6 address or IPvFuture.")
+                );
+            }
+            (format!("[{inside}]"), port_text)
+        }
+        None if hostport.contains(['[', ']']) => {
+            return Err(message.unreadable("it has a ']' with no IP-literal to close."));
+        }
+        None => {
+            let (host, port_text) = hostport.split_once(':').unwrap_or((hostport, ""));
+            (host.to_string(), port_text)
+        }
+    };
+    let host = host.to_ascii_lowercase();
+    let port = port(port_text, message)?;
+    let default = scheme
+        .and_then(|s| DEFAULT_PORTS.iter().find(|(name, _)| *name == s))
+        .map(|(_, port)| *port);
+    Ok(match port {
+        Some(port) if Some(port) != default => format!("{host}:{port}"),
+        _ => host,
+    })
 }
 
 fn missing(item: &Item, why: &str) -> Error {
@@ -593,7 +605,13 @@ fn component_value(item: &Item, message: &Message) -> Result<String> {
         })?;
     }
     let name = item.text().unwrap_or_default();
-    let target = message.target.as_ref();
+    // A target that cannot be read is refused only where a component is read from it.
+    let target = match (name, message.target.as_ref()) {
+        ("@authority" | "@path" | "@query", Some(Err(reason))) => {
+            return Err(message.unreadable(reason))
+        }
+        (_, target) => target.and_then(|t| t.as_ref().ok()),
+    };
     match (name, target) {
         // Section 2.2.9: the three-digit status code. Anything else is not a status this
         // component can carry, so there is no value to sign or to check.

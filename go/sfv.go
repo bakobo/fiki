@@ -99,7 +99,18 @@ func (c *cursor) peek() byte {
 	return c.text[c.at]
 }
 
-func (c *cursor) skipSpace() {
+// skipSP discards SP, the only whitespace RFC 8941 allows inside an inner list, after a
+// parameter's semicolon, and at the start of a field (sections 3.1.1, 3.1.2 and 4.2, this.i
+// @524c8qgv). An HTAB there is malformed.
+func (c *cursor) skipSP() {
+	for !c.done() && c.peek() == ' ' {
+		c.at++
+	}
+}
+
+// skipOWS discards SP and HTAB, which RFC 8941 section 4.2.2 allows around a dictionary's comma
+// and after its last member.
+func (c *cursor) skipOWS() {
 	for !c.done() && (c.peek() == ' ' || c.peek() == '\t') {
 		c.at++
 	}
@@ -268,7 +279,7 @@ func (c *cursor) parseParameters() ([]param, error) {
 	at := map[string]int{}
 	for !c.done() && c.peek() == ';' {
 		c.at++
-		c.skipSpace()
+		c.skipSP()
 		key, err := c.parseKey()
 		if err != nil {
 			return nil, err
@@ -297,7 +308,7 @@ func (c *cursor) parseInnerList() (innerList, error) {
 	var list innerList
 	c.at++ // the opening parenthesis
 	for {
-		c.skipSpace()
+		c.skipSP()
 		if c.done() {
 			return list, fmt.Errorf("%w: an inner list ran to the end of the field", errSyntax)
 		}
@@ -338,7 +349,7 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 	c := &cursor{text: text}
 	order := []string{}
 	out := map[string]member{}
-	c.skipSpace()
+	c.skipSP()
 	for !c.done() {
 		key, err := c.parseKey()
 		if err != nil {
@@ -378,14 +389,14 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 			order = append(order, key)
 		}
 		out[key] = m
-		c.skipSpace()
+		c.skipOWS()
 		if c.done() {
 			break
 		}
 		if err := c.expect(','); err != nil {
 			return nil, nil, err
 		}
-		c.skipSpace()
+		c.skipOWS()
 		if c.done() {
 			return nil, nil, fmt.Errorf("%w: a dictionary ended with a trailing comma", errSyntax)
 		}

@@ -19,7 +19,7 @@ import ipaddress
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import http_sfv
 
@@ -257,9 +257,35 @@ def _unreadable(message: _Message, reason: str) -> Exception:
     return ValueError(f"The URL {message.url!r} cannot be read: {reason}")
 
 
+# A scheme, "://", and at least one character of authority (RFC 3986 section 3).
+_ABSOLUTE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]")
+
+
 def _split(message: _Message):
+    """The target as RFC 9112 section 3.2 reads it (@524c8qgv).
+
+    A target beginning with "/" is origin-form: everything before the first "?" is the path,
+    verbatim, however many slashes it starts with, and it has no authority of its own, so
+    _authority reads the Host header. urlsplit would read "//evil.example/p" as a network-path
+    reference and let the sender choose the authority (review A1). Anything else must be an
+    absolute URI with a non-empty authority. A space or an ASCII control anywhere is refused
+    rather than stripped, as urlsplit strips a tab, CR or LF, which made "/\nx" verify as "/x".
+    """
+    url = message.url
+    if any(c <= " " or c == "\x7f" for c in url):
+        raise _unreadable(message, "it contains a space or a control character.")
+    if "#" in url:
+        # A request target has no fragment (RFC 9112 section 3.2); stripping one, as urlsplit
+        # does, is a divergence from any port that keeps it.
+        raise _unreadable(message, "it carries a fragment, which no request target has.")
+    if url.startswith("/"):
+        path, _, query = url.partition("?")
+        return SplitResult("", "", path, query, "")
+    if not _ABSOLUTE.match(url):
+        raise _unreadable(message, "it is neither origin-form, beginning with a slash, nor an "
+                                   "absolute URI with a scheme and an authority.")
     try:
-        return urlsplit(message.url)
+        return urlsplit(url)
     except ValueError as ex:
         raise _unreadable(message, f"{ex}.") from ex
 
@@ -313,25 +339,7 @@ def _authority(message: _Message) -> str:
     parts = _split(message)
     headers = message.headers
     if parts.netloc:
-        hostport = parts.netloc.rpartition("@")[2]
-        # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
-        # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
-        # every Python it supports alike, so the IP-literal rule does not turn on a patch release.
-        if hostport.startswith("["):
-            host, closed, rest = hostport.partition("]")
-            if not closed or not ip_literal(host[1:]) or rest[:1] not in ("", ":"):
-                raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture "
-                                           "in brackets followed by nothing but a port.")
-            host, port_text = host + "]", rest[1:]
-        else:
-            host, _, port_text = hostport.partition(":")
-            if "[" in host or "]" in host:
-                raise _unreadable(message, "a bracket belongs only around an IP-literal.")
-        port = _port(port_text, message)
-        host = host.lower()
-        if port is None or port == _DEFAULT_PORTS.get(parts.scheme.lower()):
-            return host
-        return f"{host}:{port}"
+        return _hostport(parts.netloc.rpartition("@")[2], parts.scheme, message)
     host = headers.get("host")
     if host is None:
         raise MissingComponent(
@@ -340,7 +348,39 @@ def _authority(message: _Message) -> str:
             component="@authority",
         )
     _check_raw(host, "@authority")
-    return host.strip(_OWS).lower()
+    host = host.strip(_OWS)
+    # Host is an origin-form request's authority, so it passes the same checks as an absolute
+    # URL's, and with no scheme no port is a default one (this.i, "Host is validated like any
+    # authority"). Userinfo and a list of hosts have no place in it.
+    if "@" in host or "," in host:
+        raise _unreadable(message, "its Host header is not a single host and optional port.")
+    return _hostport(host, "", message)
+
+
+def _hostport(hostport: str, scheme: str, message: _Message) -> str:
+    """host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built."""
+    # Checked as written, before lowercasing: str.lower reads U+212A KELVIN SIGN as an ASCII
+    # "k", so a host that is not ASCII could otherwise pass as one that is (review A6, B5).
+    if not hostport.isascii():
+        raise _unreadable(message, "its host is not ASCII.")
+    # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
+    # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
+    # every Python it supports alike, so the IP-literal rule does not turn on a patch release.
+    if hostport.startswith("["):
+        host, closed, rest = hostport.partition("]")
+        if not closed or not ip_literal(host[1:]) or rest[:1] not in ("", ":"):
+            raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture "
+                                       "in brackets followed by nothing but a port.")
+        host, port_text = host + "]", rest[1:]
+    else:
+        host, _, port_text = hostport.partition(":")
+        if "[" in host or "]" in host:
+            raise _unreadable(message, "a bracket belongs only around an IP-literal.")
+    port = _port(port_text, message)
+    host = host.lower()
+    if port is None or port == _DEFAULT_PORTS.get(scheme.lower()):
+        return host
+    return f"{host}:{port}"
 
 
 def _component_value(item: http_sfv.Item, message: _Message) -> str:

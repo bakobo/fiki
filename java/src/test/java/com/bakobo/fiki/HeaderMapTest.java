@@ -35,7 +35,7 @@ class HeaderMapTest {
             assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", URL, headers,
                 Fiki.SignOptions.none().withCreated(1)));
             assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", URL, headers,
-                Fiki.VerifyOptions.decliningFreshness()));
+                OptedOut.decliningFreshness()));
             assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("GET", URL, headers, null));
         }
     }

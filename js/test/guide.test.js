@@ -31,12 +31,13 @@ describe("the user guide's samples", () => {
     const headers = await signRequest({ key, method: 'POST', url, body });
     assert.ok(headers['Signature-Input'] && headers.Signature && headers['Content-Digest']);
 
-    const verdict = await verifyRequest({ method: 'POST', url, headers, body, maxAge: 300 });
+    const authorities = ['api.example.com']; // or null to decline the check
+    const verdict = await verifyRequest({ method: 'POST', url, headers, body, maxAge: 300, authorities });
     assert.equal(verdict.aid, key.aid);
 
-    await verifyRequest({ method: 'POST', url, headers, body, maxAge: null, expectedAid: key.aid });
+    await verifyRequest({ method: 'POST', url, headers, body, maxAge: null, authorities, expectedAid: key.aid });
     await assert.rejects(
-      () => verifyRequest({ method: 'POST', url, headers, body: new TextEncoder().encode('x'), maxAge: null }),
+      () => verifyRequest({ method: 'POST', url, headers, body: new TextEncoder().encode('x'), maxAge: null, authorities }),
       (e) => e instanceof FikiError && e.constructor.name === 'DigestMismatch',
     );
   });
@@ -81,6 +82,7 @@ describe("the user guide's KERI-profile samples", async () => {
     const verdict = await verifyRequest({
       method, url, headers: requestHeaders, body: requestBody, maxAge: 300,
       minimum: REQUEST_MINIMUM,
+      authorities: ['api.example.com'], // or null to decline the check
       resolve, // keyid -> 32 raw bytes, or null; may be async
     });
     assert.equal(verdict.keyid, aid);
@@ -133,7 +135,9 @@ describe("the user guide's KERI-profile samples", async () => {
       }
     }
     const verifying = (overrides) => () =>
-      verifyRequest({ method, url, headers: requestHeaders, body: requestBody, maxAge: null, resolve, ...overrides });
+      verifyRequest({
+        method, url, headers: requestHeaders, body: requestBody, maxAge: null, authorities: null, resolve, ...overrides,
+      });
 
     assert.equal(await classify(verifying({ resolve: () => null })), `no key state for ${aid}`);
     const group = (keyid) => {
