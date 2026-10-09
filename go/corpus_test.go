@@ -14,8 +14,8 @@ package fiki
 // reads Signature-Input through, which measures MaxFieldBytes and whose parser counts
 // MaxDictionaryMembers, MaxInnerListItems and MaxParameters. A list or item case runs through
 // parseList or parseItem behind the same MaxFieldBytes check, and the parser applies the
-// inner-list and parameter bounds there as it does in a dictionary. A top-level list's member count
-// is not bounded, because no fiki bound names it: MaxDictionaryMembers counts a dictionary's.
+// inner-list and parameter bounds there as it does in a dictionary, and MaxDictionaryMembers to a
+// list's members, as the other five ports do.
 
 import (
 	"bytes"
@@ -271,6 +271,7 @@ func expect(t *testing.T, c sfCase, joined string) expectation {
 		for _, m := range v.([]any) {
 			parts = append(parts, r.member(t, m, &s))
 		}
+		members = len(parts)
 		rendered = "[" + strings.Join(parts, ", ") + "]"
 	case "dictionary":
 		parts := []string{}
@@ -398,11 +399,11 @@ func TestTheHttpwgCorpus(t *testing.T) {
 				}
 				switch {
 				case refuse && ok:
-					t.Errorf("fiki refuses %q, and this port parsed it as %s", joined, got)
+					t.Errorf("fiki refuses %.300q, and this port parsed it as %.300s", joined, got)
 				case !refuse && !ok:
-					t.Errorf("the corpus parses %q as %s, and this port refused it", joined, want.rendered)
+					t.Errorf("the corpus parses %.300q as %.300s, and this port refused it", joined, want.rendered)
 				case !refuse && got != want.rendered:
-					t.Errorf("%q parsed as %s, and the corpus says %s", joined, got, want.rendered)
+					t.Errorf("%.300q parsed as %.300s, and the corpus says %.300s", joined, got, want.rendered)
 				}
 			})
 			ran++

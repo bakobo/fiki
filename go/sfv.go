@@ -413,7 +413,8 @@ func parseDictionary(text string) ([]string, map[string]member, error) {
 
 // parseList reads an RFC 8941 list (section 4.2.1). No header fiki reads is a list; it is here so
 // that the httpwg corpus (this.i @7fexwu3s) can hold the parser's every piece to the grammar, and
-// so that the fuzz target reaches every piece.
+// so that the fuzz target reaches every piece. Its members are bounded as a dictionary's are, at
+// MaxDictionaryMembers, as every port bounds them.
 func parseList(text string) ([]member, error) {
 	c := &cursor{text: text}
 	members := []member{}
@@ -422,6 +423,9 @@ func parseList(text string) ([]member, error) {
 		m, err := c.parseMember()
 		if err != nil {
 			return nil, err
+		}
+		if len(members) == MaxDictionaryMembers {
+			return nil, fmt.Errorf("%w: a list holds more than %d members", errSyntax, MaxDictionaryMembers)
 		}
 		members = append(members, m)
 		if end, err := c.nextMember("list"); end || err != nil {
