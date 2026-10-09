@@ -131,7 +131,7 @@ from fiki.errors import FikiError
 try:
     verdict = verify_request(
         method=request.method, url=request.url, headers=request.headers,
-        body=request.body, max_age=300,
+        body=request.body, max_age=300, authorities={"api.example.com"},
     )
 except FikiError as e:
     return 401, str(e)
