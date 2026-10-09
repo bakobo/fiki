@@ -143,21 +143,21 @@ def test_the_oracle_finds_eight_distinct_points_on_the_curve_and_fourteen_encodi
 def test_the_forged_signature_is_refused_on_the_raw_keyid_path():
     headers = forged_request(keyid_of(IDENTITY))
     with pytest.raises(MalformedKey) as caught:
-        verify_request(method="GET", url=URL, headers=headers, max_age=None)
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
     assert caught.value.keyid == keyid_of(IDENTITY)
 
 
 def test_the_forged_signature_is_refused_on_the_resolver_path():
     headers = forged_request("EAnyTransferableAidAtAll")
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None,
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: IDENTITY)
 
 
 def test_the_forged_signature_is_refused_under_an_expected_aid():
     headers = forged_request(keyid_of(IDENTITY))
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None,
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        expected_aid=to_aid(IDENTITY))
 
 
@@ -165,14 +165,14 @@ def test_the_forged_signature_is_refused_under_an_expected_aid():
 def test_every_small_order_encoding_is_malformed_as_a_keyid(raw):
     headers = forged_request(keyid_of(raw))
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None)
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
 
 
 @pytest.mark.parametrize("raw", SMALL, ids=[r.hex() for r in SMALL])
 def test_every_small_order_encoding_is_malformed_from_a_resolver(raw):
     headers = forged_request("EAnyTransferableAidAtAll")
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None,
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: raw)
 
 
@@ -186,9 +186,9 @@ def test_every_small_order_encoding_is_malformed_as_an_aid(raw):
 def test_a_key_that_is_not_a_canonical_curve_point_is_malformed_not_a_mismatch(raw):
     headers = sign_request(key=KEY, method="GET", url=URL, keyid=keyid_of(raw))
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None)
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
     with pytest.raises(MalformedKey):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None,
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: raw)
     with pytest.raises(MalformedKey):
         verifying_key(to_aid(raw))
@@ -197,10 +197,10 @@ def test_a_key_that_is_not_a_canonical_curve_point_is_malformed_not_a_mismatch(r
 def test_an_honest_key_still_verifies_on_every_path():
     raw = verifying_key(KEY.aid).public_bytes_raw()
     headers = sign_request(key=KEY, method="GET", url=URL)
-    assert verify_request(method="GET", url=URL, headers=headers, max_age=None).aid == KEY.aid
-    assert verify_request(method="GET", url=URL, headers=headers, max_age=None,
+    assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None).aid == KEY.aid
+    assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                           resolve=lambda keyid: raw).keyid == keyid_of(raw)
-    assert verify_request(method="GET", url=URL, headers=headers, max_age=None,
+    assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                           expected_aid=KEY.aid).aid == KEY.aid
 
 
@@ -208,7 +208,7 @@ def test_a_forgery_under_an_honest_key_is_still_a_mismatch():
     headers = sign_request(key=KEY, method="GET", url=URL)
     headers["Signature"] = f"sig=:{base64.b64encode(FORGED).decode()}:"
     with pytest.raises(SignatureMismatch):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None)
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
 
 
 @pytest.mark.parametrize("length", [0, 31, 33, 64])

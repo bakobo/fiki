@@ -94,7 +94,9 @@ def sign_over_digest(digest: str):
 
 
 def verify(request, headers, **overrides):
-    args = dict(headers=headers, max_age=None, **request)
+    # Written against 0.8's verifier, which applied no minimum unless asked: these tests state
+    # that explicitly now that the default is DEFAULT_MINIMUM (@524c8qgv), which has tests of its own.
+    args = dict(headers=headers, max_age=None, authorities=None, minimum=None, **request)
     args.update(overrides)
     return verify_request(**args)
 

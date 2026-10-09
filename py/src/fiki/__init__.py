@@ -15,6 +15,7 @@ from .errors import FikiError
 from .formats import aid_from
 from .keys import Key, to_aid, verifying_key
 from .messages import (
+    DEFAULT_MINIMUM,
     MAX_DICTIONARY_MEMBERS,
     MAX_FIELD_BYTES,
     MAX_INNER_LIST_ITEMS,
@@ -32,7 +33,7 @@ from .messages import (
 # when their declared vectors format matches, whatever their own version numbers say — so this is
 # the number to compare, not the release. Monotonic, because a conformance contract has no
 # meaningful minor: an implementation either satisfies the vectors or it does not.
-VECTORS_FORMAT = 2
+VECTORS_FORMAT = 3
 
 # The KERI profile's vector set, vectors/keri/, answers to its own number (@8vwrexxc), and every
 # port exports both (@5zrf8gjk).
@@ -49,6 +50,7 @@ __all__ = [
     "MAX_INNER_LIST_ITEMS",
     "MAX_PARAMETERS",
     "DEFAULT_COVERED",
+    "DEFAULT_MINIMUM",
     "DERIVED",
     "REQUEST_MINIMUM",
     "RESPONSE_MINIMUM",

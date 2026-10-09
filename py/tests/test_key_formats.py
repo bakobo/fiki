@@ -144,7 +144,7 @@ def test_an_ssh_key_signs_a_request_that_verifies_against_its_registered_public_
     public = next(c for c in VECTORS["public"]["accepts"] if c["id"] == "ssh-keygen-pub")
     key = Key.from_openssh(private["input"])
     headers = sign_request(key=key, method="GET", url="https://example.com/x")
-    verdict = verify_request(
+    verdict = verify_request(authorities=None, 
         method="GET", url="https://example.com/x", headers=headers, max_age=60,
         expected_aid=aid_from(public["input"]),
     )

@@ -71,7 +71,8 @@ def sign(**overrides):
 
 
 def verify(request, headers, **overrides):
-    args = dict(headers=headers, max_age=None, now=AT, **request)
+    # As in test_profile: 0.8's no-minimum default, stated explicitly (@524c8qgv).
+    args = dict(headers=headers, max_age=None, now=AT, authorities=None, minimum=None, **request)
     args.update(overrides)
     return verify_request(**args)
 
@@ -185,7 +186,7 @@ def test_a_header_name_or_value_that_is_not_a_string_is_a_caller_error(headers):
     with pytest.raises(TypeError):
         sign(headers=headers)
     with pytest.raises(TypeError):
-        verify_request(method="GET", url=URL, headers=headers, max_age=None)
+        verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
 
 
 # --- A7: a supplied Content-Digest must match the body it is signed with ---

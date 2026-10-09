@@ -106,6 +106,21 @@ DEFAULT_SKEW = 5
 REQUEST_MINIMUM = ("@method", "@path", "@query")
 RESPONSE_MINIMUM = ("@status", req("@method"), req("@path"), req("@query"))
 
+# What verify_request requires when the caller states no minimum of its own (@524c8qgv): fiki's
+# own signing default, so a verifier left at its defaults accepts what a fiki signer produces and
+# nothing that covers less. Pass minimum=None to opt out.
+DEFAULT_MINIMUM = ("@method", "@authority", "@path", "@query")
+
+
+class _Default:
+    """The marker for an argument left to its default, so that None can mean "opt out"."""
+
+    def __repr__(self) -> str:
+        return "DEFAULT_MINIMUM"
+
+
+_DEFAULT = _Default()
+
 # keyid -> the 32 raw bytes of the Ed25519 key it names, or None when it names no key the caller
 # knows. It may raise MalformedKey itself for a keyid that is not a well-formed identifier.
 Resolver = Callable[[str], "bytes | None"]
@@ -346,10 +361,10 @@ def verify_request(
     expected_aid: str | None = None,
     skew: int = DEFAULT_SKEW,
     now: int | None = None,
+    authorities: Collection[str] | None,
     resolve: Resolver | None = None,
-    minimum: Sequence[str] | None = None,
+    minimum: Sequence[str] | None | _Default = _DEFAULT,
     expected_keyid: str | None = None,
-    authorities: Collection[str] | None = None,
 ) -> Verdict:
     """Verify a signed request, returning a :class:`Verdict` or raising.
 
@@ -364,20 +379,25 @@ def verify_request(
     remove — so the decision is written at the call site either way. An ``expires`` the signer
     declared is enforced regardless, because ignoring one is selling a guarantee nobody bought.
 
-    ``minimum`` is the verifier's own covered-set policy, :data:`REQUEST_MINIMUM` or a superset
-    of it (a smaller one is a ValueError): a
-    signature covering less is refused even though it verifies, and so is a body — signalled by
+    ``minimum`` is the verifier's own covered-set policy. Left out, it is
+    :data:`DEFAULT_MINIMUM`, fiki's own signing default (@524c8qgv); given, it is
+    :data:`REQUEST_MINIMUM` or a superset of it (a smaller one is a ValueError). A signature
+    covering less is refused even though it verifies, and so is a body — signalled by
     ``Content-Length`` above zero, any ``Transfer-Encoding``, or simply arriving — without a
-    covered ``content-digest`` (@7f28p7xk). ``None`` enforces no minimum, and that includes the
-    body rule: with ``minimum=None`` a body handed over with no covered ``content-digest`` is
-    accepted, and the verdict's ``covered`` is the only place that shows it (@2f227n4r).
+    covered ``content-digest`` (@7f28p7xk); any minimum also requires ``created``, and a
+    ``keyid`` even beside ``expected_aid``. ``None`` is the explicit opt-out: no minimum and no
+    body rule, so a body handed over with no covered ``content-digest`` is accepted, and the
+    verdict's ``covered`` is the only place that shows it (@2f227n4r).
+
+    ``authorities`` has no default and must be given, like ``max_age`` (@524c8qgv): the
+    collection of ``@authority`` values this verifier serves, or ``None`` to decline the check.
+    A covered ``@authority`` outside it is a :class:`~fiki.errors.SignatureMismatch`, because a
+    request signed for one service must not replay to another (@2f227n4r), and supplying it
+    makes ``@authority`` required even under ``minimum=None`` (@605z9tnw). A string, an empty
+    collection, or one holding anything but strings is a mistake in the call.
 
     ``expected_keyid`` refuses a signature by any other keyid as
-    :class:`~fiki.errors.UnknownKey`. ``authorities`` is the set of ``@authority`` values this
-    verifier serves; a covered ``@authority`` outside it is a
-    :class:`~fiki.errors.SignatureMismatch`, because a request signed for one service must not
-    replay to another (@2f227n4r). Supplying ``authorities`` makes ``@authority`` required, so a
-    signature that does not cover it is :class:`~fiki.errors.InsufficientCoverage` (@605z9tnw).
+    :class:`~fiki.errors.UnknownKey`.
 
     ``now`` is injectable so a conformance vector can pin a freshness case against a fixed clock.
     ``max_age`` and ``skew``, when given, are positive integers; anything else is a mistake in the
@@ -389,7 +409,8 @@ def verify_request(
     and :data:`MAX_PARAMETERS` parameters on an item, and a header over any of them is malformed.
     """
     _check_window(max_age, skew)
-    minimum = _floored(minimum, REQUEST_MINIMUM)
+    _check_authorities(authorities)
+    minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT else minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
     return _verify(
         request_message(method, url, headers, received=True), headers, body, response=False,
@@ -576,6 +597,27 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
                 "signature over what an intermediary is free to change.",
                 component=spec_of(item),
             )
+
+
+def _check_authorities(authorities) -> None:
+    """authorities is None or a non-empty collection of strings, never a string (@524c8qgv).
+
+    A string is itself a collection of characters, so `in` would test for a substring and
+    "api.example.com" would admit "example.com" (review A3); that is a mistake in the call.
+    """
+    if authorities is None:
+        return
+    if isinstance(authorities, (str, bytes, bytearray)) or not isinstance(authorities, Collection):
+        raise TypeError(
+            "authorities is a collection of the hosts this verifier serves, such as "
+            f'{{"api.example.com"}}, or None; this one is {type(authorities).__name__}.'
+        )
+    if not authorities:
+        raise ValueError("authorities is empty, which serves no host at all; pass None to "
+                         "decline the check.")
+    for host in authorities:
+        if not isinstance(host, str):
+            raise TypeError(f"Every authority is a string; {host!r} is not.")
 
 
 def _check_window(max_age, skew) -> None:

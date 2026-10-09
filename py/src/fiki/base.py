@@ -19,7 +19,7 @@ import ipaddress
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import http_sfv
 
@@ -257,9 +257,32 @@ def _unreadable(message: _Message, reason: str) -> Exception:
     return ValueError(f"The URL {message.url!r} cannot be read: {reason}")
 
 
+# A scheme, "://", and at least one character of authority (RFC 3986 section 3).
+_ABSOLUTE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^/?#]")
+
+
 def _split(message: _Message):
+    """The target as RFC 9112 section 3.2 reads it (@524c8qgv).
+
+    A target beginning with "/" is origin-form: everything before the first "?" is the path,
+    verbatim, however many slashes it starts with, and it has no authority of its own, so
+    _authority reads the Host header. urlsplit would read "//evil.example/p" as a network-path
+    reference and let the sender choose the authority (review A1). Anything else must be an
+    absolute URI with a non-empty authority. A space or an ASCII control anywhere is refused
+    rather than stripped, as urlsplit strips a tab, CR or LF, which made "/\nx" verify as "/x".
+    """
+    url = message.url
+    if any(c <= " " or c == "\x7f" for c in url):
+        raise _unreadable(message, "it contains a space or a control character.")
+    if url.startswith("/"):
+        target = url.partition("#")[0]
+        path, _, query = target.partition("?")
+        return SplitResult("", "", path, query, "")
+    if not _ABSOLUTE.match(url):
+        raise _unreadable(message, "it is neither origin-form, beginning with a slash, nor an "
+                                   "absolute URI with a scheme and an authority.")
     try:
-        return urlsplit(message.url)
+        return urlsplit(url)
     except ValueError as ex:
         raise _unreadable(message, f"{ex}.") from ex
 

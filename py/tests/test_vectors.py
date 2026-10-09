@@ -101,6 +101,28 @@ def test_signature_vectors(case):
     assert base64.b64encode(signature).decode("ascii") == case["signature"]
 
 
+# Every field a verify case may carry. A field this driver does not know fails the case rather
+# than being ignored, so a field added to the vectors cannot be silently dropped by a port that
+# never learned it (review V-M8).
+_VERIFY_FIELDS = {"id", "method", "url", "headers", "body", "max_age", "now", "minimum",
+                  "authorities", "note", "error", "aid", "keyid", "covered"}
+
+
+def _policy(case) -> dict:
+    """The verifier's stated policy (format 3, @524c8qgv): "default" is the port's own default,
+    null the explicit opt-out, a list that minimum. authorities is always stated."""
+    assert set(case) <= _VERIFY_FIELDS, f"unknown fields {set(case) - _VERIFY_FIELDS}"
+    policy = {"authorities": case["authorities"]}
+    if case["minimum"] != "default":
+        policy["minimum"] = case["minimum"]
+    return policy
+
+
+@pytest.mark.parametrize("name", ["accepts.json", "refusals.json"])
+def test_the_verify_vectors_are_not_empty(name):
+    assert len(load(name)["cases"]) > 10
+
+
 @pytest.mark.parametrize("case", cases("refusals.json"))
 def test_refusal_vectors(case):
     """The negative half. A port that verifies these instead of refusing them is not fiki.
@@ -114,8 +136,9 @@ def test_refusal_vectors(case):
             url=case["url"],
             headers=case["headers"],
             body=None if case["body"] is None else case["body"].encode("utf-8"),
-            max_age=case.get("max_age"),
-            now=case.get("now"),
+            max_age=case["max_age"],
+            now=case["now"],
+            **_policy(case),
         )
     assert type(caught.value).__name__ == case["error"]
 
@@ -135,6 +158,7 @@ def test_accept_vectors(case):
         body=None if case["body"] is None else case["body"].encode("utf-8"),
         max_age=case["max_age"],
         now=case["now"],
+        **_policy(case),
     )
     assert verdict.aid == case["aid"]
     # Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.
