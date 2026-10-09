@@ -2,3 +2,4 @@
 kind: debt
 created: 2026-09-04T17:53Z
 
+- 2026-10-09T21:02Z 2026-10-09 pre-0.9.0 review panel raised this again as TST-F1 (Rust, HIGH) and TST-F2 (Java, MEDIUM). Kept here, not done in 0.9.0, per Daniel's ruling that the Rust/Java gates stay in this tick.
