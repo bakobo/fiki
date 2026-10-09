@@ -27,6 +27,7 @@ _END = "-----END OPENSSH PRIVATE KEY-----"
 _MAGIC = b"openssh-key-v1\x00"
 
 
+# Also used by formats.py, which reads the same encodings in a public key line.
 def _b64std(text: str) -> bytes | None:
     """Padded standard base64, or None unless ``text`` is the one canonical spelling."""
     if not _B64STD.fullmatch(text) or len(text) % 4:
@@ -60,6 +61,7 @@ class _Reader:
         return self.data[self.pos:]
 
 
+# Also used by formats.py, which reads the same encodings in a public key line.
 def _ssh_public_blob(blob: bytes) -> bytes | None:
     """The 32 raw bytes of an ssh-ed25519 public blob with nothing after them, or None."""
     reader = _Reader(blob)
