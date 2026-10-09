@@ -317,5 +317,13 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(FikiErrorKind.MalformedDigest, Assert.Throws<FikiException>(() =>
                 HttpSignatures.VerifyRequest("POST", url, all, Verifying.DecliningFreshness().WithBody(body))).Kind);
         }
+
+        [Fact]
+        public void ShownIsTotalSoAMissingKeyidNeverCrashesTheMessageOfItsRefusal()
+        {
+            // #18 hostile fix pass: fiki-py's shown() received a missing keyid and raised before
+            // the coded refusal. A message helper must never be the thing that throws.
+            Assert.Equal("nothing", PyText.Shown(null!));
+        }
     }
 }

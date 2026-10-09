@@ -455,6 +455,11 @@ namespace Bakobo.Fiki
         /// </summary>
         internal static string Shown(string text)
         {
+            // Total, so building a refusal's message never throws before the refusal (#18).
+            if (text == null)
+            {
+                return "nothing";
+            }
             var cut = text.Length > ShownLength;
             var length = cut ? ShownLength : text.Length;
             if (cut && char.IsHighSurrogate(text[length - 1]))

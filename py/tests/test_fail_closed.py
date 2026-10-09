@@ -142,3 +142,33 @@ def test_a_lone_surrogate_is_a_coded_refusal_not_a_unicode_error(where):
     with pytest.raises(SignatureMismatch):
         verify_request(method="GET", url=url, headers=headers, max_age=None, authorities=None,
                        minimum=None)
+
+
+def test_a_signature_without_a_keyid_beside_an_expected_keyid_is_unknown_key_not_a_crash():
+    # #18 hostile fix pass: shown(keyid) received None, which this policy permits (no minimum,
+    # expected_aid naming the key), and raised TypeError before the coded refusal.
+    import http_sfv
+
+    from fiki.base import component_lines
+    from fiki.errors import UnknownKey
+
+    covered = ["@method", "@path"]
+    inner = http_sfv.InnerList([http_sfv.Item(c) for c in covered])
+    inner.params["created"] = 1700000000
+    lines = component_lines(method="GET", url="/a", headers={}, covered=covered)
+    lines.append(f'"@signature-params": {inner}')
+    import base64 as b64
+
+    headers = {"Signature-Input": f"sig={inner}",
+               "Signature": "sig=:" + b64.b64encode(KEY.sign("\n".join(lines).encode())).decode() + ":"}
+    with pytest.raises(UnknownKey):
+        verify_request(method="GET", url="/a", headers=headers, max_age=None, authorities=None,
+                       minimum=None, expected_aid=KEY.aid, expected_keyid="EIhwv8kM")
+
+
+def test_shown_is_total_over_any_value():
+    from fiki._text import brief, shown
+
+    assert shown(None) == "None"
+    assert shown(12345) == "12345"
+    assert brief(None) == "None"

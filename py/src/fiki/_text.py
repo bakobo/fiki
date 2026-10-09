@@ -11,7 +11,12 @@ _SHOWN = 64
 
 
 def shown(text: str) -> str:
-    """An untrusted value as an error message may quote it: escaped, and cut at 64 characters."""
+    """An untrusted value as an error message may quote it: escaped, and cut at 64 characters.
+
+    Total over any value, so that building a message never raises before the refusal it carries.
+    """
+    if not isinstance(text, str):
+        return repr(text)[:_SHOWN]
     if len(text) <= _SHOWN:
         return repr(text)
     return repr(text[:_SHOWN]) + f" (cut from {len(text)} characters)"

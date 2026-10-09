@@ -501,7 +501,8 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     local = _local_key(expected_aid, keyid, resolve)
     if expected_keyid is not None and keyid != expected_keyid:
         raise UnknownKey(
-            f"This message is signed by {shown(keyid)}, and the one expected is {shown(expected_keyid)}.",
+            f"This message is signed by {'no keyid' if keyid is None else shown(keyid)}, and the "
+            f"one expected is {shown(expected_keyid)}.",
             keyid=keyid,
         )
     public_key, aid = local if local is not None else _resolved(keyid, resolve)
