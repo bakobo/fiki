@@ -14,10 +14,10 @@ func TestAMinimumRequiresAKeyidEvenWithAnExpectedAID(t *testing.T) {
 		"Signature-Input": "sig=" + string(base[len(base)-len(`("@method" "@path" "@query");created=1700000000`):]),
 		"Signature":       "sig=:" + b64std(key.Sign(base)) + ":",
 	}
-	if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()}); err != nil {
+	if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String(key.AID())}); err != nil {
 		t.Fatalf("without a minimum, an expected AID needs no keyid: %v", err)
 	}
-	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID(), Minimum: RequestMinimum})
+	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String(key.AID()), Minimum: RequestMinimum})
 	if kindOf(t, err) != KindMissingKey {
 		t.Errorf("under a minimum, a missing keyid is MissingKey, got %v", err)
 	}

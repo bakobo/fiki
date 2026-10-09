@@ -32,14 +32,15 @@ void Check(string name, string? got, string want)
 
 var plain = Find(Load("accepts.json"), "default-covered-get");
 var verdict = HttpSignatures.VerifyRequest(plain.GetProperty("method").GetString()!, plain.GetProperty("url").GetString()!,
-    Headers(plain.GetProperty("headers")), VerifyOptions.DecliningFreshness().WithNow(plain.GetProperty("now").GetInt64()));
+    Headers(plain.GetProperty("headers")), VerifyOptions.DecliningFreshness().WithNow(plain.GetProperty("now").GetInt64()).DecliningAuthorityCheck());
 Check("plain vector", verdict.Aid, plain.GetProperty("aid").GetString()!);
 
 var key = Key.FromSeed(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray());
 var url = "https://api.example.com/things?limit=1";
 var body = Encoding.UTF8.GetBytes("{\"hello\": \"world\"}");
 var signed = HttpSignatures.SignRequest(key, "POST", url, body: body);
-verdict = HttpSignatures.VerifyRequest("POST", url, signed, VerifyOptions.MaxAge(300).WithBody(body).WithExpectedAid(key.Aid));
+verdict = HttpSignatures.VerifyRequest("POST", url, signed, VerifyOptions.MaxAge(300).WithBody(body).WithExpectedAid(key.Aid)
+    .WithAuthorities(new[] { "api.example.com" }));
 Check("plain round trip", verdict.Aid, key.Aid);
 
 var keri = Load("keri", "requests.json");
@@ -57,7 +58,8 @@ verdict = HttpSignatures.VerifyRequest(request.GetProperty("method").GetString()
         .WithSkew(policy.GetProperty("skew").GetInt64())
         .WithNow(kase.GetProperty("now").GetInt64())
         .WithResolver(resolve)
-        .WithMinimum(HttpSignatures.RequestMinimum));
+        .WithMinimum(HttpSignatures.RequestMinimum)
+        .DecliningAuthorityCheck());
 var keyid = kase.GetProperty("expected").GetProperty("keyid").GetString()!;
 Check("KERI vector", verdict.Aid, keyid);
 
@@ -65,5 +67,5 @@ var signer = Key.FromSeed(Convert.FromHexString(table[keyid].GetProperty("seed_h
 url = "https://keria.example.com/identifiers?type=rot";
 signed = HttpSignatures.SignRequest(signer, "GET", url, keyId: keyid, minimum: HttpSignatures.RequestMinimum);
 verdict = HttpSignatures.VerifyRequest("GET", url, signed,
-    VerifyOptions.MaxAge(300).WithResolver(resolve).WithMinimum(HttpSignatures.RequestMinimum));
+    VerifyOptions.MaxAge(300).WithResolver(resolve).WithMinimum(HttpSignatures.RequestMinimum).DecliningAuthorityCheck());
 Check("KERI round trip", verdict.Aid, keyid);

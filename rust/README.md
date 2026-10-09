@@ -32,18 +32,22 @@ By default the signature binds the method, the host, the path, the query string,
 
 ```rust
 let verdict = verify_request(method, url, &headers, &VerifyOptions {
-    max_age: Some(300),             // or None to decline the check
+    max_age: MaxAge::seconds(300),  // or MaxAge::Unchecked to decline the check
     authorities: Authorities::served(["api.example.com"]),  // or Authorities::Unchecked
     body: Some(body.to_vec()),
     ..Default::default()
 })?;
 ```
 
-`max_age` is an `Option<i64>` the caller fills in one way or the other: seconds of tolerance, or an explicit `None`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way. A `max_age` or `skew` you do give must be positive; zero or less is `Kind::InvalidArgument`. `skew: None` takes `DEFAULT_SKEW`, five seconds.
+`max_age` is a decision the caller states one way or the other: `MaxAge::seconds(n)` for that many seconds of tolerance, or `MaxAge::Unchecked` to decline. Left at `MaxAge::Unstated`, which is what `..Default::default()` gives it, `verify_request` and `verify_response` refuse the call as `Kind::InvalidArgument`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way. A `MaxAge::Seconds` or `skew` you do give must be positive; zero or less is `Kind::InvalidArgument`. `skew: None` takes `DEFAULT_SKEW`, five seconds.
 
-`authorities` is a decision of the same kind, and is checked when `verify_request` runs because `..Default::default()` cannot make a field mandatory: `Authorities::served([...])` names the hosts this verifier answers for, `Authorities::Unchecked` declines the check, and leaving it `Unstated` is `Kind::InvalidArgument`. `minimum` defaults to `Minimum::Default`, which applies `DEFAULT_MINIMUM` (method, authority, path and query, plus the body's digest whenever there is a body, with `created` and `keyid` required); `Minimum::Off` is the explicit opt-out and `Minimum::Of(..)` a minimum of your own, no smaller than `REQUEST_MINIMUM`.
+`authorities` is a decision of the same kind, and is checked when `verify_request` runs because `..Default::default()` cannot make a field mandatory: `Authorities::served([...])` names the hosts this verifier answers for, `Authorities::Unchecked` declines the check, and leaving it `Unstated` is `Kind::InvalidArgument`. `minimum` defaults to `Minimum::Default`, which applies `DEFAULT_MINIMUM` (method, authority, path and query, plus the body's digest whenever there is a body, with `created` and `keyid` required); `Minimum::Off` is the explicit opt-out and `Minimum::of(..)` a minimum of your own, no smaller than `REQUEST_MINIMUM`: `Minimum::of(REQUEST_MINIMUM)` is the KERI profile's.
 
 `verdict.keyid` is the keyid exactly as it appeared on the wire, or `None` when the signature had none. `verdict.aid` is the identity that vouched for the key: the AID of a raw key, the keyid a resolver vouched for, or the AID of `expected_aid`.
+
+## Responses, KERI identifiers, and resolvers
+
+The crate implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/`. That adds `sign_response` and `verify_response`, whose `expected_keyid` (`ExpectedKeyid::is(aid)` or `ExpectedKeyid::Unchecked`) is a required decision; a caller-chosen keyid on `SignOptions`; a `Resolver` for keyids that are not keys, such as a transferable KERI AID, which is authoritative; and the profile's minimum covered sets, `REQUEST_MINIMUM` and `RESPONSE_MINIMUM`. The [user guide](../docs/user-guide.md#signing-with-a-keri-identifier) shows each in Rust, and `cargo run --example guide` runs every Rust sample in it.
 
 ## What fiki refuses before it reads anything
 

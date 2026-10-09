@@ -9,6 +9,28 @@ cd java
 mvn test
 ```
 
+## Using it from your own project
+
+The Java port is not on Maven Central yet, so build it and install it into your local Maven repository:
+
+```sh
+git clone https://github.com/bakobo/fiki
+cd fiki/java
+mvn install
+```
+
+Then depend on it as you would on any other artifact. With Maven:
+
+```xml
+<dependency>
+  <groupId>com.bakobo</groupId>
+  <artifactId>fiki</artifactId>
+  <version>0.9.0</version>
+</dependency>
+```
+
+With Gradle, add `mavenLocal()` to `repositories` and `implementation("com.bakobo:fiki:0.9.0")` to `dependencies`. The artifact has no runtime dependencies, so nothing else comes with it.
+
 ## Signing a request
 
 ```java

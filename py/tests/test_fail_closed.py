@@ -97,7 +97,7 @@ def test_served_hosts_are_snapshotted_so_a_collections_own_membership_test_decid
 def test_expected_keyid_has_no_default_and_the_response_minimum_defaults():
     parameters = inspect.signature(verify_response).parameters
     assert parameters["expected_keyid"].default is inspect.Parameter.empty
-    assert repr(parameters["minimum"].default) == "DEFAULT_MINIMUM"
+    assert repr(parameters["minimum"].default) == "RESPONSE_MINIMUM"
 
 
 def test_an_error_quotes_at_most_64_characters_of_an_untrusted_url_and_escapes_controls():

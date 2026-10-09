@@ -33,6 +33,19 @@ Three consequences worth knowing before you wire it in.
 
 **You must state a freshness policy.** Verification takes a maximum age in seconds, or an explicit refusal to check. There is no default, because both candidates are wrong: a number guesses at your clock skew and replay window, and skipping silently is exactly what the argument exists to prevent. Separately, if a signer declared an `expires`, fiki enforces it whatever you chose — accepting one without checking it would sell a guarantee nobody bought.
 
+## Installing
+
+| Language | Install |
+|---|---|
+| Python 3.11+ | `pip install fiki==0.9.0` |
+| JavaScript, Node 20+ or a browser | `npm install @bakobo/fiki@0.9.0` |
+| Go 1.22+ | `go get github.com/bakobo/fiki/go@v0.9.0` |
+| Rust 1.75+ | `cargo add fiki@0.9.0` |
+| C#, .NET 10 or .NET Framework 4.8.1 | `dotnet add package Bakobo.Fiki --version 0.9.0` |
+| Java 17+ | not on Maven Central yet; build it from a clone as [java/README.md](../java/README.md#using-it-from-your-own-project) describes |
+
+This guide describes 0.9.0, which satisfies vectors format 3. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
+
 ## Signing a request
 
 Generate a key once, print the AID, and register it. Then sign.
@@ -163,7 +176,7 @@ verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
 
 ```rust
 let verdict = verify_request(method, url, &headers, &VerifyOptions {
-    max_age: Some(300),
+    max_age: MaxAge::seconds(300),
     authorities: Authorities::served(["api.example.com"]),
     body: Some(body.to_vec()),
     ..Default::default()
@@ -227,7 +240,7 @@ Covering `@authority` binds a signature to the host it names, but the sender con
 
 ### Preregistration
 
-If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`. C#: `.WithExpectedAid(...)`.
+If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID: fiki.String(aid)`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`. C#: `.WithExpectedAid(...)`.
 
 That closes the gap where a request carries a perfectly valid signature from the wrong party. Without it, you get a verdict naming a stranger and you have to compare it yourself, which works but puts the check in your code rather than fiki's.
 
@@ -262,6 +275,8 @@ Python has this today. The other ports will follow against the same vectors, `ve
 
 ## Signing with an SSH key
 
+This is in the Python port only, for now; the others will follow with the key spellings above.
+
 If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from`.
 
 ```python
@@ -286,12 +301,12 @@ Sometimes you have replay protection elsewhere — a nonce store, a gateway, an 
 |---|---|---|
 | Python | `max_age=300` | `max_age=None` |
 | JavaScript | `maxAge: 300` | `maxAge: null` |
-| Go | `MaxAge: &seconds` | `MaxAge: nil` |
-| Rust | `max_age: Some(300)` | `max_age: None` |
+| Go | `MaxAge: &seconds` | `AnyAge: true` |
+| Rust | `max_age: MaxAge::seconds(300)` | `max_age: MaxAge::Unchecked` |
 | Java | `VerifyOptions.maxAge(300)` | `VerifyOptions.decliningFreshness()` |
 | C# | `VerifyOptions.MaxAge(300)` | `VerifyOptions.DecliningFreshness()` |
 
-Omitting it entirely is an error, not a default. That is the point: the decision is visible at the call site either way.
+Omitting it entirely is an error, not a default. In Go and Rust, which cannot make a field mandatory, that error comes when the verifier runs rather than when it compiles. That is the point: the decision is visible at the call site either way.
 
 Clock skew is tolerated at 5 seconds by default and is adjustable, because two hosts disagreeing by a second is ordinary and a verifier that treats it as an attack is unusable.
 
@@ -386,7 +401,7 @@ A covered list that falls short of the minimum is refused as `InsufficientCovera
 
 ## Verifying with a resolver
 
-The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep.
+The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep. It comes from a KERI implementation that does read them: keripy or KERIA on a server, signify-ts in a browser or Node client, or a witness or watcher you query. fiki needs only the current signing key that implementation reports for the AID.
 
 The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is shaped like an AID and is not its canonical spelling is `MalformedKey` before the resolver sees it. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
 
@@ -448,7 +463,7 @@ verdict, err := fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
 // verdict.Keyid is the AID the resolver vouched for; verdict.AID is the same.
 ```
 
-A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. For a request, a nil `Minimum` applies `DefaultMinimum` and `NoMinimum: true` applies none; `Authorities` and `AnyAuthority: true` are the two ways to state the authority decision, and stating neither, both, or an empty list is `ErrInvalidOptions`. A nil `Body` is no body, while an empty one is a body of no bytes.
+A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. For a request, a nil `Minimum` applies `DefaultMinimum` and `NoMinimum: true` applies none; `Authorities` and `AnyAuthority: true` are the two ways to state the authority decision, and stating neither, both, or an empty list is `ErrInvalidOptions`; `MaxAge` and `AnyAge: true` are the same for the age decision. A nil `Body` is no body, while an empty one is a body of no bytes.
 
 ### Rust
 
@@ -463,10 +478,10 @@ let verdict = verify_request(
     "https://keria.example.com/identifiers",
     headers,
     &VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         body: Some(body.to_vec()),
         resolve: Some(resolve),
-        minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::of(REQUEST_MINIMUM),
         authorities: Authorities::served(["keria.example.com"]),
         ..Default::default()
     },
@@ -522,7 +537,7 @@ A client states the AID it expects to be talking to, and a response signed by an
 |---|---|---|
 | Python | `expected_keyid=aid` | `expected_keyid=None` |
 | JavaScript | `expectedKeyid: aid` | `expectedKeyid: null` |
-| Go | `ExpectedKeyid: aid` | `AnyKeyid: true` |
+| Go | `ExpectedKeyid: fiki.String(aid)` | `AnyKeyid: true` |
 | Rust | `expected_keyid: ExpectedKeyid::is(aid)` | `expected_keyid: ExpectedKeyid::Unchecked` |
 | Java | `.withExpectedKeyid(aid)` | `.withoutKeyidCheck()` |
 | C# | `.WithExpectedKeyId(aid)` | `.DecliningKeyidCheck()` |
@@ -601,7 +616,7 @@ verdict, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOpt
 	Body:          responseBody,
 	Resolve:       resolve,
 	Minimum:       fiki.ResponseMinimum,
-	ExpectedKeyid: agentAID, // the AID you meant to talk to (profile R1)
+	ExpectedKeyid: fiki.String(agentAID), // the AID you meant to talk to (profile R1)
 	MaxAge:        &maxAge,
 	Skew:          &skew,
 })
@@ -634,11 +649,11 @@ let verdict = verify_response(
     response_headers,
     Some(request),
     &VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         body: Some(br#"{"done": true}"#.to_vec()),
         resolve: Some(resolve),
         expected_keyid: ExpectedKeyid::is("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"),
-        minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::of(RESPONSE_MINIMUM),
         ..Default::default()
     },
 )?;

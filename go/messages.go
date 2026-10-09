@@ -36,6 +36,12 @@ const DefaultSkew int64 = 5
 // RequestMinimum and ResponseMinimum are the KERI profile's minimum covered sets (section 3), for
 // a signer's or verifier's Minimum. A body adds content-digest on top, and a response to a request
 // that had a body adds "content-digest";req.
+//
+// These exported slices, DefaultMinimum included, are copies for callers to read and pass; fiki
+// enforces nothing from them. Assigning to one or editing its elements changes no floor and no
+// default fiki applies, because what fiki enforces is the private arrays below, which Go can keep
+// out of other code's reach where it cannot make a slice immutable. Keep the two in step:
+// TestTheFormat3Policy fails when they differ.
 var (
 	RequestMinimum  = []string{"@method", "@path", "@query"}
 	ResponseMinimum = []string{"@status", Req("@method"), Req("@path"), Req("@query")}
@@ -48,6 +54,9 @@ var (
 // The values fiki itself reads. The exported slices above are for callers to read and pass; Go
 // cannot make a slice immutable, and a policy any code in the process could rewrite is not a
 // policy (#17 hostile pass), so verification and the profile floors use these private arrays.
+// This is the copy that is enforced: change a minimum here and in the exported slice above
+// together, since changing only the exported one changes nothing fiki enforces, and the
+// TestTheFormat3Policy check that they agree is the only thing holding them in step.
 var (
 	requestMinimum  = [...]string{"@method", "@path", "@query"}
 	responseMinimum = [...]string{"@status", `"@method";req`, `"@path";req`, `"@query";req`}
@@ -322,6 +331,16 @@ func checkLabel(label string) error {
 }
 
 // signed returns the signature headers, plus the Content-Digest fiki generated, if it did.
+//
+// Signature-Input is cut from the base that was signed rather than serialized again from the
+// parameters, so the header and the base cannot diverge: whatever a verifier rebuilds from
+// Signature-Input is byte for byte the line fiki signed. Taking the last "@signature-params"
+// marker is safe because of two invariants. buildBase appends the @signature-params line last, and
+// checkCovered refuses @signature-params as a covered component, since it is not among the derived
+// components fiki builds; so the last line of the base is always the params line. A covered
+// field's value may contain the marker, but only on an earlier line, which LastIndex passes over.
+// Nor can the params line repeat the marker after its own: every string in it is an RFC 8941
+// sf-string, whose quotes are escaped.
 func signed(key *Key, base []byte, label, generated string) map[string]string {
 	label = labelled(label)
 	params := string(base)
@@ -432,18 +451,25 @@ type Verdict struct {
 
 // VerifyOptions carries the verifier's policy and the body it has in hand.
 //
-// MaxAge is a *int64 rather than an int64 because there is no default: seconds of tolerance, or
-// an explicit nil to decline the check. Both defaults would be wrong (this.i @67shl6c5) — a value
+// MaxAge and AnyAge are a decision with no default, which VerifyRequest and VerifyResponse both
+// require: state exactly one. MaxAge is the oldest a signature may be, in seconds; AnyAge is the
+// explicit decision to check no age. Both defaults would be wrong (this.i @67shl6c5) — a value
 // guesses at somebody else's clock skew and replay window, and skipping silently is the thing the
-// field exists to prevent — so the caller states one either way.
+// field exists to prevent — so a nil MaxAge is never read as the decline (@65u2932c). Neither, or
+// both, is ErrInvalidOptions.
+//
+// ExpectedAID and ExpectedKeyid are optional strings, so they are pointers: nil is unset, and
+// fiki.String states one. A pointer to "" is ErrInvalidOptions, because an empty value is most
+// often a configuration value nobody filled in, never a decision to check nothing (@65u2932c).
 type VerifyOptions struct {
 	MaxAge *int64
+	AnyAge bool
 	// Body is the content received. Nil is none handed over.
 	Body []byte
 	// ExpectedAID is authoritative when given: the preregistration case, where the verifier
 	// already knows whose message this should be and the inline key is only a claim. Resolve is
-	// the other way to be authoritative. Give one or neither.
-	ExpectedAID string
+	// the other way to be authoritative. Give one or neither; nil gives none.
+	ExpectedAID *string
 	Skew        *int64
 	// Now pins the clock, in seconds since the epoch; zero reads the wall clock.
 	Now     int64
@@ -462,11 +488,11 @@ type VerifyOptions struct {
 	// it is talking to (profile R1). VerifyResponse requires a decision, like Authorities for a
 	// request (this.i @524c8qgv): an ExpectedKeyid, or AnyKeyid to accept any signer and read it
 	// from the verdict. Neither, both, or an empty ExpectedKeyid is ErrInvalidOptions there.
-	// VerifyRequest checks no keyid unless given one, and refuses both.
-	ExpectedKeyid string
+	// VerifyRequest checks no keyid when it is nil, and refuses both or an empty one.
+	ExpectedKeyid *string
 	AnyKeyid      bool
-	// Authorities and AnyAuthority are a decision VerifyRequest requires, like MaxAge, with no
-	// default (@524c8qgv): state exactly one. Authorities is the non-empty set of @authority
+	// Authorities and AnyAuthority are a decision VerifyRequest requires, like MaxAge and AnyAge,
+	// with no default (@524c8qgv): state exactly one. Authorities is the non-empty set of @authority
 	// values this verifier serves, each compared exactly with the one the request derives, so
 	// "api.example.com:8443" and "api.example.com" are different hosts and an entry is written
 	// lowercase with no default port. A covered @authority outside it is a SignatureMismatch,
@@ -480,8 +506,8 @@ type VerifyOptions struct {
 
 // VerifyRequest verifies a signed request.
 //
-// MaxAge and Skew, when given, are positive; zero or less is ErrInvalidOptions, as is a method that
-// is not an HTTP token (this.i @5zrf8gjk). A URL whose authority cannot be read, such as one whose
+// MaxAge or AnyAge is a required decision. MaxAge and Skew, when given, are positive; zero or less
+// is ErrInvalidOptions, as is a method that is not an HTTP token (this.i @5zrf8gjk). A URL whose authority cannot be read, such as one whose
 // port is not a number from 0 to 65535, is a base that cannot be built, so a covered @authority
 // makes it a SignatureMismatch. Signature, Signature-Input and Content-Digest are bounded before
 // they are parsed, at MaxFieldBytes each, MaxDictionaryMembers members, MaxInnerListItems items in
@@ -491,10 +517,13 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 	if err := checkWindow(opts); err != nil {
 		return nil, err
 	}
+	if err := checkStated(opts); err != nil {
+		return nil, err
+	}
 	if err := checkAuthorities(opts); err != nil {
 		return nil, err
 	}
-	if opts.AnyKeyid && opts.ExpectedKeyid != "" {
+	if opts.AnyKeyid && opts.ExpectedKeyid != nil {
 		return nil, errBothKeyids
 	}
 	if err := checkNoMinimum(opts); err != nil {
@@ -518,7 +547,7 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // It fails closed as VerifyRequest does (this.i @524c8qgv): left without a Minimum it applies
 // ResponseMinimum, whose req components are read from request, so a response verified under the
 // default with no request is MissingComponent; NoMinimum opts out. ExpectedKeyid or AnyKeyid is
-// a required decision. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
+// a required decision, as is MaxAge or AnyAge. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
 // "content-digest";req, and that digest is recomputed over request.Body, so verifying such a
 // response against a Request with no Body is ErrInvalidOptions. A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
@@ -526,6 +555,9 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // refusal (@2f227n4r). The policy's limits and the input bounds are VerifyRequest's.
 func VerifyResponse(status int, request *Request, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
 	if err := checkWindow(opts); err != nil {
+		return nil, err
+	}
+	if err := checkStated(opts); err != nil {
 		return nil, err
 	}
 	if err := checkExpectedKeyid(opts); err != nil {
@@ -560,11 +592,11 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 
 // verify runs the KERI profile's section 9 order, so a message has exactly one correct refusal.
 func verify(m *message, response bool, request *Request, opts VerifyOptions) (*Verdict, error) {
-	if opts.ExpectedAID != "" && opts.Resolve != nil {
+	if opts.ExpectedAID != nil && opts.Resolve != nil {
 		return nil, invalidOptions("Pass ExpectedAID or Resolve, not both; each decides the key alone.")
 	}
 	found := m.headers
-	list, signature, err := read(found, opts.ExpectedAID == "" || opts.Minimum != nil, opts.Minimum != nil)
+	list, signature, err := read(found, opts.ExpectedAID == nil || opts.Minimum != nil, opts.Minimum != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -598,14 +630,14 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	// expected keyid, and only then the resolver, which is never asked about a keyid already refused.
 	value, _ := list.param("keyid")
 	keyid, _ := value.(string)
-	public, aid, err := localKey(opts.ExpectedAID, keyid, opts.Resolve)
+	public, aid, err := localKey(orEmpty(opts.ExpectedAID), keyid, opts.Resolve)
 	if err != nil {
 		return nil, err
 	}
-	if opts.ExpectedKeyid != "" && keyid != opts.ExpectedKeyid {
+	if opts.ExpectedKeyid != nil && keyid != *opts.ExpectedKeyid {
 		return nil, &Error{
 			Kind:    KindUnknownKey,
-			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(opts.ExpectedKeyid)),
+			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(*opts.ExpectedKeyid)),
 			Keyid:   keyid,
 		}
 	}
@@ -955,11 +987,40 @@ var errBothKeyids = invalidOptions("Pass ExpectedKeyid or set AnyKeyid, not both
 // missing value into "accept any signer"; in Go it is the same mistake as stating nothing.
 func checkExpectedKeyid(opts VerifyOptions) error {
 	switch {
-	case opts.AnyKeyid && opts.ExpectedKeyid != "":
+	case opts.AnyKeyid && opts.ExpectedKeyid != nil:
 		return errBothKeyids
-	case !opts.AnyKeyid && opts.ExpectedKeyid == "":
+	case !opts.AnyKeyid && opts.ExpectedKeyid == nil:
 		return invalidOptions("ExpectedKeyid is a required decision for a response: pass the AID " +
 			"you are talking to, or set AnyKeyid to accept any signer and read it from the verdict.")
+	}
+	return nil
+}
+
+// String returns a pointer to s, so a struct literal can state an optional string:
+// ExpectedAID: fiki.String(aid).
+func String(s string) *string { return &s }
+
+// orEmpty is the string p points to, or "" when it is nil. Only for a pointer checkStated has
+// already passed, where "" can only mean nil.
+func orEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+// checkStated refuses an optional string that is stated and empty (this.i @65u2932c, tick 5kyt).
+// nil is unset; a pointer to "" is most often a configuration value that was never filled in, and
+// reading it as unset would quietly turn "verify this AID" into "verify anyone".
+func checkStated(opts VerifyOptions) error {
+	for _, s := range []struct {
+		name  string
+		value *string
+	}{{"ExpectedAID", opts.ExpectedAID}, {"ExpectedKeyid", opts.ExpectedKeyid}} {
+		if s.value != nil && *s.value == "" {
+			return invalidOptions("%s is stated and empty, which names no one; leave it nil to "+
+				"state none.", s.name)
+		}
 	}
 	return nil
 }
@@ -974,9 +1035,18 @@ func checkNoMinimum(opts VerifyOptions) error {
 
 // checkWindow refuses a freshness window that is not a positive number of seconds, as the
 // caller's mistake (profile section 3, this.i @5zrf8gjk): a zero or negative one would refuse
-// every honest message or none. A nil MaxAge still declines the age check, and a nil Skew is
-// DefaultSkew.
+// every honest message or none. A nil Skew is DefaultSkew. MaxAge and AnyAge are a decision the
+// caller must make (this.i @67shl6c5, @65u2932c): Go cannot make a field mandatory at compile time,
+// so leaving both unset is refused when a message is verified, as is stating both, rather than
+// reading a MaxAge nobody wrote as the decline.
 func checkWindow(opts VerifyOptions) error {
+	switch {
+	case opts.MaxAge == nil && !opts.AnyAge:
+		return invalidOptions("MaxAge is a required decision: pass the oldest a signature may be, " +
+			"in seconds, or set AnyAge to check no age.")
+	case opts.MaxAge != nil && opts.AnyAge:
+		return invalidOptions("Pass MaxAge or set AnyAge, not both; they are opposite answers.")
+	}
 	for _, w := range []struct {
 		name  string
 		value *int64

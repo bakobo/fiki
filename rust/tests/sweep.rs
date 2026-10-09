@@ -12,19 +12,21 @@ use std::sync::{Arc, Mutex};
 
 use fiki::{
     content_digest, req, response_signature_base, sign_request, sign_response, signature_base,
-    verify_request, verify_response, Authorities, ExpectedKeyid, Key, Kind, Minimum, Request,
-    Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
+    verify_request, verify_response, Authorities, ExpectedKeyid, Key, Kind, MaxAge, Minimum,
+    Request, Resolver, SignOptions, SignatureParams, Verdict, VerifyOptions, REQUEST_MINIMUM,
 };
 
-/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check and no
-/// expected keyid. Format 3 makes a minimum the default for requests and responses alike, and
-/// authorities and a response's expected keyid required decisions (`this.i` @524c8qgv), so a test
-/// whose subject is something else states that policy rather than relying on it.
+/// The policy fiki 0.8 applied when a caller stated none: no minimum, no authority check, no
+/// expected keyid and no age check. Format 3 makes a minimum the default for requests and responses
+/// alike, and authorities and a response's expected keyid required decisions (`this.i` @524c8qgv),
+/// and 0.9.0 makes max_age one in Rust (@65u2932c), so a test whose subject is something else
+/// states that policy rather than relying on it.
 fn opted_out() -> VerifyOptions {
     VerifyOptions {
         minimum: Minimum::Off,
         authorities: Authorities::Unchecked,
         expected_keyid: ExpectedKeyid::Unchecked,
+        max_age: MaxAge::Unchecked,
         ..Default::default()
     }
 }
@@ -406,7 +408,7 @@ fn a7_a_supplied_digest_that_matches_is_signed_as_given() {
 
 fn under_minimum() -> VerifyOptions {
     VerifyOptions {
-        minimum: Minimum::Of(strings(&REQUEST_MINIMUM)),
+        minimum: Minimum::of(REQUEST_MINIMUM),
         ..opted_out()
     }
 }
@@ -952,7 +954,7 @@ fn b17_a_freshness_window_that_is_not_positive_is_a_caller_error() {
     for value in [0, -1, i64::MIN] {
         for opts in [
             VerifyOptions {
-                max_age: Some(value),
+                max_age: MaxAge::seconds(value),
                 ..opted_out()
             },
             VerifyOptions {
@@ -975,7 +977,7 @@ fn b17_enormous_windows_neither_overflow_nor_refuse() {
     };
     let sent = sign("GET", URL, &[], opts).unwrap();
     let verdict = sent.verify(VerifyOptions {
-        max_age: Some(i64::MAX),
+        max_age: MaxAge::seconds(i64::MAX),
         skew: Some(i64::MAX),
         now: Some(1_000_000_000_000_000_000),
         ..opted_out()
@@ -984,7 +986,7 @@ fn b17_enormous_windows_neither_overflow_nor_refuse() {
     // And at the other end of the clock, where now - created is the subtraction that wraps: compared
     // rather than overflowed, created is further in the future than even this skew allows.
     let refused = sent.verify(VerifyOptions {
-        max_age: Some(i64::MAX),
+        max_age: MaxAge::seconds(i64::MAX),
         skew: Some(i64::MAX),
         now: Some(i64::MIN),
         ..opted_out()

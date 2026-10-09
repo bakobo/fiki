@@ -61,7 +61,7 @@ func TestSignAndVerifyResponses(t *testing.T) {
 	body := []byte(`{"done": true}`)
 	verifyOpts := func() VerifyOptions {
 		return VerifyOptions{Body: body, Resolve: resolverFor(key), Minimum: ResponseMinimum,
-			ExpectedKeyid: keriAID, MaxAge: maxAge(300), Now: signedAt}
+			ExpectedKeyid: String(keriAID), MaxAge: maxAge(300), Now: signedAt}
 	}
 
 	t.Run("a default response binds the request, its body included, and verifies", func(t *testing.T) {
@@ -260,7 +260,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 
 	t.Run("an expected keyid refuses any other", func(t *testing.T) {
 		o := opts(resolverFor(key))
-		o.ExpectedKeyid = "Esomebody-else"
+		o.ExpectedKeyid = String("Esomebody-else")
 		_, err := verifyOptedOut("POST", urlQuery, request.Headers, o)
 		if kindOf(t, err) != KindUnknownKey {
 			t.Error("expected UnknownKey")
@@ -269,7 +269,7 @@ func TestCallerChosenKeyidsAndResolvers(t *testing.T) {
 
 	t.Run("ExpectedAID and Resolve together are ErrInvalidOptions", func(t *testing.T) {
 		o := opts(resolverFor(key))
-		o.ExpectedAID = key.AID()
+		o.ExpectedAID = String(key.AID())
 		_, err := verifyOptedOut("POST", urlQuery, request.Headers, o)
 		isInvalidOptions(t, err)
 	})
