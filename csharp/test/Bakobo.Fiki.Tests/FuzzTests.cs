@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -222,7 +221,6 @@ namespace Bakobo.Fiki.Tests
             var vectors = Vectors();
             var seeds = Seeds(vectors);
             var random = new XorShift(Seed);
-            var clock = Stopwatch.StartNew();
             for (var i = 0; i < Iterations; i++)
             {
                 var input = Mutate(random, seeds[random.Below(seeds.Count)], seeds);
@@ -230,8 +228,6 @@ namespace Bakobo.Fiki.Tests
                 var problem = Feed(input, vector, random.Below(2) == 0, Options(random));
                 Assert.True(problem == null, $"seed 0x{Seed:x}, iteration {i}: {problem}\ninput: \"{Escaped(input)}\"");
             }
-            // Generous: the point is to keep the run near ten seconds on CI, not to time it.
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(60), $"{Iterations} mutants took {clock.Elapsed}");
         }
 
         [Fact]

@@ -834,16 +834,32 @@ namespace Bakobo.Fiki
             try
             {
                 raw = raw ?? throw new FormatException("There is no header.");
-                // Before its size, as fiki-py encodes strictly before it counts: a lone surrogate has
-                // no UTF-8 spelling, so no peer sent it and nothing can read it (tick 7us4).
-                if (PyText.HasLoneSurrogate(raw))
+                // Counted as UTF-8 and only as far as the bound, so a header of megabytes costs no
+                // more to refuse than one just over it (tick 7xbw). A lone surrogate has no UTF-8
+                // spelling, so no peer sent it and nothing can read it (tick 7us4); fiki-py, which
+                // encodes the whole header first, says so even past the bound, where this port has
+                // stopped reading and refuses it for its size, with the same kind.
+                var size = 0;
+                for (var i = 0; i < raw.Length && size <= HttpSignatures.MaxFieldBytes; i++)
                 {
-                    throw new FikiException(kind, $"The {name} header holds a character that has no UTF-8 encoding, so it cannot be read as an RFC 8941 {shape}.");
+                    var c = raw[i];
+                    if (char.IsHighSurrogate(c) && i + 1 < raw.Length && char.IsLowSurrogate(raw[i + 1]))
+                    {
+                        size += 4;
+                        i++;
+                    }
+                    else if (char.IsSurrogate(c))
+                    {
+                        throw new FikiException(kind, $"The {name} header holds a character that has no UTF-8 encoding, so it cannot be read as an RFC 8941 {shape}.");
+                    }
+                    else
+                    {
+                        size += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+                    }
                 }
-                var size = System.Text.Encoding.UTF8.GetByteCount(raw);
                 if (size > HttpSignatures.MaxFieldBytes)
                 {
-                    throw new FikiException(kind, $"The {name} header is {size} bytes, and fiki reads one of at most {HttpSignatures.MaxFieldBytes}.");
+                    throw new FikiException(kind, $"The {name} header is over {HttpSignatures.MaxFieldBytes} bytes, and fiki reads one of at most {HttpSignatures.MaxFieldBytes}.");
                 }
                 return parse(raw);
             }

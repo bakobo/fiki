@@ -232,6 +232,18 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Theory]
+        [MemberData(nameof(SignatureHeaders))]
+        public void ASurrogatePastTheBoundIsNeverReachedSoTheHeaderIsRefusedForItsSize(string name, FikiErrorKind kind, int code)
+        {
+            // A divergence in the message only: fiki-py encodes the whole header and says "no UTF-8
+            // encoding"; this port stops counting at the bound (tick 7xbw), so a header refused
+            // for its size is never read to its end. The kind is the same.
+            var caught = Refused(Url, With(name, new string('a', 8193) + Of(code)));
+            Assert.Equal(kind, caught.Kind);
+            Assert.Contains("is " + OverBound, caught.Message, StringComparison.Ordinal);
+        }
+
+        [Theory]
         [MemberData(nameof(Lone))]
         public void ASurrogateInAContentDigestReachingTheParserHasNoUtf8EncodingAsInPy(int code)
         {

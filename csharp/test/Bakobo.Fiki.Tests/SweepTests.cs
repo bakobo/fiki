@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -58,34 +57,7 @@ namespace Bakobo.Fiki.Tests
 
         // --- A6: parsing is linear ---
 
-        [Fact]
-        public void ALongCoveredListIsBuiltInLinearTime()
-        {
-            var headers = new List<KeyValuePair<string, string>>();
-            var covered = new List<string>();
-            for (var i = 0; i < 50000; i++)
-            {
-                headers.Add(H("x-h" + i, "v"));
-                covered.Add("x-h" + i);
-            }
-            var clock = Stopwatch.StartNew();
-            HttpSignatures.SignatureBase("GET", Url, headers, covered, At, "k");
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"50000 components took {clock.Elapsed}");
-        }
-
-        [Fact]
-        public void ManyParametersAreParsedInLinearTime()
-        {
-            var text = new StringBuilder("(\"@path\")");
-            for (var i = 0; i < 50000; i++)
-            {
-                text.Append(";p").Append(i);
-            }
-            var clock = Stopwatch.StartNew();
-            var parsed = Sfv.ParseDictionary("sig=" + text);
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"50000 parameters took {clock.Elapsed}");
-            Assert.Equal(50000, parsed.Single().Value.Params.Count);
-        }
+        // A6's two growth tests are in GrowthTests, which runs alone.
 
         // --- A7 and E5: a supplied digest must be one a verifier accepts for the body ---
 
