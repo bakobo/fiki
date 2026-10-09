@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-09T05:07Z
 
+- 2026-10-09T20:40Z Ruled 2026-10-09 (Daniel, fiki-release session): *string for ExpectedAID and ExpectedKeyid, matching Skew *int64, plus a fiki.String helper; AnyKeyid stays. Lands in format 4.
