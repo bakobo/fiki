@@ -1,0 +1,8 @@
+# Each runner writes its outcome map here; CI uploads them as artifacts, nothing commits them.
+out/
+# Build trees of the runners that need one.
+go/fiki-differential
+rust/target/
+csharp/bin/
+csharp/obj/
+java/classes/
