@@ -473,23 +473,6 @@ namespace Bakobo.Fiki
             }
         }
 
-        /// <summary>True when <paramref name="text"/> holds a surrogate that is not half of a pair, which has no UTF-8 encoding.</summary>
-        internal static bool HasLoneSurrogate(string text)
-        {
-            for (var i = 0; i < text.Length; i++)
-            {
-                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
-                {
-                    i++;
-                }
-                else if (char.IsSurrogate(text[i]))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
         /// <summary>
         /// NFKC as Python's <c>unicodedata.normalize</c> computes it, which leaves a lone surrogate
         /// in place where <see cref="string.Normalize(NormalizationForm)"/> throws (tick 7us4). A
