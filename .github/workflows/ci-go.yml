@@ -49,3 +49,27 @@ jobs:
           total=$(go tool cover -func=cover.out | awk '/^total:/ {print $3}')
           echo "statement coverage: $total"
           test "$total" = "100.0%"
+
+  # A native fuzz run of the RFC 8941 parser and VerifyRequest, seeded from the httpwg corpus
+  # (tick 7xbw, this.i @7fexwu3s). Fixed-length, so it costs the same every run; the seeded
+  # mutation test in the normal suite is the deterministic half. A crash leaves its input under
+  # testdata/fuzz/, which the failing run uploads so it can become a named unit test.
+  fuzz:
+    name: go-fuzz
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.22"
+      - name: Fuzz for 60 seconds
+        run: go test -run='^$' -fuzz='^FuzzParseStructuredFields$' -fuzztime=60s .
+      - name: Upload a crashing input
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-fuzz-crash
+          path: go/testdata/fuzz/
