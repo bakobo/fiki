@@ -18,6 +18,7 @@ import {
   verifyRequest,
   verifyResponse,
 } from '../src/index.js';
+import { callerError } from './caller.js';
 
 // Format 3 made the verifier's default minimum fiki's own signing default and authorities a
 // required decision (@524c8qgv). These tests predate both and are about other things, so they
@@ -98,18 +99,18 @@ describe('bodies of every accepted type', () => {
     ['a Blob', new Blob(['x'])],
   ]) {
     it(`refuses ${id} as a body with a TypeError rather than treating it as absent`, async () => {
-      await assert.rejects(() => signRequest({ key: KEY, method: 'POST', url: URL_, body, created: AT }), TypeError);
+      await assert.rejects(() => signRequest({ key: KEY, method: 'POST', url: URL_, body, created: AT }), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
       const headers = await signRequest({ key: KEY, method: 'GET', url: URL_, created: AT });
-      await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, body, maxAge: null }), TypeError);
+      await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, body, maxAge: null }), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
       const request = { method: 'GET', url: URL_ };
       const response = await signResponse({ key: KEY, status: 200, request, created: AT });
-      await assert.rejects(() => verifyResponse({ status: 200, headers: response, body, request, maxAge: null, expectedKeyid: null, minimum: null }), TypeError);
+      await assert.rejects(() => verifyResponse({ status: 200, headers: response, body, request, maxAge: null, expectedKeyid: null, minimum: null }), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
       await assert.rejects(
         () => verifyResponse({ status: 200, headers: response, request: { ...request, body }, maxAge: null, expectedKeyid: null, minimum: null }),
-        TypeError,
+        callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'),
       );
-      await assert.rejects(() => signResponse({ key: KEY, status: 200, request: { ...request, body }, created: AT }), TypeError);
-      await assert.rejects(() => signResponse({ key: KEY, status: 200, body, created: AT }), TypeError);
+      await assert.rejects(() => signResponse({ key: KEY, status: 200, request: { ...request, body }, created: AT }), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
+      await assert.rejects(() => signResponse({ key: KEY, status: 200, body, created: AT }), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
     });
   }
 });
@@ -119,6 +120,6 @@ describe('contentDigest', () => {
     const { contentDigest } = await import('../src/index.js');
     const expected = await contentDigest(BYTES);
     for (const [, body] of shapes(BYTES)) assert.equal(await contentDigest(body), expected);
-    await assert.rejects(() => contentDigest(42), TypeError);
+    await assert.rejects(() => contentDigest(42), callerError('must be a Uint8Array, another ArrayBufferView, an ArrayBuffer or a string'));
   });
 });
