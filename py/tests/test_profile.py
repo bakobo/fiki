@@ -219,7 +219,7 @@ def test_a_resolver_with_no_keyid_to_resolve_is_a_missing_key():
 
 def test_expected_aid_and_a_resolver_together_are_a_programming_error():
     request, headers = sign()
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Pass expected_aid or resolve, not both"):
         verify(request, headers, resolve={}.get, expected_aid=KEY.aid)
 
 
@@ -845,7 +845,7 @@ def test_a_bound_request_digest_with_no_request_body_to_check_is_a_caller_error(
     """Codex #2 on fiki#4: the verifier cannot check what it was not given, and a verdict that
     skipped the check would look like one that made it (profile section 5)."""
     bodiless = Request(method=REQUEST.method, url=REQUEST.url, headers=REQUEST.headers)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must be supplied in Request.body"):
         check(respond(), request=bodiless)
 
 
@@ -854,17 +854,17 @@ def test_a_bound_request_digest_with_no_request_body_to_check_is_a_caller_error(
 @pytest.mark.parametrize("minimum", [(), ["@method", "@path"], [req("@method")]])
 def test_a_request_minimum_below_the_profiles_is_a_caller_error(minimum):
     request, headers = sign()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must include the profile's own"):
         verify(request, headers, minimum=minimum)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must include the profile's own"):
         sign(minimum=minimum)
 
 
 @pytest.mark.parametrize("minimum", [(), REQUEST_MINIMUM, ["@status", req("@method")]])
 def test_a_response_minimum_below_the_profiles_is_a_caller_error(minimum):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must include the profile's own"):
         check(respond(), minimum=minimum)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must include the profile's own"):
         respond(minimum=minimum)
 
 
@@ -967,9 +967,9 @@ DUPLICATES = [
 
 @pytest.mark.parametrize("dup", DUPLICATES)
 def test_signing_a_request_with_a_header_named_twice_is_a_caller_error(dup):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         sign(headers=dup, covered=["@method", "@path", "@query", "content-digest", "x-role"])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         signature_base(method="POST", url=URL, headers=dup, covered=["@method"], created=AT,
                        keyid="k")
 
@@ -980,25 +980,25 @@ def test_verifying_a_request_with_a_header_named_twice_is_a_caller_error(dup):
                             covered=["@method", "@path", "@query", "content-digest", "x-role"])
     headers.update({k: v for k, v in dup.items() if k not in headers})
     assert len({k.lower() for k in headers}) < len(headers)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         verify(request, headers)
 
 
 @pytest.mark.parametrize("dup", DUPLICATES)
 def test_a_response_or_its_request_with_a_header_named_twice_is_a_caller_error(dup):
     doubled = Request(method="POST", url=URL, headers=dup, body=BODY)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         respond(headers=dup)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         respond(request=doubled)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         response_signature_base(status=200, headers=dup, covered=["@status"], created=AT,
                                 keyid="k")
     headers = respond()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         check(headers, request=doubled)
     headers.update({k: v for k, v in dup.items() if k not in headers})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="more than once, in different cases"):
         check(headers)
 
 
