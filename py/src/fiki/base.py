@@ -23,6 +23,7 @@ from urllib.parse import SplitResult, urlsplit
 
 import http_sfv
 
+from ._text import brief, shown
 from .errors import DuplicateComponent, MissingComponent, SignatureMismatch, UnsupportedComponent
 
 DERIVED = ("@method", "@authority", "@path", "@query")
@@ -136,7 +137,7 @@ def check_covered(items: Sequence[http_sfv.Item], *, response: bool) -> None:
     for item in items:
         if identity(item) in seen:
             raise DuplicateComponent(
-                f"The covered components name {spec_of(item)} twice, so the signature base would "
+                f"The covered components name {brief(spec_of(item))} twice, so the signature base would "
                 "not be what either copy says it is.",
                 component=spec_of(item),
             )
@@ -147,7 +148,7 @@ def check_covered(items: Sequence[http_sfv.Item], *, response: bool) -> None:
         is_req = params.get(_REQ) is True
         if set(params) - {_REQ} or (_REQ in params and not (is_req and response)):
             raise UnsupportedComponent(
-                f"fiki does not support the component {spec_of(item)}: the only component "
+                f"fiki does not support the component {brief(spec_of(item))}: the only component "
                 f'parameter it supports is "{_REQ}", and only in a response.',
                 component=spec_of(item),
                 supported=_REQ,
@@ -156,7 +157,7 @@ def check_covered(items: Sequence[http_sfv.Item], *, response: bool) -> None:
             supported = DERIVED if (is_req or not response) else RESPONSE_DERIVED
             if item.value not in supported:
                 raise UnsupportedComponent(
-                    f'fiki does not build the derived component {spec_of(item)} in a '
+                    f'fiki does not build the derived component {brief(spec_of(item))} in a '
                     f"{'response' if response else 'request'}; it builds {', '.join(supported)}.",
                     component=spec_of(item),
                     supported=", ".join(supported),
@@ -187,8 +188,6 @@ MAX_FIELD_BYTES = 8192
 
 # Sizes are measured with surrogatepass, because a Python str can hold a lone surrogate, which
 # strict UTF-8 refuses to encode; the character checks after the size refuse it as non-ASCII.
-# Longest stretch of an untrusted value an error message quotes.
-_SHOWN = 64
 
 _ASCII_UPPER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
@@ -200,11 +199,6 @@ def ascii_lower(text: str) -> str:
     covered name it is not (review A6, B5). Field names are ASCII tokens; nothing else folds.
     """
     return text.translate(_ASCII_UPPER)
-
-
-def shown(text: str) -> str:
-    """An untrusted value as an error message may quote it: escaped, and cut at 64 characters."""
-    return repr(text) if len(text) <= _SHOWN else repr(text[:_SHOWN]) + f" (cut from {len(text)} characters)"
 
 
 def canonical(headers: Mapping[str, str]) -> dict[str, str]:
@@ -420,7 +414,7 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
     if item.params.get(_REQ) is True:
         if message.request is None:
             raise MissingComponent(
-                f"The signature covers {spec_of(item)}, which is read from the request this "
+                f"The signature covers {brief(spec_of(item))}, which is read from the request this "
                 "response answers, and no request was supplied.",
                 component=spec_of(item),
             )
@@ -453,7 +447,7 @@ def _component_value(item: http_sfv.Item, message: _Message) -> str:
     value = message.headers.get(name)
     if value is None:
         raise MissingComponent(
-            f"The signature covers {spec_of(item)}, but the message carries no value for it, "
+            f"The signature covers {brief(spec_of(item))}, but the message carries no value for it, "
             f"so the signature base cannot be built.",
             component=spec_of(item),
         )
@@ -473,12 +467,12 @@ def _check_raw(value: str, spec: str, *, bounded: bool = True) -> None:
     """
     if bounded and len(value.encode("utf-8", "surrogatepass")) > MAX_FIELD_BYTES:
         raise SignatureMismatch(
-            f"The value of {spec} is over {MAX_FIELD_BYTES} bytes, so no signature base is built "
+            f"The value of {brief(spec)} is over {MAX_FIELD_BYTES} bytes, so no signature base is built "
             "from it."
         )
     if any(not (char == "\t" or " " <= char <= "~") for char in value):
         raise SignatureMismatch(
-            f"The value of {spec} contains a line break, a control character or a "
+            f"The value of {brief(spec)} contains a line break, a control character or a "
             "non-ASCII character, so there is no signature base both sides would build from it."
         )
 

@@ -48,6 +48,7 @@ from .base import (
     spec_of,
     value_of,
 )
+from ._text import brief, shown
 from .errors import (
     DigestMismatch,
     InsufficientCoverage,
@@ -500,14 +501,14 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     local = _local_key(expected_aid, keyid, resolve)
     if expected_keyid is not None and keyid != expected_keyid:
         raise UnknownKey(
-            f'This message is signed by "{keyid}", and the one expected is "{expected_keyid}".',
+            f"This message is signed by {shown(keyid)}, and the one expected is {shown(expected_keyid)}.",
             keyid=keyid,
         )
     public_key, aid = local if local is not None else _resolved(keyid, resolve)
     alg = inner.params.get("alg")
     if alg is not None and alg != ALG:
         raise UnsupportedAlgorithm(
-            f'This signature is made with "{alg}", and fiki verifies only {ALG} signatures.',
+            f"This signature is made with {shown(alg)}, and fiki verifies only {ALG} signatures.",
             alg=alg,
         )
 
@@ -603,7 +604,7 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
     for item in required:
         if identity(item) not in have:
             raise InsufficientCoverage(
-                f"The signature does not cover {spec_of(item)}, which this verifier requires, so "
+                f"The signature does not cover {brief(spec_of(item))}, which this verifier requires, so "
                 "it is refused even though it may be valid: a signature over too little is a "
                 "signature over what an intermediary is free to change.",
                 component=spec_of(item),
@@ -755,7 +756,7 @@ def _read(found: Mapping[str, str], *, require_keyid: bool, require_created: boo
     label = next(iter(inputs.keys()))
     if label not in signatures:
         raise MissingSignatureLabel(
-            f'The Signature header carries no entry labelled "{label}", so the covered '
+            f"The Signature header carries no entry labelled {shown(label)}, so the covered "
             "components describe a signature that is not here.",
             label=label,
         )
@@ -779,11 +780,11 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
     for item in member:
         if type(item.value) is not str:
             raise MalformedSignatureInput(
-                f"Every covered component is named by a quoted string; {item} is not one."
+                f"Every covered component is named by a quoted string; {brief(item)} is not one."
             )
         if not item.value.startswith("@") and item.value != item.value.lower():
             raise MalformedSignatureInput(
-                f"The covered field {item} is not lowercase, and RFC 9421 section 2.1 requires "
+                f"The covered field {brief(item)} is not lowercase, and RFC 9421 section 2.1 requires "
                 "field names in the covered list to be lowercased by the signer."
             )
     if require_keyid and "keyid" not in member.params:
@@ -803,7 +804,7 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
         expected = _SIGNATURE_PARAMS.get(name)
         if expected is None:
             raise MalformedSignatureInput(
-                f'The signature parameter "{name}" is not one fiki understands; it accepts '
+                f"The signature parameter {shown(name)} is not one fiki understands; it accepts "
                 f"{', '.join(_SIGNATURE_PARAMS)}."
             )
         if type(value) is not expected:
@@ -905,7 +906,7 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     if resolve is not None:
         if misspelled_aid(keyid):
             raise MalformedKey(
-                f'The keyid "{keyid}" is shaped like an AID and is not its canonical spelling, '
+                f"The keyid {shown(keyid)} is shaped like an AID and is not its canonical spelling, "
                 "so it is not an AID at all.",
                 keyid=keyid,
             )
@@ -915,14 +916,14 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     # as whatever key it happened to decode to. Only the one canonical spelling is a key.
     if not _RAW_KEYID.fullmatch(keyid):
         raise MalformedKey(
-            f'The keyid "{keyid}" is not a base64url-encoded 32-byte Ed25519 public key: that is '
+            f"The keyid {shown(keyid)} is not a base64url-encoded 32-byte Ed25519 public key: that is "
             f"exactly {_RAW_KEYID_LENGTH} characters from the base64url alphabet, unpadded.",
             keyid=keyid,
         )
     raw = base64.urlsafe_b64decode(keyid + "=")
     if base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") != keyid:
         raise MalformedKey(
-            f'The keyid "{keyid}" is not the canonical base64url spelling of any key.',
+            f"The keyid {shown(keyid)} is not the canonical base64url spelling of any key.",
             keyid=keyid,
         )
     return public_key(raw, keyid), to_aid(raw)
@@ -935,12 +936,12 @@ def _resolved(keyid: str, resolve: Resolver):
     raw = resolve(keyid)
     if raw is None:
         raise UnknownKey(
-            f'No key is known for the keyid "{keyid}", so the signature cannot be checked.',
+            f"No key is known for the keyid {shown(keyid)}, so the signature cannot be checked.",
             keyid=keyid,
         )
     if not isinstance(raw, (bytes, bytearray)) or len(raw) != _KEY_LENGTH:
         raise MalformedKey(
-            f'The key resolved for "{keyid}" is not a {_KEY_LENGTH}-byte Ed25519 public key.',
+            f"The key resolved for {shown(keyid)} is not a {_KEY_LENGTH}-byte Ed25519 public key.",
             keyid=keyid,
         )
     return public_key(bytes(raw), keyid), keyid
@@ -971,7 +972,7 @@ def _read_digest(header: str | None) -> list:
         expected = getattr(member, "value", None)
         if type(expected) is not bytes:
             raise MalformedDigest(
-                f"The {name} Content-Digest is not an RFC 8941 byte sequence, so it cannot be "
+                f"The {brief(name)} Content-Digest is not an RFC 8941 byte sequence, so it cannot be "
                 "compared with anything."
             )
         recognized.append((name, algorithm, expected))
@@ -992,6 +993,6 @@ def _compare_digest(recognized: list, body: bytes | None) -> None:
     for name, algorithm, expected in recognized:
         if algorithm(body).digest() != expected:
             raise DigestMismatch(
-                f"The body does not match its {name} Content-Digest, so the body is not the one "
+                f"The body does not match its {brief(name)} Content-Digest, so the body is not the one "
                 "that was signed."
             )

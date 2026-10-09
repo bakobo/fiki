@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+from ._text import shown
 from .errors import MalformedKey
 from .openssh import read_openssh
 
@@ -78,7 +79,7 @@ def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
     zero bytes verifies over any message, and OpenSSL accepts it.
     """
     # An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
-    subject = f'The key for "{keyid}"' if keyid else "The key given"
+    subject = f"The key for {shown(keyid)}" if keyid else "The key given"
     # First, on every path: the decoding below reads any length as an integer, and cryptography
     # would refuse a wrong one with a ValueError from outside fiki's taxonomy.
     if len(raw) != _RAW_LEN:
