@@ -6,11 +6,14 @@
 // chain. The usual argument against writing your own parser holds where the grammar is open-ended;
 // this one's entire output surface is pinned byte for byte by the shared vectors.
 //
-// What is deliberately NOT here: decimals, tokens, and every field type RFC 9421 never puts in
-// these two headers. A parser that accepts less than the spec can only refuse things fiki would
-// not have understood anyway, which is the safe direction. Inner-list items DO carry parameters,
-// because RFC 9421 section 2.4's `req` is one, and fiki decides what a parameter means only after
-// the parse, where refusing it can name the component rather than the syntax (@7f28p7xk).
+// Every bare item type RFC 8941 defines is parsed, tokens and decimals included, though fiki reads
+// neither in any header it uses: a parser that refuses one where every other port parses it moves
+// the refusal to a different class, MalformedSignature where the others say
+// MalformedSignatureValue (@7vdhfv3q). RFC 9651's Dates and Display Strings are NOT parsed, since
+// RFC 9421 references RFC 8941, and fall to the same syntax error as any other text the grammar
+// does not allow. Inner-list items carry parameters, because RFC 9421 section 2.4's `req` is one,
+// and fiki decides what a parameter means only after the parse, where refusing it can name the
+// component rather than the syntax (@7f28p7xk).
 
 // Thrown by this module alone and never exported: the parser cannot know WHICH header it is
 // reading, and the taxonomy distinguishes an unparsable Signature from an unparsable
@@ -121,17 +124,48 @@ function parseByteSequence(cursor) {
   return fromBase64(encoded);
 }
 
-function parseInteger(cursor) {
-  const start = cursor.at;
-  if (cursor.peek() === '-') cursor.at += 1;
-  while (!cursor.done && /[0-9]/.test(cursor.peek())) cursor.at += 1;
-  const digits = cursor.text.slice(start, cursor.at);
-  // RFC 8941 section 3.3.1 caps an integer at fifteen digits, which is also what keeps it exact
-  // in a JavaScript number: a longer one would round, and a rounded `created` is a different one.
-  if (!/^-?[0-9]{1,15}$/.test(digits)) {
-    throw new MalformedSyntax(`Expected an integer of at most 15 digits at offset ${start} of ${cursor.text}.`);
+/** An RFC 8941 token (section 3.3.4), kept apart from a string, which fiki reads and a token it
+ * never does. */
+export class Token {
+  constructor(value) {
+    this.value = value;
   }
-  return Number(digits);
+}
+
+/** An RFC 8941 decimal (section 3.3.2), kept apart from an integer, so that `created=1.5` is a
+ * parameter of the wrong type rather than a time. */
+export class Decimal {
+  constructor(value) {
+    this.value = value;
+  }
+}
+
+// RFC 8941 section 4.2.6: ALPHA or "*", then tchar, ":" or "/".
+const TOKEN_START = /^[A-Za-z*]$/;
+const TOKEN_CHAR = /^[!#$%&'*+\-.^_`|~0-9A-Za-z:/]$/;
+
+function parseToken(cursor) {
+  const start = cursor.at;
+  cursor.at += 1;
+  while (!cursor.done && TOKEN_CHAR.test(cursor.peek())) cursor.at += 1;
+  return new Token(cursor.text.slice(start, cursor.at));
+}
+
+// RFC 8941 section 4.2.4: an integer of at most fifteen digits, or a decimal of at most twelve
+// integer and three fractional digits, with at least one of each. Fifteen digits is also what keeps
+// an integer exact in a JavaScript number: a longer one would round, and a rounded `created` is a
+// different one.
+const NUMBER = /^-?(?:[0-9]{1,15}(?![0-9.])|[0-9]{1,12}\.[0-9]{1,3}(?![0-9]))/;
+
+function parseNumber(cursor) {
+  const match = NUMBER.exec(cursor.text.slice(cursor.at, cursor.at + 18));
+  if (match === null) {
+    throw new MalformedSyntax(
+      `Expected an integer of at most 15 digits, or a decimal of at most 12 and 3, at offset ${cursor.at} of ${cursor.text}.`,
+    );
+  }
+  cursor.at += match[0].length;
+  return match[0].includes('.') ? new Decimal(Number(match[0])) : Number(match[0]);
 }
 
 function parseBareItem(cursor) {
@@ -144,7 +178,8 @@ function parseBareItem(cursor) {
     if (flag !== '0' && flag !== '1') throw new MalformedSyntax('A boolean is ?0 or ?1.');
     return flag === '1';
   }
-  if (char === '-' || /[0-9]/.test(char ?? '')) return parseInteger(cursor);
+  if (char === '-' || /[0-9]/.test(char ?? '')) return parseNumber(cursor);
+  if (TOKEN_START.test(char ?? '')) return parseToken(cursor);
   throw new MalformedSyntax(`Unsupported item at offset ${cursor.at} of ${cursor.text}.`);
 }
 
@@ -198,6 +233,39 @@ export function parseItem(text) {
   return item;
 }
 
+/** Parse an RFC 8941 list of items and inner lists (section 4.2.1).
+ *
+ * fiki reads no list-valued header, so this exists for the httpwg corpus (@7fexwu3s). It applies the
+ * dictionary's member bound to a list's members, so that every entry point applies all four bounds.
+ */
+export function parseList(text) {
+  const cursor = new Cursor(text);
+  const out = [];
+  cursor.skipSP();
+  while (!cursor.done) {
+    out.push(member(cursor));
+    if (out.length > MAX_DICTIONARY_MEMBERS) {
+      throw new MalformedSyntax(`A list holds more than ${MAX_DICTIONARY_MEMBERS} members.`);
+    }
+    if (separated(cursor)) break;
+  }
+  return out;
+}
+
+// A list or dictionary member's value: an inner list, or an item with its parameters.
+const member = (cursor) =>
+  cursor.peek() === '(' ? parseInnerList(cursor) : { value: parseBareItem(cursor), params: parseParameters(cursor) };
+
+// After a list or dictionary member: true at the end of the field, past a comma otherwise.
+function separated(cursor) {
+  cursor.skipOWS();
+  if (cursor.done) return true;
+  cursor.expect(',');
+  cursor.skipOWS();
+  if (cursor.done) throw new MalformedSyntax('A list or dictionary ended with a trailing comma.');
+  return false;
+}
+
 /** Parse an RFC 8941 dictionary whose members are inner lists or byte sequences. */
 export function parseDictionary(text) {
   const cursor = new Cursor(text);
@@ -208,10 +276,7 @@ export function parseDictionary(text) {
     let value;
     if (!cursor.done && cursor.peek() === '=') {
       cursor.take();
-      value =
-        cursor.peek() === '('
-          ? parseInnerList(cursor)
-          : { value: parseBareItem(cursor), params: parseParameters(cursor) };
+      value = member(cursor);
     } else {
       value = { value: true, params: parseParameters(cursor) };
     }
@@ -219,18 +284,22 @@ export function parseDictionary(text) {
     if (out.size > MAX_DICTIONARY_MEMBERS) {
       throw new MalformedSyntax(`A dictionary holds more than ${MAX_DICTIONARY_MEMBERS} members.`);
     }
-    cursor.skipOWS();
-    if (cursor.done) break;
-    cursor.expect(',');
-    cursor.skipOWS();
-    if (cursor.done) throw new MalformedSyntax('A dictionary ended with a trailing comma.');
+    if (separated(cursor)) break;
   }
   return out;
 }
 
+// RFC 8941 section 4.1.5: at most three fractional digits, and at least one. Only ever handed what
+// parseNumber read, which has at most three already.
+const serializeDecimal = (value) => value.toFixed(3).replace(/0{1,2}$/, '');
+
 const serializeBareItem = (value) => {
   if (typeof value === 'string') return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   if (typeof value === 'number') return String(value);
+  // A token or a decimal reaches here only as a parameter a verifier received, which fiki
+  // reserializes to compare one component with another before it refuses the parameter.
+  if (value instanceof Token) return value.value;
+  if (value instanceof Decimal) return serializeDecimal(value.value);
   // Only `false` reaches here: RFC 8941 renders a true-valued parameter as a bare key, which
   // serializeParameters does before calling this, and fiki never puts a boolean in an item
   // position. A `?1` arm would be unreachable.
