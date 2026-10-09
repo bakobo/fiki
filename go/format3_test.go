@@ -115,3 +115,37 @@ func TestAnUnreadableTargetIsRefusedForEveryComponentItHolds(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// #17 hostile pass: DefaultMinimum is an exported slice, and VerifyRequest read it directly, so
+// any code in the process could drop @authority from every default verifier's policy.
+func TestChangingTheExportedDefaultMinimumChangesNoVerifier(t *testing.T) {
+	saved := append([]string(nil), DefaultMinimum...)
+	defer copy(DefaultMinimum, saved)
+	for i := range DefaultMinimum {
+		if DefaultMinimum[i] == "@authority" {
+			DefaultMinimum[i] = "@method"
+		}
+	}
+	headers, err := SignRequest(testKey(t), "GET", urlQuery, nil,
+		SignOptions{Created: signedAt, Covered: RequestMinimum})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true})
+	if kindOf(t, err) != KindInsufficientCoverage {
+		t.Fatalf("want InsufficientCoverage for a signature without @authority, got %v", err)
+	}
+}
+
+// The private copies fiki reads must say exactly what the exported slices document.
+func TestThePrivateMinimumsMatchTheExportedOnes(t *testing.T) {
+	for name, pair := range map[string][2][]string{
+		"request":  {RequestMinimum, requestMinimum[:]},
+		"response": {ResponseMinimum, responseMinimum[:]},
+		"default":  {DefaultMinimum, defaultMinimum[:]},
+	} {
+		if strings.Join(pair[0], "|") != strings.Join(pair[1], "|") {
+			t.Errorf("%s: exported %v, private %v", name, pair[0], pair[1])
+		}
+	}
+}

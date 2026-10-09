@@ -8,11 +8,13 @@ one, because a bare string would make ``in`` a substring test (review A3).
 from __future__ import annotations
 
 import inspect
+from collections.abc import Collection
 
 import pytest
 
 from fiki import (DEFAULT_COVERED, DEFAULT_MINIMUM, REQUEST_MINIMUM, Key, sign_request,
                   verify_request)
+from fiki.errors import SignatureMismatch
 
 KEY = Key.from_seed(bytes(range(32)))
 URL = "https://api.example.com/things?limit=1"
@@ -70,3 +72,23 @@ def test_any_collection_of_hosts_serves(authorities):
 
 def test_none_declines_the_authority_check():
     assert verify_request(**_signed(), authorities=None).aid == KEY.aid
+
+
+def test_served_hosts_are_snapshotted_so_a_collections_own_membership_test_decides_nothing():
+    # #17 hostile pass: authorities were validated by iterating, then consulted with the caller's
+    # own `in`. A collection whose membership test disagrees with its items could admit a host it
+    # does not hold. fiki compares against a frozen copy of the items it validated.
+    class Sly(Collection):
+        def __iter__(self):
+            return iter(["victim.example"])
+
+        def __len__(self):
+            return 1
+
+        def __contains__(self, host):
+            return True
+
+    url = "https://attacker.example/x"
+    headers = sign_request(key=KEY, method="GET", url=url)
+    with pytest.raises(SignatureMismatch):
+        verify_request(method="GET", url=url, headers=headers, max_age=None, authorities=Sly())

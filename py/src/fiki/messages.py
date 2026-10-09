@@ -409,7 +409,7 @@ def verify_request(
     and :data:`MAX_PARAMETERS` parameters on an item, and a header over any of them is malformed.
     """
     _check_window(max_age, skew)
-    _check_authorities(authorities)
+    authorities = _check_authorities(authorities)
     minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT else minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
     return _verify(
@@ -599,14 +599,16 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
             )
 
 
-def _check_authorities(authorities) -> None:
-    """authorities is None or a non-empty collection of strings, never a string (@524c8qgv).
+def _check_authorities(authorities) -> frozenset[str] | None:
+    """authorities as a frozen set of the hosts it holds, or None; never a string (@524c8qgv).
 
     A string is itself a collection of characters, so `in` would test for a substring and
-    "api.example.com" would admit "example.com" (review A3); that is a mistake in the call.
+    "api.example.com" would admit "example.com" (review A3); that is a mistake in the call. The
+    hosts are copied out rather than consulted through the caller's own `in`, so a collection
+    whose membership test disagrees with its items decides nothing (#17 hostile pass).
     """
     if authorities is None:
-        return
+        return None
     if isinstance(authorities, (str, bytes, bytearray)) or not isinstance(authorities, Collection):
         raise TypeError(
             "authorities is a collection of the hosts this verifier serves, such as "
@@ -615,9 +617,11 @@ def _check_authorities(authorities) -> None:
     if not authorities:
         raise ValueError("authorities is empty, which serves no host at all; pass None to "
                          "decline the check.")
-    for host in authorities:
+    hosts = tuple(authorities)
+    for host in hosts:
         if not isinstance(host, str):
             raise TypeError(f"Every authority is a string; {host!r} is not.")
+    return frozenset(hosts)
 
 
 def _check_window(max_age, skew) -> None:

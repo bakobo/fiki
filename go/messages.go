@@ -45,6 +45,15 @@ var (
 	DefaultMinimum = []string{"@method", "@authority", "@path", "@query"}
 )
 
+// The values fiki itself reads. The exported slices above are for callers to read and pass; Go
+// cannot make a slice immutable, and a policy any code in the process could rewrite is not a
+// policy (#17 hostile pass), so verification and the profile floors use these private arrays.
+var (
+	requestMinimum  = [...]string{"@method", "@path", "@query"}
+	responseMinimum = [...]string{"@status", `"@method";req`, `"@path";req`, `"@query";req`}
+	defaultMinimum  = [...]string{"@method", "@authority", "@path", "@query"}
+)
+
 const (
 	signatureLength = ed25519.SignatureSize
 	keyLength       = ed25519.PublicKeySize
@@ -112,7 +121,7 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 	if err := checkLabel(opts.Label); err != nil {
 		return nil, err
 	}
-	if err := floored(opts.Minimum, RequestMinimum); err != nil {
+	if err := floored(opts.Minimum, requestMinimum[:]); err != nil {
 		return nil, err
 	}
 	sending, err := canonicalHeaders(headers)
@@ -162,7 +171,7 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 	if err := checkLabel(opts.Label); err != nil {
 		return nil, err
 	}
-	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
+	if err := floored(opts.Minimum, responseMinimum[:]); err != nil {
 		return nil, err
 	}
 	sending, err := canonicalHeaders(headers)
@@ -484,9 +493,9 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 		return nil, err
 	}
 	if opts.Minimum == nil && !opts.NoMinimum {
-		opts.Minimum = DefaultMinimum
+		opts.Minimum = defaultMinimum[:]
 	}
-	if err := floored(opts.Minimum, RequestMinimum); err != nil {
+	if err := floored(opts.Minimum, requestMinimum[:]); err != nil {
 		return nil, err
 	}
 	m, err := requestMessage(method, rawURL, headers, true)
@@ -511,7 +520,7 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	if err := checkNoMinimum(opts); err != nil {
 		return nil, err
 	}
-	if err := floored(opts.Minimum, ResponseMinimum); err != nil {
+	if err := floored(opts.Minimum, responseMinimum[:]); err != nil {
 		return nil, err
 	}
 	if opts.Authorities != nil || opts.AnyAuthority {
