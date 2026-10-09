@@ -781,11 +781,11 @@ def _check_input(member, *, require_keyid: bool, require_created: bool) -> None:
     for item in member:
         if type(item.value) is not str:
             raise MalformedSignatureInput(
-                f"Every covered component is named by a quoted string; {brief(item)} is not one."
+                f"Every covered component is named by a quoted string; {brief(str(item))} is not one."
             )
         if not item.value.startswith("@") and item.value != item.value.lower():
             raise MalformedSignatureInput(
-                f"The covered field {brief(item)} is not lowercase, and RFC 9421 section 2.1 requires "
+                f"The covered field {brief(str(item))} is not lowercase, and RFC 9421 section 2.1 requires "
                 "field names in the covered list to be lowercased by the signer."
             )
     if require_keyid and "keyid" not in member.params:

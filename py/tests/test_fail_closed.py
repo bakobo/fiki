@@ -169,6 +169,21 @@ def test_a_signature_without_a_keyid_beside_an_expected_keyid_is_unknown_key_not
 def test_shown_is_total_over_any_value():
     from fiki._text import brief, shown
 
-    assert shown(None) == "None"
-    assert shown(12345) == "12345"
-    assert brief(None) == "None"
+    assert shown(None) == "<NoneType>"
+    assert shown(12345) == "<int>"
+    assert brief(None) == "<NoneType>"
+
+
+def test_shown_and_brief_never_call_a_values_own_repr_or_str():
+    # #18 hostile fix pass: a non-string keyid whose __repr__ raises escaped from shown().
+    from fiki._text import brief, shown
+
+    class Hostile:
+        def __repr__(self):
+            raise RuntimeError("repr")
+
+        def __str__(self):
+            raise RuntimeError("str")
+
+    assert shown(Hostile()) == "<Hostile>"
+    assert brief(Hostile()) == "<Hostile>"

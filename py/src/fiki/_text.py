@@ -16,7 +16,8 @@ def shown(text: str) -> str:
     Total over any value, so that building a message never raises before the refusal it carries.
     """
     if not isinstance(text, str):
-        return repr(text)[:_SHOWN]
+        # Never the value's own __repr__, which an object can make raise (#18 hostile fix pass).
+        return f"<{type(text).__name__}>"[:_SHOWN]
     if len(text) <= _SHOWN:
         return repr(text)
     return repr(text[:_SHOWN]) + f" (cut from {len(text)} characters)"
@@ -28,7 +29,8 @@ def brief(text: str) -> str:
     For a name a message reads naturally with bare -- a component, a label, a keyid -- so that
     an honest one reads as before, and a long or unprintable one cannot inflate the message.
     """
-    text = str(text)
+    if not isinstance(text, str):
+        return shown(text)
     if len(text) <= _SHOWN and all(" " <= c <= "~" for c in text):
         return text
     return shown(text)
