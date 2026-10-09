@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 public class Smoke {
     static final ObjectMapper JSON = new ObjectMapper();
@@ -45,7 +46,8 @@ public class Smoke {
 
         JsonNode plain = find(JSON.readTree(vectors.resolve("accepts.json").toFile()), "default-covered-get");
         Fiki.Verdict verdict = Fiki.verifyRequest(plain.get("method").asText(), plain.get("url").asText(),
-            headers(plain.get("headers")), Fiki.VerifyOptions.decliningFreshness().withNow(plain.get("now").asLong()));
+            headers(plain.get("headers")), Fiki.VerifyOptions.decliningFreshness().withNow(plain.get("now").asLong())
+                .withoutAuthorityCheck());
         check("plain vector", verdict.aid(), plain.get("aid").asText());
 
         byte[] seed = new byte[32];
@@ -57,7 +59,8 @@ public class Smoke {
         byte[] body = "{\"hello\": \"world\"}".getBytes(StandardCharsets.UTF_8);
         Map<String, String> signed = Fiki.signRequest(key, "POST", url, Map.of(), Fiki.SignOptions.none().withBody(body));
         verdict = Fiki.verifyRequest("POST", url, signed,
-            Fiki.VerifyOptions.maxAge(300).withBody(body).withExpectedAid(key.aid()));
+            Fiki.VerifyOptions.maxAge(300).withBody(body).withExpectedAid(key.aid())
+                .withAuthorities(Set.of("api.example.com")));
         check("plain round trip", verdict.aid(), key.aid());
 
         JsonNode keri = JSON.readTree(vectors.resolve("keri").resolve("requests.json").toFile());
@@ -78,7 +81,8 @@ public class Smoke {
                 .withSkew(keri.get("policy").get("skew").asLong())
                 .withNow(kase.get("now").asLong())
                 .withResolver(resolve)
-                .withMinimum(Fiki.REQUEST_MINIMUM));
+                .withMinimum(Fiki.REQUEST_MINIMUM)
+                .withoutAuthorityCheck());
         String keyid = kase.get("expected").get("keyid").asText();
         check("KERI vector", verdict.aid(), keyid);
 
@@ -87,7 +91,8 @@ public class Smoke {
         signed = Fiki.signRequest(signer, "GET", url, Map.of(),
             Fiki.SignOptions.none().withKeyid(keyid).withMinimum(Fiki.REQUEST_MINIMUM));
         verdict = Fiki.verifyRequest("GET", url, signed,
-            Fiki.VerifyOptions.maxAge(300).withResolver(resolve).withMinimum(Fiki.REQUEST_MINIMUM));
+            Fiki.VerifyOptions.maxAge(300).withResolver(resolve).withMinimum(Fiki.REQUEST_MINIMUM)
+                .withoutAuthorityCheck());
         check("KERI round trip", verdict.aid(), keyid);
     }
 }

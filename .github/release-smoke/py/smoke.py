@@ -33,14 +33,15 @@ def check(name, got, want):
 plain = next(c for c in json.loads((VECTORS / "accepts.json").read_text())["cases"]
              if c["id"] == "default-covered-get")
 verdict = verify_request(method=plain["method"], url=plain["url"], headers=plain["headers"],
-                         body=None, max_age=None, now=plain["now"])
+                         body=None, max_age=None, now=plain["now"],
+                         authorities=plain["authorities"])
 check("plain vector", verdict.aid, plain["aid"])
 
 key = Key.from_seed(SEED)
 url, body = "https://api.example.com/things?limit=1", b'{"hello": "world"}'
 headers = sign_request(key=key, method="POST", url=url, body=body)
 verdict = verify_request(method="POST", url=url, headers=headers, body=body, max_age=300,
-                         expected_aid=key.aid)
+                         expected_aid=key.aid, authorities={"api.example.com"})
 check("plain round trip", verdict.aid, key.aid)
 
 keri = json.loads((VECTORS / "keri" / "requests.json").read_text())
@@ -56,7 +57,8 @@ case = next(c for c in keri["cases"] if c["id"] == "get-with-query")
 request = case["request"]
 verdict = verify_request(method=request["method"], url=request["url"], headers=request["headers"],
                          body=None, max_age=keri["policy"]["max_age"], skew=keri["policy"]["skew"],
-                         now=case["now"], resolve=resolve, minimum=REQUEST_MINIMUM)
+                         now=case["now"], resolve=resolve, minimum=REQUEST_MINIMUM,
+                         authorities=case.get("policy", {}).get("authorities"))
 check("KERI vector", verdict.aid, case["expected"]["keyid"])
 
 controller = table[case["expected"]["keyid"]]
@@ -65,5 +67,5 @@ url = "https://keria.example.com/identifiers?type=rot"
 headers = sign_request(key=signer, method="GET", url=url, keyid=controller["keyid"],
                        minimum=REQUEST_MINIMUM)
 verdict = verify_request(method="GET", url=url, headers=headers, body=None, max_age=300,
-                         resolve=resolve, minimum=REQUEST_MINIMUM)
+                         resolve=resolve, minimum=REQUEST_MINIMUM, authorities=None)
 check("KERI round trip", verdict.aid, controller["keyid"])
