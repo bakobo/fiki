@@ -12,7 +12,6 @@ import (
 	"math"
 	"strings"
 	"testing"
-	"time"
 )
 
 // A4: two spellings of one header name are the caller's mistake on every path a mapping enters.
@@ -31,20 +30,20 @@ func TestTwoSpellingsOfOneHeaderAreTheCallersMistake(t *testing.T) {
 
 // A6: a long covered list is checked in linear time, not by comparing every pair.
 func TestALongCoveredListIsCheckedInLinearTime(t *testing.T) {
-	headers := map[string]string{}
-	covered := make([]string, 0, 50000)
-	for i := 0; i < 50000; i++ {
-		name := fmt.Sprintf("x-h%d", i)
-		headers[name] = "v"
-		covered = append(covered, name)
-	}
-	started := time.Now()
-	if _, err := SignatureBase("GET", urlQuery, headers, covered, SignatureParams{Created: 1}); err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed > 5*time.Second {
-		t.Errorf("50000 components took %v", elapsed)
-	}
+	scalesLinearly(t, 4000, func(n int) func() {
+		headers := map[string]string{}
+		covered := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			name := fmt.Sprintf("x-h%d", i)
+			headers[name] = "v"
+			covered = append(covered, name)
+		}
+		return func() {
+			if _, err := SignatureBase("GET", urlQuery, headers, covered, SignatureParams{Created: 1}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
 }
 
 // A7 and E5: a supplied Content-Digest the signer would sign as given must be one a verifier
