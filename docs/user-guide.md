@@ -17,7 +17,7 @@ The lifecycle has two steps and no third:
 1. **Register once.** Generate a key, keep the 32-byte seed somewhere only you can read, and give your AID to whoever you will be calling. An email, a config file, a row in their database — fiki does not care how.
 2. **Sign every request.** The signature travels in standard RFC 9421 `Signature` and `Signature-Input` headers, and carries your public key inline, so the server can check it against the AID it has on file.
 
-There is nothing to rotate, because a non-transferable AID cannot rotate — a new key is a new identity, and re-registering is how you replace one. If that is the wrong model for you, and you need rotation or delegation or credentials, you want [heti](https://github.com/bakobo/heti); fiki is deliberately the floor.
+There is nothing to rotate, because a non-transferable AID cannot rotate — a new key is a new identity, and re-registering is how you replace one. If that is the wrong model for you, and you need rotation or delegation or credentials, you want a full KERI stack such as [keripy](https://github.com/WebOfTrust/keripy); fiki is deliberately the floor.
 
 ## What a signature actually protects
 
@@ -713,7 +713,7 @@ The binding is to what was asked, not to one particular request: two identical G
 
 ### Legacy KERI signatures
 
-fiki implements only the profile's canonical mode. The legacy mode KERIA and signify-ts deploy today, with its `Signify-Resource` header and non-RFC signature base, is not verified by fiki (`this.i` @8vwrexxc); verify it with keripy or KERIA, or, for an imbu-style server, with [heti](https://github.com/bakobo/heti)'s KERI dialect.
+fiki implements only the profile's canonical mode. The legacy mode KERIA and signify-ts deploy today, with its `Signify-Resource` header and non-RFC signature base, is not verified by fiki (`this.i` @8vwrexxc); verify it with keripy or KERIA.
 
 ## What fiki refuses before it reads a signature
 
@@ -921,7 +921,7 @@ The safe shape is the default and the portable one is explicit, because a browse
 
 ## Interoperating with heti
 
-[heti](https://github.com/bakobo/heti) is fiki's first consumer and speaks fiki's dialect through `VanillaRfc9421Dialect`, which delegates to fiki and maps its errors onto heti's own code taxonomy. A fiki-signed request verifies through heti unchanged.
+heti, a KERI library, is fiki's first consumer and speaks fiki's dialect through `VanillaRfc9421Dialect`, which delegates to fiki and maps its errors onto heti's own code taxonomy. A fiki-signed request verifies through heti unchanged.
 
 heti also speaks a second, older dialect — the legacy KERI flavour that KERIA and signify-ts deploy today, which is not the KERI profile above and which fiki does not verify. That one covers less (no query string, no host, no body) and is not interchangeable with fiki's; which dialect a service accepts is a deployment decision rather than a fallback chain.
 

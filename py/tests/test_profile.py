@@ -1,6 +1,6 @@
 """What the KERI profile of RFC 9421 asks of a verifier that fiki lacked (``this.i`` @7f28p7xk).
 
-The profile (keripy ``.ignored/rfc9421/profile.md``, draft 4) is implemented by keripy, KERIA and
+The profile (``docs/keri-profile.md``) is implemented by keripy, KERIA and
 signify-ts, and fiki generates its vectors (@8vwrexxc) because fiki shares no code with any of
 them. That only works if fiki implements the profile rather than its own older behaviour where the
 two differ, which is what this file pins: method case (@22g0xkr8), every recognized digest,
