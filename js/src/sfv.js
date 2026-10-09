@@ -165,7 +165,9 @@ function parseNumber(cursor) {
     );
   }
   cursor.at += match[0].length;
-  return match[0].includes('.') ? new Decimal(Number(match[0])) : Number(match[0]);
+  // An RFC 8941 integer is a whole number, which has no negative zero: "-0" is 0, as the httpwg
+  // corpus expects, and adding 0 turns JavaScript's -0 into it.
+  return match[0].includes('.') ? new Decimal(Number(match[0])) : Number(match[0]) + 0;
 }
 
 function parseBareItem(cursor) {

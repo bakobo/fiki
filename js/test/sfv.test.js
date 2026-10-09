@@ -44,6 +44,10 @@ describe('decimals', () => {
   for (const text of ['1.', '-1.', '1.1234', '1234567890123.1', '.5', '-.5', '1..2', '-', '-a']) {
     it(`${text} is refused`, () => assert.throws(() => parseItem(text), SfvSyntaxError));
   }
+  it('-0 is the integer zero, not negative zero (httpwg number.json "negative zero")', () => {
+    assert.ok(Object.is(bare('-0'), 0));
+    assert.ok(Object.is(bare('-000'), 0));
+  });
   it('an integer still has at most fifteen digits, and is a number', () => {
     assert.equal(bare('999999999999999'), 999999999999999);
     assert.equal(bare('-1'), -1);
