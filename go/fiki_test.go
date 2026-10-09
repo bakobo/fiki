@@ -170,7 +170,7 @@ func TestSignatureBaseComponents(t *testing.T) {
 func TestSignAndVerify(t *testing.T) {
 	t.Run("round trip", func(t *testing.T) {
 		headers, key := sign(t, SignOptions{Body: testBody})
-		verdict, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody})
+		verdict, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +200,7 @@ func TestSignAndVerify(t *testing.T) {
 		for k, v := range out {
 			headers[k] = v
 		}
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -223,7 +223,7 @@ func TestSignAndVerify(t *testing.T) {
 		if !strings.HasPrefix(headers["Signature-Input"], "mine=") {
 			t.Error("the label should be the one asked for")
 		}
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -234,18 +234,18 @@ func TestSignAndVerify(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{MaxAge: maxAge(300)}); err != nil {
+		if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{MaxAge: maxAge(300)}); err != nil {
 			t.Fatal(err)
 		}
 	})
 
 	t.Run("an expected AID is authoritative over the inline keyid", func(t *testing.T) {
 		headers, key := sign(t, SignOptions{})
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()}); err != nil {
 			t.Fatal(err)
 		}
 		other := Generate()
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{ExpectedAID: other.AID()})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: other.AID()})
 		if kindOf(t, err) != KindSignatureMismatch {
 			t.Error("a stranger's AID should not verify")
 		}
@@ -253,7 +253,7 @@ func TestSignAndVerify(t *testing.T) {
 
 	t.Run("a malformed expected AID is refused", func(t *testing.T) {
 		headers, _ := sign(t, SignOptions{})
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{ExpectedAID: "nope"})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{ExpectedAID: "nope"})
 		if kindOf(t, err) != KindMalformedKey {
 			t.Error("expected MalformedKey")
 		}
@@ -262,7 +262,7 @@ func TestSignAndVerify(t *testing.T) {
 	t.Run("a covered component the verifier cannot build is refused", func(t *testing.T) {
 		headers, _ := sign(t, SignOptions{})
 		headers["Signature-Input"] = strings.Replace(headers["Signature-Input"], `("@method"`, `("@target-uri"`, 1)
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{})
 		if kindOf(t, err) != KindUnsupportedComponent {
 			t.Error("expected UnsupportedComponent")
 		}
@@ -279,7 +279,7 @@ func TestSignAndVerify(t *testing.T) {
 		for k, v := range out {
 			headers[k] = v
 		}
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -297,7 +297,7 @@ func TestSignAndVerify(t *testing.T) {
 		for k, v := range out {
 			headers[k] = v
 		}
-		_, err = VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody})
+		_, err = verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody})
 		if kindOf(t, err) != KindMalformedDigest {
 			t.Error("expected MalformedDigest")
 		}
@@ -324,7 +324,7 @@ func TestSignAndVerifyRefusals(t *testing.T) {
 		for k, v := range out {
 			headers[k] = v
 		}
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody}); kindOf(t, err) != KindMalformedDigest {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody}); kindOf(t, err) != KindMalformedDigest {
 			t.Error("expected MalformedDigest")
 		}
 	})
@@ -343,7 +343,7 @@ func TestSignAndVerifyRefusals(t *testing.T) {
 		for k, v := range out {
 			headers[k] = v
 		}
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Body: testBody}); err != nil {
 			t.Fatalf("a sha-512 digest should verify: %v", err)
 		}
 	})
@@ -352,7 +352,7 @@ func TestSignAndVerifyRefusals(t *testing.T) {
 func TestFreshness(t *testing.T) {
 	inside := func(now int64, age *int64, skew *int64) error {
 		headers, _ := sign(t, SignOptions{})
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{MaxAge: age, Now: now, Skew: skew})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{MaxAge: age, Now: now, Skew: skew})
 		return err
 	}
 
@@ -379,10 +379,10 @@ func TestFreshness(t *testing.T) {
 
 	t.Run("expires is enforced even when max age is declined", func(t *testing.T) {
 		headers, _ := sign(t, SignOptions{Expires: signedAt + 60})
-		if _, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Now: signedAt + 30}); err != nil {
+		if _, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Now: signedAt + 30}); err != nil {
 			t.Fatalf("before its expiry it should verify: %v", err)
 		}
-		_, err := VerifyRequest("POST", urlQuery, headers, VerifyOptions{Now: signedAt + 66})
+		_, err := verifyOptedOut("POST", urlQuery, headers, VerifyOptions{Now: signedAt + 66})
 		if kindOf(t, err) != KindSignatureExpired {
 			t.Error("expected SignatureExpired")
 		}
@@ -402,10 +402,10 @@ func TestFreshness(t *testing.T) {
 			"Signature-Input": "sig=" + strings.SplitN(string(base), `"@signature-params": `, 2)[1],
 			"Signature":       "sig=:" + b64std(signature) + ":",
 		}
-		if _, err := VerifyRequest("GET", "/a", headers, VerifyOptions{}); err != nil {
+		if _, err := verifyOptedOut("GET", "/a", headers, VerifyOptions{}); err != nil {
 			t.Fatalf("with no policy it should verify: %v", err)
 		}
-		_, err = VerifyRequest("GET", "/a", headers, VerifyOptions{MaxAge: maxAge(300), Now: signedAt})
+		_, err = verifyOptedOut("GET", "/a", headers, VerifyOptions{MaxAge: maxAge(300), Now: signedAt})
 		if kindOf(t, err) != KindSignatureTooOld {
 			t.Error("expected SignatureTooOld")
 		}
@@ -471,4 +471,19 @@ func TestStructuredFieldSubset(t *testing.T) {
 			}
 		})
 	}
+}
+
+// verifyOptedOut is VerifyRequest with 0.8's policy stated explicitly. These tests predate vectors
+// format 3, under which VerifyRequest applies DefaultMinimum unless told otherwise and requires a
+// decision about Authorities (@524c8qgv). A test that names its own Minimum or Authorities keeps
+// it; the rest opt out of both on purpose, because their subject is something else, and the
+// format-3 defaults are held by the shared vectors and by TestTheFormat3Policy.
+func verifyOptedOut(method, rawURL string, headers map[string]string, opts VerifyOptions) (*Verdict, error) {
+	if opts.Minimum == nil {
+		opts.NoMinimum = true
+	}
+	if opts.Authorities == nil {
+		opts.AnyAuthority = true
+	}
+	return VerifyRequest(method, rawURL, headers, opts)
 }

@@ -28,8 +28,10 @@ By default the signature binds the method, the host, the path, the query string,
 ```go
 maxAge := int64(300)
 verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
-    fiki.VerifyOptions{Body: body, MaxAge: &maxAge})
+    fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
+
+`Authorities` is a decision you must state, as `MaxAge` is: the hosts this verifier serves, compared exactly with the `@authority` the request derives, or `AnyAuthority: true` to check none. Go cannot make a field mandatory at compile time, so stating neither, both, or an empty list is `ErrInvalidOptions` when `VerifyRequest` runs. With no `Minimum` given, `VerifyRequest` requires `DefaultMinimum` (`@method @authority @path @query`, plus `content-digest` when there is a body), which is what fiki signs by default; `NoMinimum: true` opts out explicitly.
 
 `MaxAge` is a `*int64` rather than an `int64` because there is no default: a positive number of seconds of tolerance, or an explicit `nil` to decline the check. Zero or less, for `MaxAge` or `Skew`, is `ErrInvalidOptions`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
 

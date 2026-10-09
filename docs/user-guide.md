@@ -156,7 +156,7 @@ const verdict = await verifyRequest({
 ```go
 maxAge := int64(300)
 verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
-    fiki.VerifyOptions{Body: body, MaxAge: &maxAge})
+    fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
 
 ### Rust

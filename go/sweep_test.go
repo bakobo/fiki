@@ -21,7 +21,7 @@ func TestTwoSpellingsOfOneHeaderAreTheCallersMistake(t *testing.T) {
 	twice := map[string]string{"X-Role": "a", "x-role": "b"}
 	_, err := SignRequest(key, "GET", urlQuery, twice, SignOptions{})
 	isInvalidOptions(t, err)
-	_, err = VerifyRequest("GET", urlQuery, twice, VerifyOptions{})
+	_, err = verifyOptedOut("GET", urlQuery, twice, VerifyOptions{})
 	isInvalidOptions(t, err)
 	_, err = SignResponse(key, 200, &Request{Method: "GET", URL: urlQuery, Headers: twice}, nil, SignOptions{})
 	isInvalidOptions(t, err)
@@ -80,7 +80,7 @@ func TestInheritedMemberNamesAreOrdinaryNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyRequest("POST", urlQuery, merged(headers, signed), VerifyOptions{Body: testBody}); err != nil {
+	if _, err := verifyOptedOut("POST", urlQuery, merged(headers, signed), VerifyOptions{Body: testBody}); err != nil {
 		t.Errorf("expected a verdict, got %v", err)
 	}
 }
@@ -98,7 +98,7 @@ func TestTheMethodIsAToken(t *testing.T) {
 			isInvalidOptions(t, err)
 			_, err = SignatureBase(method, urlQuery, nil, []string{"@path"}, SignatureParams{Created: 1})
 			isInvalidOptions(t, err)
-			_, err = VerifyRequest(method, urlQuery, signed, VerifyOptions{})
+			_, err = verifyOptedOut(method, urlQuery, signed, VerifyOptions{})
 			isInvalidOptions(t, err)
 			_, err = ResponseSignatureBase(200, &Request{Method: method, URL: urlQuery}, nil, []string{"@status"}, SignatureParams{Created: 1})
 			isInvalidOptions(t, err)
@@ -131,7 +131,7 @@ func TestAnUnreadableAuthorityIsTheSignersMistake(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyRequest("GET", "https://example.com:65536/x", signed, VerifyOptions{}); err != nil {
+	if _, err := verifyOptedOut("GET", "https://example.com:65536/x", signed, VerifyOptions{}); err != nil {
 		t.Errorf("an uncovered authority is not read: %v", err)
 	}
 	// And a received one is a base that cannot be built.
@@ -205,7 +205,7 @@ func TestAFreshnessWindowIsPositiveAndSaturates(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			opts.Body = testBody
-			_, err := VerifyRequest("POST", urlQuery, headers, opts)
+			_, err := verifyOptedOut("POST", urlQuery, headers, opts)
 			isInvalidOptions(t, err)
 			_, err = VerifyResponse(200, nil, headers, opts)
 			isInvalidOptions(t, err)
@@ -224,13 +224,13 @@ func TestAFreshnessWindowIsPositiveAndSaturates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			opts := c.opts
 			opts.Body = testBody
-			if _, err := VerifyRequest("POST", urlQuery, c.headers, opts); err != nil {
+			if _, err := verifyOptedOut("POST", urlQuery, c.headers, opts); err != nil {
 				t.Errorf("expected a verdict, got %v", err)
 			}
 		})
 	}
 	future, _ := sign(t, SignOptions{Created: 999_999_999_999_999})
-	_, err := VerifyRequest("POST", urlQuery, future, VerifyOptions{Body: testBody, MaxAge: maxAge(60), Now: math.MinInt64})
+	_, err := verifyOptedOut("POST", urlQuery, future, VerifyOptions{Body: testBody, MaxAge: maxAge(60), Now: math.MinInt64})
 	if kindOf(t, err) != KindSignatureTooOld {
 		t.Errorf("a created far after now is too far in the future, got %v", err)
 	}
@@ -243,7 +243,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verdict, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()})
+	verdict, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: key.AID()})
 	if err != nil || verdict.Keyid != "claimed" || verdict.AID != key.AID() {
 		t.Errorf("verdict %+v, %v", verdict, err)
 	}
@@ -253,7 +253,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 	}
 	params := string(base)[strings.LastIndex(string(base), `"@signature-params": `)+len(`"@signature-params": `):]
 	unnamed := map[string]string{"Signature-Input": "sig=" + params, "Signature": "sig=:" + b64std(key.Sign(base)) + ":"}
-	verdict, err = VerifyRequest("GET", urlQuery, unnamed, VerifyOptions{ExpectedAID: key.AID()})
+	verdict, err = verifyOptedOut("GET", urlQuery, unnamed, VerifyOptions{ExpectedAID: key.AID()})
 	if err != nil || verdict.Keyid != "" || verdict.AID != key.AID() {
 		t.Errorf("verdict %+v, %v", verdict, err)
 	}
@@ -285,7 +285,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 
 // B19 and E3: both vectors formats and the four bounds are exported.
 func TestTheFormatsAndBoundsAreExported(t *testing.T) {
-	if VectorsFormat != 2 || KeriVectorsFormat != 4 {
+	if VectorsFormat != 3 || KeriVectorsFormat != 4 {
 		t.Errorf("formats %d and %d", VectorsFormat, KeriVectorsFormat)
 	}
 	if MaxFieldBytes != 8192 || MaxDictionaryMembers != 16 || MaxInnerListItems != 64 || MaxParameters != 16 {
@@ -302,7 +302,7 @@ func TestAnUnexpectedKeyidNeverReachesTheResolver(t *testing.T) {
 	}
 	asked := 0
 	resolve := func(string) ([]byte, error) { asked++; return nil, nil }
-	_, err = VerifyRequest("GET", urlQuery, headers, VerifyOptions{Resolve: resolve, ExpectedKeyid: "E" + strings.Repeat("A", 43)})
+	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: resolve, ExpectedKeyid: "E" + strings.Repeat("A", 43)})
 	if kindOf(t, err) != KindUnknownKey || asked != 0 {
 		t.Errorf("expected UnknownKey without a resolution, got %v after %d", err, asked)
 	}
@@ -323,7 +323,7 @@ func TestAnIPLiteralHoldsAnIPv6AddressOrIPvFuture(t *testing.T) {
 			rawURL := "https://[" + inside + "]/x"
 			_, err := SignatureBase("GET", rawURL, nil, []string{"@authority"}, SignatureParams{Created: 1})
 			isInvalidOptions(t, err)
-			_, err = VerifyRequest("GET", rawURL, signed, VerifyOptions{})
+			_, err = verifyOptedOut("GET", rawURL, signed, VerifyOptions{})
 			if kindOf(t, err) != KindSignatureMismatch {
 				t.Errorf("received: %v", err)
 			}

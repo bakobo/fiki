@@ -49,12 +49,12 @@ func TestNonCanonicalOrOffCurveKeysAreMalformed(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			raw := b64url.EncodeToString(key)
 			headers := map[string]string{"Signature-Input": `sig=("@method");keyid="` + raw + `"`, "Signature": forged}
-			if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{}); kindOf(t, err) != KindMalformedKey {
+			if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{}); kindOf(t, err) != KindMalformedKey {
 				t.Errorf("keyid path: %v", err)
 			}
 			headers["Signature-Input"] = `sig=("@method");keyid="` + keriAID + `"`
 			resolve := func(string) ([]byte, error) { return key, nil }
-			if _, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{Resolve: resolve}); kindOf(t, err) != KindMalformedKey {
+			if _, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{Resolve: resolve}); kindOf(t, err) != KindMalformedKey {
 				t.Errorf("resolver path: %v", err)
 			}
 		})
