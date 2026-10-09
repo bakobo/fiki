@@ -72,7 +72,7 @@ namespace Bakobo.Fiki.Tests
         [InlineData("https://[::1]:8443/x", "[::1]:8443")]
         [InlineData("https://[::1]/x", "[::1]")]
         [InlineData("https://[2001:DB8::1]:443/x", "[2001:db8::1]")]
-        [InlineData("https://user@[FE80::1%25eTh0]:8/x", "[fe80::1%25eth0]:8")]
+        [InlineData("https://[FE80::1%25eTh0]:8/x", "[fe80::1%25eth0]:8")]
         [InlineData("https://[v1.FE]/x", "[v1.fe]")]
         public void AnIPv6AuthorityKeepsItsBrackets(string url, string authority)
         {
@@ -93,7 +93,9 @@ namespace Bakobo.Fiki.Tests
         {
             // urlsplit gives no hostname for "https://:8080/x", and py builds f"{''}:{8080}".
             Assert.Equal("\"@authority\": :8080", LineFor("@authority", url: "https://:8080/x"));
-            Assert.Equal("\"@authority\": ", LineFor("@authority", url: "https://u@/x"));
+            // Userinfo is refused since format 3 part two (this.i @524c8qgv), so the authority that
+            // was empty once "u@" was stripped is now a URL that cannot be read.
+            Assert.Throws<ArgumentException>(() => LineFor("@authority", url: "https://u@/x"));
         }
 
         [Fact]

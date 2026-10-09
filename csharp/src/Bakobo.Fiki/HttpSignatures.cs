@@ -20,12 +20,14 @@ namespace Bakobo.Fiki
         /// @8vwrexxc). A separate number from <see cref="VectorsFormat"/>, because the two sets answer
         /// to different authorities and move independently.
         /// </summary>
-        public const int KeriVectorsFormat = 4;
+        public const int KeriVectorsFormat = 5;
 
         /// <summary>
-        /// The most bytes, UTF-8 and as received before any trimming, that fiki reads from each of
-        /// Signature, Signature-Input and Content-Digest (this.i @5zrf8gjk). A longer field is that
-        /// header's malformed kind, refused before it is parsed: size before shape.
+        /// The most bytes, UTF-8 and as received before any trimming, that fiki reads from any
+        /// untrusted value (this.i @5zrf8gjk, @524c8qgv): each of Signature, Signature-Input and
+        /// Content-Digest, where a longer one is that header's malformed kind, and a target URL, a
+        /// Host header that supplies @authority and every other covered field value, where a longer
+        /// one is a base that cannot be built. Inclusive, and checked before the value's shape.
         /// </summary>
         public const int MaxFieldBytes = 8192;
 
@@ -218,8 +220,10 @@ namespace Bakobo.Fiki
         /// An unsigned 401 is Unauthenticated, checked before anything else, because a server that
         /// refuses before it knows the agent cannot sign the refusal (@2f227n4r). A response's body is
         /// its content, never its Content-Length, so a HEAD or 304 response is bodiless whatever length
-        /// it announces. A client should pass <see cref="VerifyOptions.WithExpectedKeyId"/>, the AID it
-        /// is talking to (profile R1). A response covering "content-digest";req verified against a
+        /// it announces. The options must state <see cref="VerifyOptions.WithExpectedKeyId"/>, the AID
+        /// the client is talking to (profile R1), or <see cref="VerifyOptions.DecliningKeyidCheck"/>;
+        /// stating neither is an ArgumentException (this.i @524c8qgv). Unless the options state a
+        /// minimum, <see cref="ResponseMinimum"/> applies. A response covering "content-digest";req verified against a
         /// request with no body is an ArgumentException: fiki cannot check a body it was not given.
         /// </remarks>
         public static Verdict VerifyResponse(int status, IEnumerable<KeyValuePair<string, string>> headers, VerifyOptions options)

@@ -33,7 +33,7 @@ namespace Bakobo.Fiki
                         $"A header is a name and a value, neither of them null; this one is {header.Key ?? "null"}: {header.Value ?? "null"}.",
                         nameof(headers));
                 }
-                var name = PyText.Lower(header.Key);
+                var name = PyText.AsciiLower(header.Key);
                 if (!seen.Add(name))
                 {
                     throw new ArgumentException(

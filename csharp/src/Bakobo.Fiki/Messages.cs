@@ -102,7 +102,7 @@ namespace Bakobo.Fiki
             var lowered = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var header in headers)
             {
-                lowered[PyText.Lower(header.Key)] = header.Value;
+                lowered[PyText.AsciiLower(header.Key)] = header.Value;
             }
             return lowered;
         }
@@ -301,7 +301,16 @@ namespace Bakobo.Fiki
             {
                 throw new ArgumentException("A response covers no authority of its own; WithAuthorities applies to verifying a request.");
             }
-            var floor = Floored(options.Minimum, ResponseMinimum);
+            // A required decision, like the authorities of a request (this.i @524c8qgv): the AID the
+            // client is talking to, or that any signer will do and is read from the verdict.
+            if (!options.ExpectedKeyIdStated)
+            {
+                throw new ArgumentException(
+                    "Verifying a response needs a decision about who may have signed it: " +
+                    "VerifyOptions.WithExpectedKeyId(aid), the AID this client is talking to, or DecliningKeyidCheck().");
+            }
+            // Unstated, a response is held to the profile's own minimum; WithoutMinimum opts out.
+            var floor = Floored(options.MinimumStated ? options.Minimum : ResponseMinimum, ResponseMinimum);
             // A server that refuses before it knows the agent cannot sign the refusal, so an
             // unsigned 401 is an authentication failure whose body is not to be trusted (@2f227n4r).
             // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -381,7 +390,7 @@ namespace Bakobo.Fiki
                     {
                         throw new FikiException(
                             FikiErrorKind.SignatureMismatch,
-                            $"The signature covers the authority \"{Components.ValueOf(item, message)}\", which this verifier " +
+                            $"The signature covers the authority {PyText.Shown(Components.ValueOf(item, message))}, which this verifier " +
                             "does not serve, so it was signed for somebody else.");
                     }
                 }
@@ -756,6 +765,14 @@ namespace Bakobo.Fiki
                     throw new FikiException(
                         FikiErrorKind.MalformedSignatureInput,
                         $"The signature parameter \"{parameter.Key}\" must be {(integer ? "an integer" : "a quoted string")}.");
+                }
+                if (integer && parameter.Value.Integer < 0)
+                {
+                    // A time before 1970 is no time a signer could have meant (this.i @524c8qgv).
+                    // Zero is a time, and is accepted for both.
+                    throw new FikiException(
+                        FikiErrorKind.MalformedSignatureInput,
+                        $"The signature parameter \"{parameter.Key}\" is {parameter.Value.Integer.ToString(CultureInfo.InvariantCulture)}, and a UNIX time is not negative.");
                 }
             }
         }
