@@ -81,6 +81,11 @@ const cases = (name) =>
     return { ...c, unknown };
   });
 
+// How many cases of each file this driver ran, against the number pinned in CASES at the end of
+// the file (tick 7xbw, T8): an emptied cases array passed every driver before.
+const ran = new Map();
+const tally = (name) => ran.set(name, (ran.get(name) ?? 0) + 1);
+
 const known = (c) => assert.deepEqual(c.unknown, [], `unknown fields ${c.unknown.join(', ')}`);
 
 /** The arguments of a verify case: its message, and the verifier's stated policy (format 3).
@@ -172,6 +177,7 @@ const refusedAs = (name) => (err) => {
 describe('responses every implementation must verify or refuse', () => {
   for (const c of cases('responses.json')) {
     it(c.id, async () => {
+      tally('responses.json');
       // verifyResponse fails closed by default (format 3): RESPONSE_MINIMUM, expectedKeyid stated.
       const args = responseArgs(c);
       if (c.error !== undefined) {
@@ -188,6 +194,7 @@ describe('responses every implementation must verify or refuse', () => {
 describe('what every signer emits, byte for byte', () => {
   for (const c of cases('signs.json')) {
     it(c.id, async () => {
+      tally('signs.json');
       // No shared vector called a signer before format 3, and a port whose default dropped @query
       // passed everything (review V-C4).
       known(c);
@@ -235,6 +242,7 @@ describe('the vectors are reachable', () => {
 describe('the AID lens', () => {
   for (const c of cases('aid-lens.json')) {
     it(c.id, async () => {
+      tally('aid-lens.json');
       known(c);
       const key = await Key.fromSeed(fromHex(c.seed_hex));
       assert.equal(await key.aid, c.aid);
@@ -247,6 +255,7 @@ describe('the AID lens', () => {
 describe('signature bases and the signatures over them', () => {
   for (const c of cases('signature-base.json')) {
     it(`${c.id} — base`, () => {
+      tally('signature-base.json');
       known(c);
       const base = signatureBase({
         method: c.method,
@@ -280,6 +289,7 @@ describe('signature bases and the signatures over them', () => {
 describe('requests every implementation must refuse', () => {
   for (const c of cases('refusals.json')) {
     it(c.id, async () => {
+      tally('refusals.json');
       // Every entry names the class fiki raises, so this port maps its own onto the same
       // condition rather than inventing a taxonomy of its own.
       const args = verifyArgs(c);
@@ -291,6 +301,7 @@ describe('requests every implementation must refuse', () => {
 describe('requests every implementation must accept', () => {
   for (const c of cases('accepts.json')) {
     it(c.id, async () => {
+      tally('accepts.json');
       // The positive half. signature-base.json pins what a signer produces and refusals.json what
       // a verifier rejects; without these, a port could pass every vector while returning the
       // wrong AID or the wrong covered set.
@@ -307,6 +318,7 @@ describe('requests every implementation must accept', () => {
 describe('calls every implementation must refuse as a mistake in the call', () => {
   for (const c of cases('misuse.json')) {
     it(c.id, async () => {
+      tally('misuse.json');
       // A mistake in the call is a TypeError, never a FikiError (@5zrf8gjk).
       assert.equal(c.error, 'caller');
       const call = c.kind === 'response' ? () => verifyResponse(responseArgs(c)) : () => verifyRequest(verifyArgs(c));
@@ -318,6 +330,26 @@ describe('calls every implementation must refuse as a mistake in the call', () =
           return true;
         },
       );
+    });
+  }
+});
+
+// Read once from the files at hardening-a, never at test time, so a file that loses cases fails.
+const CASES = {
+  'accepts.json': 44,
+  'aid-lens.json': 3,
+  'misuse.json': 10,
+  'refusals.json': 144,
+  'responses.json': 13,
+  'signature-base.json': 14,
+  'signs.json': 16,
+};
+
+describe('the driver ran every case', () => {
+  for (const [name, count] of Object.entries(CASES)) {
+    it(`${name} holds ${count} cases and all of them ran`, () => {
+      assert.equal(load(name).cases.length, count);
+      assert.equal(ran.get(name), count);
     });
   }
 });

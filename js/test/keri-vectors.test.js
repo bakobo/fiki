@@ -36,6 +36,11 @@ const FILES = ['rfc9421.json', 'requests.json', 'responses.json', 'refusals.json
 
 const load = (name) => JSON.parse(readFileSync(new URL(name, KERI), 'utf8'));
 
+// How many cases of each file this driver ran, against the number pinned in CASES at the end of
+// the file (tick 7xbw, T8): an emptied cases array passed every driver before.
+const ran = new Map();
+const tally = (name) => ran.set(name, (ran.get(name) ?? 0) + 1);
+
 // The generator's CODES table, read from its source: the one place the class-to-code mapping lives.
 const CODES = (() => {
   const source = readFileSync(new URL('generate.py', KERI), 'utf8');
@@ -241,6 +246,7 @@ describe('the KERI vectors format', () => {
 describe('RFC 9421 B.2.6', () => {
   it("reproduces the RFC's own base and signature", async () => {
     const [c] = load('rfc9421.json').cases;
+    tally('rfc9421.json');
     const base = signatureBase({
       method: c.request.method,
       url: c.request.url,
@@ -261,6 +267,7 @@ describe('KERI requests every implementation must accept', () => {
   const data = load('requests.json');
   for (const c of data.cases) {
     it(c.id, async () => {
+      tally('requests.json');
       const verdict = await runCase(c, data);
       assert.equal(verdict.keyid, c.expected.keyid);
       assert.deepEqual(serialized(verdict.covered), c.expected.covered);
@@ -282,6 +289,7 @@ describe('KERI responses every client must accept', () => {
   const data = load('responses.json');
   for (const c of data.cases) {
     it(c.id, async () => {
+      tally('responses.json');
       await run(c.request, null, { now: c.now, policy: data.policy, keys: data.keys });
       const verdict = await runCase(c, data);
       assert.equal(verdict.keyid, c.expected.keyid);
@@ -297,6 +305,7 @@ describe('KERI messages every implementation must refuse', () => {
   const data = load('refusals.json');
   for (const c of data.cases) {
     it(`${c.id} (${c.error})`, async () => {
+      tally('refusals.json');
       // Each case has one defect and so one correct code under the profile's section 9 order.
       if (c.verified_by_fiki === false) {
         // Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
@@ -347,12 +356,32 @@ describe('the legacy material', () => {
 
   for (const c of data.cases) {
     it(`${c.id}'s signature verifies over its stated base`, async () => {
+      tally('legacy.json');
       // Transcription check only: pure Ed25519 over the base the file states, no legacy logic.
       const signature = c.headers.Signature.split('signify="')[1].replace(/"$/, '');
       const rawSignature = fromB64Url('AA' + signature.slice(2)).slice(2);
       const rawKey = fromB64Url('A' + c.key.slice(1)).slice(1);
       const key = await crypto.subtle.importKey('raw', rawKey, { name: 'Ed25519' }, false, ['verify']);
       assert.ok(await crypto.subtle.verify({ name: 'Ed25519' }, key, rawSignature, new TextEncoder().encode(c.base)));
+    });
+  }
+});
+
+// Read once from the files at hardening-a, never at test time, so a file that loses cases fails.
+const CASES = {
+  'legacy.json': 4,
+  'refusals.json': 64,
+  'requests.json': 21,
+  'responses.json': 4,
+  'rfc9421.json': 1,
+};
+
+describe('the driver ran every case', () => {
+  it('pins every file', () => assert.deepEqual(Object.keys(CASES).sort(), [...FILES].sort()));
+  for (const [name, count] of Object.entries(CASES)) {
+    it(`${name} holds ${count} cases and all of them ran`, () => {
+      assert.equal(load(name).cases.length, count);
+      assert.equal(ran.get(name), count);
     });
   }
 });
