@@ -90,7 +90,7 @@ type sfCase struct {
 	Canonical  []string        `json:"canonical"`
 }
 
-func loadCorpus(t *testing.T, name string) []sfCase {
+func loadCorpus(t testing.TB, name string) []sfCase {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(corpusDir, name))
 	if err != nil {
