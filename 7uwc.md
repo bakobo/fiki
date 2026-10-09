@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-08T16:49Z
 
+- 2026-10-09T16:21Z Resolved in #17: authorities is a required decision and a string is a caller error in every port; misuse.json pins it.
