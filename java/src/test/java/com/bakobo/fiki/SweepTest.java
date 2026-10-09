@@ -57,10 +57,10 @@ class SweepTest {
         Map<String, String> twice = new LinkedHashMap<>();
         twice.put("X-Role", "admin");
         twice.put("x-role", "guest");
-        assertThrows(IllegalArgumentException.class, () -> sign("GET", URL, twice, opts -> opts));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", URL, twice, declined()));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyResponse(200, twice, null, declined()));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("GET", URL, twice, null));
+        Caller.refused("The headers name x-role more than once", () -> sign("GET", URL, twice, opts -> opts));
+        Caller.refused("The headers name x-role more than once", () -> Fiki.verifyRequest("GET", URL, twice, declined()));
+        Caller.refused("The headers name x-role more than once", () -> Fiki.verifyResponse(200, twice, null, declined()));
+        Caller.refused("The headers name x-role more than once", () -> new Fiki.Request("GET", URL, twice, null));
     }
 
     @Test
@@ -70,9 +70,9 @@ class SweepTest {
         Map<String, String> nullValue = new HashMap<>();
         nullValue.put("x", null);
         for (Map<String, String> bad : List.of(nullName, nullValue)) {
-            assertThrows(IllegalArgumentException.class, () -> sign("GET", URL, bad, opts -> opts));
-            assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", URL, bad, declined()));
-            assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("GET", URL, bad, null));
+            Caller.refused("A header name or value is null", () -> sign("GET", URL, bad, opts -> opts));
+            Caller.refused("A header name or value is null", () -> Fiki.verifyRequest("GET", URL, bad, declined()));
+            Caller.refused("A header name or value is null", () -> new Fiki.Request("GET", URL, bad, null));
         }
     }
 
@@ -99,8 +99,8 @@ class SweepTest {
     @ValueSource(strings = {"sha-256=:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=:", "x-unknown=:AAAA:", "(((", "sha-256=1"})
     void a7ASuppliedDigestTheBodyDoesNotMatchIsACallerError(String digest) {
         Map<String, String> given = Map.of("Content-Digest", digest);
-        assertThrows(IllegalArgumentException.class, () -> sign("POST", URL, given, opts -> opts.withBody(BODY)));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signResponse(KEY, 200, null, given,
+        Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () -> sign("POST", URL, given, opts -> opts.withBody(BODY)));
+        Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () -> Fiki.signResponse(KEY, 200, null, given,
             Fiki.SignOptions.none().withCreated(AT).withBody(BODY)));
     }
 
@@ -182,18 +182,18 @@ class SweepTest {
     @ParameterizedTest
     @ValueSource(strings = {"", "GET ", "G\tT", "GE\r\nT", "GET\n", "(GET)", "GÉT", "a,b"})
     void b13AMethodThatIsNotATokenIsACallerErrorWhereverARequestIsBuilt(String method) {
-        assertThrows(IllegalArgumentException.class, () -> sign(method, URL, Map.of(), opts -> opts));
-        assertThrows(IllegalArgumentException.class, () -> sign(method, URL, Map.of(), opts -> opts.withCovered(List.of("@path"))));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(method, URL, sign(), declined()));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase(method, URL, Map.of(), List.of("@path"),
+        Caller.refused("A request needs a method as it will be sent", () -> sign(method, URL, Map.of(), opts -> opts));
+        Caller.refused("A request needs a method as it will be sent", () -> sign(method, URL, Map.of(), opts -> opts.withCovered(List.of("@path"))));
+        Caller.refused("A request needs a method as it will be sent", () -> Fiki.verifyRequest(method, URL, sign(), declined()));
+        Caller.refused("A request needs a method as it will be sent", () -> Fiki.signatureBase(method, URL, Map.of(), List.of("@path"),
             new Fiki.Params(AT, null, null, null, null, null)));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Request(method, URL, Map.of(), null));
+        Caller.refused("A request needs a method as it will be sent", () -> new Fiki.Request(method, URL, Map.of(), null));
     }
 
     @Test
     void b13ANullMethodIsACallerError() {
-        assertThrows(IllegalArgumentException.class, () -> sign(null, URL, Map.of(), opts -> opts));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(null, URL, sign(), declined()));
+        Caller.refused("A request needs a method as it will be sent", () -> sign(null, URL, Map.of(), opts -> opts));
+        Caller.refused("A request needs a method as it will be sent", () -> Fiki.verifyRequest(null, URL, sign(), declined()));
     }
 
     @ParameterizedTest
@@ -212,7 +212,7 @@ class SweepTest {
     @ValueSource(strings = {"65536", "44x", "-1", "８０", "99999999999999999999", "+80"})
     void b14APortThatIsNotOneIsACallerErrorWhenSigningAndAMismatchWhenVerifying(String port) {
         String bad = "https://example.com:" + port + "/p";
-        assertThrows(IllegalArgumentException.class, () -> sign("GET", bad, Map.of(), opts -> opts));
+        Caller.unreadableTarget(() -> sign("GET", bad, Map.of(), opts -> opts));
         Map<String, String> signed = sign();
         assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest("GET", bad, signed, declined())));
     }
@@ -238,7 +238,7 @@ class SweepTest {
         "1:2:3:4:5:6:7:8:9", "::01.2.3.4", "::256.1.1.1", "12345::", "", "1::2::3"})
     void a3ABracketedHostThatIsNotAnAddressIsUnreadable(String inside) {
         String url = "https://[" + inside + "]/x";
-        assertThrows(IllegalArgumentException.class, () -> authorityOf(url));
+        Caller.refused("is not an IPv6 address or IPvFuture", () -> authorityOf(url));
         Map<String, String> signed = sign("GET", "https://[::1]/x", Map.of(), opts -> opts);
         assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest("GET", url, signed, declined())));
     }
@@ -254,7 +254,7 @@ class SweepTest {
     @ValueSource(strings = {"a]b[", "a]b", "a[b"})
     void a3ABracketOutsideAnIpLiteralIsUnreadable(String host) {
         String url = "https://" + host + "/x";
-        assertThrows(IllegalArgumentException.class, () -> authorityOf(url));
+        Caller.refused("has a bracket outside an IP-literal", () -> authorityOf(url));
         assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyRequest("GET", url, sign(), declined())));
     }
 
@@ -266,7 +266,7 @@ class SweepTest {
         assertEquals("a.example", authorityOf("https://a.example:" + zeros + "443/x"));
         assertEquals("a.example:8443", authorityOf("https://a.example:" + zeros + "8443/x"));
         for (String port : List.of(zeros + "65536", "1" + zeros, "9".repeat(5000))) {
-            assertThrows(IllegalArgumentException.class, () -> authorityOf("https://a.example:" + port + "/x"));
+            Caller.refused("is not a number from 0 to 65535", () -> authorityOf("https://a.example:" + port + "/x"));
         }
     }
 
@@ -290,7 +290,7 @@ class SweepTest {
             Fiki.SignOptions.none().withCreated(AT).withCovered(List.of("@status", Fiki.req("@authority")))));
         Fiki.Request bad = new Fiki.Request("GET", "https://example.com:70000/p", Map.of(), null);
         assertEquals(FikiException.Kind.SignatureMismatch, kindOf(() -> Fiki.verifyResponse(200, headers, bad, declined())));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signResponse(KEY, 200, bad, Map.of(),
+        Caller.refused("is not a number from 0 to 65535", () -> Fiki.signResponse(KEY, 200, bad, Map.of(),
             Fiki.SignOptions.none().withCreated(AT).withCovered(List.of("@status", Fiki.req("@authority")))));
     }
 
@@ -311,7 +311,7 @@ class SweepTest {
         // Format 3 (@524c8qgv) reverses the 2026-10-08 ruling that stripped them as urlsplit does:
         // stripping made "/\nx" verify as "/x". A caller's URL is the caller's mistake; a received
         // one is a base that cannot be built.
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https://h.exa\tmple/a",
+        Caller.refused("cannot be read: it contains a space or a control character", () -> Fiki.signatureBase("GET", "https://h.exa\tmple/a",
             Map.of(), List.of("@authority", "@path", "@query"), new Fiki.Params(null, null, null, null, null, null)));
         Map<String, String> signed = sign();
         for (String url : List.of("https://exam\tple.com/p?q=1", "https://example.com/p?q=\r\n1", "/p\n?q=1")) {
@@ -326,7 +326,7 @@ class SweepTest {
         List<String> covered = List.of("@authority", "@path", "@query");
         for (String url : List.of(" \u0001https://api.example.com/x?q=1", "\u0000\u001f https://api.example.com/x?q=1",
                 "https://api.example.com/x \u0001", "https://api.example.com/x\u007f", "/x y")) {
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", url, Map.of(), covered, params), url);
+            Caller.refused("cannot be read: it contains a space or a control character", () -> Fiki.signatureBase("GET", url, Map.of(), covered, params), url);
         }
     }
 
@@ -335,7 +335,7 @@ class SweepTest {
     @ParameterizedTest
     @ValueSource(strings = {"Bad Name", "x:y", "a\r\nb", "café", "", "x\"y"})
     void b15AComponentNameThatIsNotAFieldNameIsACallerError(String name) {
-        assertThrows(IllegalArgumentException.class, () -> sign("GET", URL, Map.of(), opts -> opts.withCovered(List.of(name))));
+        Caller.refused("is not an HTTP field name, so it cannot be signed", () -> sign("GET", URL, Map.of(), opts -> opts.withCovered(List.of(name))));
     }
 
     @Test
@@ -365,9 +365,9 @@ class SweepTest {
     @ParameterizedTest
     @ValueSource(longs = {-1L, -999_999_999_999_999L, 1_000_000_000_000_000L, Long.MIN_VALUE, Long.MAX_VALUE})
     void b16ATimestampOutsideTheIntegerRangeIsACallerError(long value) {
-        assertThrows(IllegalArgumentException.class, () -> sign("GET", URL, Map.of(), opts -> opts.withCreated(value)));
-        assertThrows(IllegalArgumentException.class, () -> sign("GET", URL, Map.of(), opts -> opts.withExpires(value)));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", URL, Map.of(), List.of("@method"),
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign("GET", URL, Map.of(), opts -> opts.withCreated(value)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign("GET", URL, Map.of(), opts -> opts.withExpires(value)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> Fiki.signatureBase("GET", URL, Map.of(), List.of("@method"),
             new Fiki.Params(value, null, null, null, null, null)));
     }
 
@@ -383,8 +383,8 @@ class SweepTest {
     @ParameterizedTest
     @ValueSource(longs = {0L, -1L, Long.MIN_VALUE})
     void b17AFreshnessWindowThatIsNotPositiveIsACallerError(long value) {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.maxAge(value));
-        assertThrows(IllegalArgumentException.class, () -> declined().withSkew(value));
+        Caller.refused("A maximum age is a positive number of seconds", () -> Fiki.VerifyOptions.maxAge(value));
+        Caller.refused("A clock skew allowance is a positive number of seconds", () -> declined().withSkew(value));
     }
 
     @Test

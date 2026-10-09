@@ -164,6 +164,25 @@ class VectorsTest {
     private static final int SIGNS_CASES = 16;
     private static final int MISUSE_CASES = 10;
 
+    /*
+     * The message fragment each caller-error vector must carry (tick 7xbw, T3), since a vector names
+     * only the class. The two string-authorities cases are the exception: Java's types refuse a
+     * string where a collection of hosts belongs, so the driver reaches withAuthorities through
+     * reflection, and the JDK refuses the call before any fiki code runs, with its own message.
+     */
+    private static final Map<String, String> CALLER_ERRORS = Map.ofEntries(
+        Map.entry("authorities-is-a-string", "argument type mismatch"),
+        Map.entry("authorities-is-a-string-containing-the-host", "argument type mismatch"),
+        Map.entry("authorities-is-empty", "authorities is empty, which serves no host at all"),
+        Map.entry("authorities-holds-a-non-string", "Every authority is a string"),
+        Map.entry("authorities-omitted", "State the authorities this verifier serves"),
+        Map.entry("minimum-below-the-profiles", "A minimum covered set must include the profile's own"),
+        Map.entry("minimum-empty", "A minimum covered set must include the profile's own"),
+        Map.entry("response-expected-keyid-omitted", "State the AID this client expects the response to be signed by"),
+        Map.entry("response-minimum-below-the-profiles", "A minimum covered set must include the profile's own"),
+        Map.entry("response-expected-keyid-empty", "expected keyid is empty, which names no AID"),
+        Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"));
+
     @TestFactory
     Stream<DynamicTest> vectorsFormat() {
         List<DynamicTest> tests = new ArrayList<>();
@@ -333,8 +352,7 @@ class VectorsTest {
         return Counted.each("signs.json", doc.get("cases"), SIGNS_CASES, c -> {
             knownFields(c, SIGN_FIELDS);
             if (c.has("error") && c.get("error").asText().equals("caller")) {
-                Throwable thrown = assertThrows(IllegalArgumentException.class, () -> sign(c));
-                assertFalse(thrown instanceof FikiException);
+                Caller.refused(CALLER_ERRORS.get(c.get("id").asText()), () -> sign(c), c.get("id").asText());
             } else if (c.has("error")) {
                 FikiException thrown = assertThrows(FikiException.class, () -> sign(c));
                 assertEquals(c.get("error").asText(), thrown.kind().name());
@@ -354,13 +372,15 @@ class VectorsTest {
         JsonNode doc = load("misuse.json");
         return Counted.each("misuse.json", doc.get("cases"), MISUSE_CASES, c -> {
             // A mistake in the call is an IllegalArgumentException, never a FikiException
-            // (@5zrf8gjk); FikiException is not one, so assertThrows alone shows both.
+            // (@5zrf8gjk), and one carrying fiki's own message for that mistake (tick 7xbw, T3).
             assertEquals("caller", c.get("error").asText());
-            Throwable thrown = c.has("kind") && c.get("kind").asText().equals("response")
-                ? assertThrows(IllegalArgumentException.class, () -> verifyResponse(c))
-                : assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(
-                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)));
-            assertFalse(thrown instanceof FikiException);
+            String id = c.get("id").asText();
+            if (c.has("kind") && c.get("kind").asText().equals("response")) {
+                Caller.refused(CALLER_ERRORS.get(id), () -> verifyResponse(c), id);
+            } else {
+                Caller.refused(CALLER_ERRORS.get(id), () -> Fiki.verifyRequest(
+                    c.get("method").asText(), c.get("url").asText(), headers(c.get("headers")), options(c)), id);
+            }
         });
     }
 }

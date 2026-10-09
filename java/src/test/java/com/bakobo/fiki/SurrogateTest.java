@@ -53,8 +53,7 @@ class SurrogateTest {
     }
 
     private static void callerError(String fragment, Runnable body) {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, body::run);
-        assertTrue(e.getMessage().contains(fragment), e.getMessage());
+        Caller.refused(fragment, body::run);
     }
 
     private static Map<String, String> with(Map<String, String> headers, String name, String value) {

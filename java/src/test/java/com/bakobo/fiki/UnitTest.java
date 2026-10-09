@@ -99,7 +99,7 @@ class UnitTest {
             line("@authority", "GET", "https://example.com:8443/f", Map.of()));
         assertEquals("\"@path\": /", line("@path", "GET", "https://example.com", Map.of()));
         // Format 3 refuses a fragment, which no request target has, rather than dropping it.
-        assertThrows(IllegalArgumentException.class, () -> line("@path", "GET", "https://example.com/f#frag", Map.of()));
+        Caller.refused("cannot be read: it carries a fragment", () -> line("@path", "GET", "https://example.com/f#frag", Map.of()));
         assertEquals("\"@query\": ?", line("@query", "GET", "https://example.com/f", Map.of()));
         assertEquals("\"@query\": ?baz=bat%2Dman",
             line("@query", "GET", "https://example.com/p?baz=bat%2Dman", Map.of()));
@@ -220,7 +220,7 @@ class UnitTest {
         Fiki.verifyRequest("POST", URL_QUERY, all, OptedOut.decliningFreshness().withBody(BODY));
         for (String digest : List.of("sha-1=:AAAA:", "sha-256=\"not bytes\"", "((( not sfv")) {
             // The call's mistake at signing (@5zrf8gjk, E5).
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(key(), "POST", URL_QUERY,
+            Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () -> Fiki.signRequest(key(), "POST", URL_QUERY,
                 headers("Content-Digest", digest), Fiki.SignOptions.none().withBody(BODY).withCreated(SIGNED_AT)), digest);
         }
         // And the verifier still refuses each, signed by a signer that is not fiki and checks
