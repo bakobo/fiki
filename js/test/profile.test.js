@@ -95,8 +95,12 @@ async function respond(overrides = {}) {
   return { ...args.headers, ...(await signResponse(args)) };
 }
 
+// 0.8's response policy, stated explicitly now that the default is RESPONSE_MINIMUM and expectedKeyid
+// is required (@524c8qgv); the new default has tests of its own.
 const check = (headers, overrides = {}) =>
-  verifyResponse({ status: 200, headers, body: RESPONSE_BODY, request: REQUEST, maxAge: null, ...overrides });
+  verifyResponse({
+    status: 200, headers, body: RESPONSE_BODY, request: REQUEST, maxAge: null, expectedKeyid: null, minimum: null, ...overrides,
+  });
 
 const digestOf = (algorithm, bytes) => createHash(algorithm).update(bytes).digest('base64');
 
@@ -459,7 +463,7 @@ describe('responses (RFC 9421 section 2.4)', () => {
   });
 
   it('requires a maxAge decision', async () => {
-    await assert.rejects(async () => verifyResponse({ status: 200, headers: await respond(), request: REQUEST }), TypeError);
+    await assert.rejects(async () => verifyResponse({ status: 200, headers: await respond(), request: REQUEST, expectedKeyid: null, minimum: null }), TypeError);
   });
 
   it('keeps a Content-Digest the caller supplied, and returns none of its own', async () => {

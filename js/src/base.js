@@ -11,7 +11,7 @@
 
 import { utf8 } from './bytes.js';
 import { DuplicateComponent, MissingComponent, SignatureMismatch, UnsupportedComponent } from './errors.js';
-import { parseItem, serializeInnerList, serializeItem } from './sfv.js';
+import { MAX_FIELD_BYTES, parseItem, serializeInnerList, serializeItem } from './sfv.js';
 
 export const DERIVED = ['@method', '@authority', '@path', '@query'];
 
@@ -55,6 +55,34 @@ const SF_INTEGER_MAX = 999_999_999_999_999;
 // A caller's value in a message about it: quoted when it is a string, so a control character shows.
 const shown = (value) => (typeof value === 'string' ? JSON.stringify(value) : String(value));
 
+// Longest stretch of an untrusted value an error message quotes (@524c8qgv).
+const SHOWN = 64;
+
+/** An untrusted value as an error message may quote it: escaped, and cut at 64 characters.
+ *
+ * JSON.stringify escapes C0 controls but leaves DEL and the C1 controls raw, so those are escaped
+ * here too; a server logs these messages, and a value must not write into its log (review A9, B9).
+ */
+export function quoted(text) {
+  if (typeof text !== 'string') return String(text);
+  const cut = text.length > SHOWN;
+  const escaped = JSON.stringify(cut ? text.slice(0, SHOWN) : text).replace(
+    /[\x7f-\x9f]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+  return cut ? `${escaped} (cut from ${text.length} characters)` : escaped;
+}
+
+/** A-Z folded to a-z and nothing else (@524c8qgv).
+ *
+ * toLowerCase folds U+212A KELVIN SIGN to an ASCII "k", so a field named with it would become a
+ * covered name it is not (review A6, B5). Field names are ASCII tokens; nothing else folds.
+ */
+export const asciiLower = (text) => text.replace(/[A-Z]+/g, (run) => run.toLowerCase());
+
+/** Over MAX_FIELD_BYTES, measured in UTF-8 as received: size before shape (@524c8qgv). */
+export const oversized = (text) => utf8(text).length > MAX_FIELD_BYTES;
+
 /** A component identifier from a caller's spelling of it.
  *
  * A plain name (`"@method"`, `"Content-Digest"`) or its RFC 8941 serialization with parameters
@@ -76,7 +104,7 @@ export function component(spec) {
 }
 
 function componentItem(spec) {
-  if (!spec.startsWith('"')) return { value: spec.toLowerCase(), params: new Map() };
+  if (!spec.startsWith('"')) return { value: asciiLower(spec), params: new Map() };
   let item;
   try {
     item = parseItem(spec);
@@ -91,11 +119,11 @@ function componentItem(spec) {
       { component: spec, supported: [...DERIVED, ...RESPONSE_DERIVED].join(', ') },
     );
   }
-  return { value: item.value.toLowerCase(), params: item.params };
+  return { value: asciiLower(item.value), params: item.params };
 }
 
 /** The spelling of a request component named from a response: `req('@path')` is `'"@path";req'`. */
-export const req = (name) => serializeItem({ value: name.toLowerCase(), params: new Map([[REQ, true]]) });
+export const req = (name) => serializeItem({ value: asciiLower(name), params: new Map([[REQ, true]]) });
 
 /** The inverse of `component`: a plain name when it has no parameters. */
 export const specOf = (item) => (item.params.size > 0 ? serializeItem(item) : item.value);
@@ -152,11 +180,11 @@ export function checkCovered(items, { response }) {
 function unreadable(message, reason) {
   if (message.received) {
     return new SignatureMismatch(
-      `The URL ${message.url} cannot be read: ${reason} So there is no signature base to check the ` +
-        'signature against.',
+      `The URL ${quoted(message.url)} cannot be read: ${reason} So there is no signature base to ` +
+        'check the signature against.',
     );
   }
-  return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
+  return new TypeError(`The URL ${quoted(message.url)} cannot be read: ${reason}`);
 }
 
 // A scheme, "://", and at least one character of authority (RFC 3986 section 3).
@@ -179,6 +207,7 @@ const ABSOLUTE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]/;
  */
 function splitUrl(message) {
   const { url } = message;
+  if (oversized(url)) throw unreadable(message, `it is over ${MAX_FIELD_BYTES} bytes.`);
   if (/[\x00-\x20\x7f]/.test(url)) throw unreadable(message, 'it contains a space or a control character.');
   if (url.includes('#')) throw unreadable(message, 'it carries a fragment, which no request target has.');
   if (url.startsWith('/')) {
@@ -270,7 +299,7 @@ function hostport(text, scheme, message) {
   if (port === '') return host.toLowerCase();
   const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
   if (digits === null || digits.length > 5 || Number(digits) > 65535) {
-    throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
+    throw unreadable(message, `its port ${quoted(port)} is not a number from 0 to 65535.`);
   }
   if (digits === DEFAULT_PORTS.get(scheme)) return host.toLowerCase();
   return `${host.toLowerCase()}:${digits}`;
@@ -281,7 +310,12 @@ function authority(message) {
   // *is* the authority, supplies it — the shape a server-side verifier actually holds.
   const { headers } = message;
   const parts = partsOf(message);
-  if (parts.netloc) return hostport(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), parts.scheme, message);
+  if (parts.netloc) {
+    // RFC 9110 section 4.2.4: treat userinfo as an error, since it is used to obscure the authority
+    // (@524c8qgv). An empty one is still one.
+    if (parts.netloc.includes('@')) throw unreadable(message, 'its authority carries user information.');
+    return hostport(parts.netloc, parts.scheme, message);
+  }
   const host = headers.get('host');
   if (host === undefined) {
     throw new MissingComponent(
@@ -314,7 +348,7 @@ export function canonicalHeaders(headers, name = 'headers') {
     if (typeof value !== 'string') {
       throw new TypeError(`A header is a name and a string value; the value of "${field}" is ${String(value)}.`);
     }
-    const lower = field.toLowerCase();
+    const lower = asciiLower(field);
     if (Object.hasOwn(out, lower)) {
       throw new TypeError(
         `${name} names the field "${lower}" twice in different case, so it holds two values for one ` +
@@ -344,7 +378,12 @@ const ows = (value) => value.replace(/^[ \t]+|[ \t]+$/g, '');
  * encoded differently by different stacks. The KERI profile names such a base unbuildable, and so
  * a signature mismatch (@2f227n4r).
  */
-function checked(value, spec) {
+function checked(value, spec, { bounded = true } = {}) {
+  if (bounded && oversized(value)) {
+    throw new SignatureMismatch(
+      `The value of ${spec} is over ${MAX_FIELD_BYTES} bytes, so no signature base is built from it.`,
+    );
+  }
   if (!/^[\t\x20-\x7e]*$/.test(value)) {
     throw new SignatureMismatch(
       `The value of ${spec} contains a line break, a control character or a non-ASCII ` +
@@ -423,12 +462,14 @@ function componentValue(item, message) {
       { component: specOf(item) },
     );
   }
-  // Checked as received, then trimmed of field whitespace only.
-  return ows(checked(value, specOf(item)));
+  // Checked as received, then trimmed of field whitespace only. Content-Digest has its own bound
+  // and its own class, MalformedDigest, checked when it is parsed (@5zrf8gjk).
+  return ows(checked(value, specOf(item), { bounded: name !== CONTENT_DIGEST }));
 }
 
 /** A component's value, refused when it has no single serialization both sides agree on. */
-export const valueOf = (item, message) => checked(componentValue(item, message), specOf(item));
+export const valueOf = (item, message) =>
+  checked(componentValue(item, message), specOf(item), { bounded: item.value !== CONTENT_DIGEST });
 
 /** Every line of the signature base except the trailing `@signature-params`. */
 export const linesFor = (items, message) => items.map((item) => `${serializeItem(item)}: ${valueOf(item, message)}`);
