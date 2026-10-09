@@ -782,12 +782,18 @@ namespace Bakobo.Fiki
         /// 6mhg): its size in bytes as received, before any trimming, then the members, inner-list
         /// items and parameters of what parsed. Over any bound is the header's malformed kind.
         /// </summary>
-        private static SfDictionary Parse(string? raw, string name, FikiErrorKind kind)
+        internal static SfDictionary Parse(string? raw, string name, FikiErrorKind kind)
         {
             SfDictionary parsed;
             try
             {
                 raw = raw ?? throw new FormatException("There is no header.");
+                // Before its size, as fiki-py encodes strictly before it counts: a lone surrogate has
+                // no UTF-8 spelling, so no peer sent it and nothing can read it (tick 7us4).
+                if (PyText.HasLoneSurrogate(raw))
+                {
+                    throw new FikiException(kind, $"The {name} header holds a character that has no UTF-8 encoding, so it cannot be read as an RFC 8941 dictionary.");
+                }
                 var size = System.Text.Encoding.UTF8.GetByteCount(raw);
                 if (size > HttpSignatures.MaxFieldBytes)
                 {
