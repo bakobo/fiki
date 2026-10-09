@@ -148,17 +148,59 @@ describe('A4: header values are strings, and a field is named once', () => {
   });
 });
 
+/** The least time over several interleaved trials of each shape, so a slow or loaded runner, which
+ * slows every trial alike, changes no ratio, and one descheduled trial changes no minimum. */
+function fastest(shapes, parse, { trials = 9, reps = 40 } = {}) {
+  const best = shapes.map(() => Infinity);
+  for (let trial = 0; trial < trials; trial += 1) {
+    shapes.forEach((text, i) => {
+      const start = performance.now();
+      for (let rep = 0; rep < reps; rep += 1) parse(text);
+      best[i] = Math.min(best[i], performance.now() - start);
+    });
+  }
+  return best;
+}
+
 describe('A6: parsing the signature headers is linear', () => {
-  it('reads the largest header the bounds admit quickly', async () => {
-    // Sixty-four components of the longest names that fit, each with sixteen parameters: a
-    // pairwise scan anywhere would make this visibly slow, and a linear parse is well under the
-    // limit even on a loaded machine.
-    const item = `"${'a'.repeat(8)}"${';p'.repeat(16)}`;
-    const text = `sig=(${Array(64).fill(item).join(' ')})`;
-    assert.ok(new TextEncoder().encode(text).length < fiki.MAX_FIELD_BYTES);
-    const start = performance.now();
-    for (let i = 0; i < 100; i += 1) parseDictionary(text);
-    assert.ok(performance.now() - start < 2000);
+  // Compared by ratio rather than against a clock (tick 7xbw): the time at four times the size must
+  // stay well under the sixteen times a quadratic parse would take. Absolute time failed on a
+  // loaded machine and passed a quadratic parse on a fast one.
+  const QUADRATIC = 16;
+  const shapes = (n) => [
+    // One component whose name is most of the field.
+    `sig=("${'a'.repeat(n * 118)}")`,
+    // n components, each with sixteen distinct parameters.
+    `sig=(${Array.from({ length: n }, (_, i) => `"c${i}"${Array.from({ length: 16 }, (_, j) => `;k${j}`).join('')}`).join(' ')})`,
+  ];
+
+  it('takes well under four times as long again at four times the size', () => {
+    const small = shapes(16);
+    const large = shapes(64);
+    for (const text of large) assert.ok(new TextEncoder().encode(text).length <= fiki.MAX_FIELD_BYTES, text.length);
+    for (const [i, text] of large.entries()) assert.ok(text.length > 3 * small[i].length, `${text.length} vs ${small[i].length}`);
+    const times = fastest([...small, ...large], parseDictionary);
+    for (let i = 0; i < small.length; i += 1) {
+      const ratio = times[small.length + i] / times[i];
+      assert.ok(ratio < QUADRATIC / 2, `shape ${i}: ${times[small.length + i].toFixed(2)} ms at 4N against ${times[i].toFixed(2)} ms at N, a ratio of ${ratio.toFixed(1)}`);
+    }
+  });
+
+  it('refuses an over-long inner list without reading it to its end (@5zrf8gjk)', () => {
+    // The item bound is enforced as the parse reaches it, so the work stops at the 65th item and
+    // does not grow with what follows: four times the input takes about the same time, where
+    // reading to the end would take four times as long.
+    const list = (n) => `sig=(${Array(n).fill('"a"').join(' ')})`;
+    const [short, long] = [list(20_000), list(80_000)];
+    for (const text of [short, long]) assert.throws(() => parseDictionary(text), /more than 64 items/);
+    const [n, n4] = fastest([short, long], (text) => {
+      try {
+        parseDictionary(text);
+      } catch {
+        // the refusal is the point
+      }
+    }, { reps: 200 });
+    assert.ok(n4 / n < 2, `${n4.toFixed(2)} ms at 4N against ${n.toFixed(2)} ms at N, a ratio of ${(n4 / n).toFixed(1)}`);
   });
 });
 
