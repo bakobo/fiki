@@ -137,6 +137,157 @@
         "content-digest"
       ],
       "note": "An explicit decline admits any signer, and the verdict names it."
+    },
+    {
+      "id": "response-without-created-under-the-default",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "MalformedSignatureInput",
+      "note": "Every minimum requires created."
+    },
+    {
+      "id": "response-without-query-req",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "InsufficientCoverage"
+    },
+    {
+      "id": "response-without-its-own-body-digest",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req);created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "InsufficientCoverage"
+    },
+    {
+      "id": "response-to-a-request-with-a-body-without-the-req-digest",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:axmW1gkEplPqZ8O1juHRcnyw43LBfQzgcorQc2K4G8eNuMRmrZVHU8Lqs2iiTT/lXUGDnUR2YkMWekY7JnKGDg==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Digest": "sha-256=:+dhgKMbg1k4iUYb5astpM4ssWXZN95FiEH9cS7NNExA=:"
+        },
+        "body": "{\"a\": 1}"
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "InsufficientCoverage"
+    },
+    {
+      "id": "response-under-the-default-with-no-request",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": null,
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "MissingComponent",
+      "note": "It covers the req components the default requires, and no request was supplied to read them from."
+    },
+    {
+      "id": "response-by-another-key-to-a-request-the-expected-key-signed",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ\"",
+        "Signature": "sig=:1+1wHA0A0EetMrGZdPBRWKF9Q/z25LF62xgWMSsecRhDlD4Ce+m5T0UwIePwByTyniaw8ydPdrviOWnD9HlfAA==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "body": null,
+        "headers": {
+          "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+          "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+        }
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "UnknownKey",
+      "note": "The keyid checked is the response's, never the request's own Signature-Input."
+    },
+    {
+      "id": "response-whose-request-url-is-over-8192-bytes",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:y7mA/wZQHnitEY2MgEJX8Qb7Ap+u6B9bhIjKbOiiCK/8q/EN5PKiQcju1A4EVdWl93m5fT0K89zWueYCqkhWDw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "SignatureMismatch",
+      "note": "A req component reads the request's URL, which is bounded too. The signature is good over the base a port without the bound would build."
     }
   ]
 }

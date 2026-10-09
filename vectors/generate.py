@@ -36,6 +36,7 @@ from fiki import (  # noqa: E402
     RESPONSE_MINIMUM,
     Key,
     Request,
+    response_signature_base,
     sign_request,
     sign_response,
     signature_base,
@@ -1145,6 +1146,31 @@ def refusals():
                               f'"@authority": h{host}'.encode()), "Host": "h" + host},
         note="Host, when it supplies @authority, is a covered value and bounded like one.")
 
+    # --- part two, from the challenge of its test plan (format3b-test-plan-challenge.md) ---
+    for case_id, target in [("empty-userinfo", "https://@api.example.com/things?limit=1&sort=name"),
+                            ("empty-user-and-password", "https://:@api.example.com/things?limit=1&sort=name")]:
+        add(case_id, "SignatureMismatch", method="GET", body_text=None, target=target,
+            headers=get_default, note="An empty userinfo is still userinfo; a check for a "
+                                      "non-empty user name passes these.")
+    for case_id, length in [("content-length-that-overflows-64-bits", "18446744073709551616"),
+                            ("content-length-of-4301-digits", "1" * 4301)]:
+        add(case_id, "InsufficientCoverage", method="GET", body_text=None,
+            headers={**get_default, "Content-Length": length},
+            note="A length past 18 significant digits announces a body; a port that fails to "
+                 "parse it and reads the failure as no body fails open.")
+    add("expires-zero", "SignatureExpired", method="GET", body_text=None,
+        headers=by_hand(url, params_override="created=1700000000;expires=0"),
+        note="Zero is a time, long past; a port testing expires for truthiness never checks it.")
+    long_s = by_hand(url, extra_covered=["x-sig"], headers={"x-sig": "v"})
+    add("field-name-with-a-long-s-is-not-the-covered-name", "MissingComponent", method="GET",
+        body_text=None, headers={**{k: v for k, v in long_s.items() if k != "x-sig"},
+                                 "X-\u017fig": "v"},
+        note="U+017F folds to s only through uppercase; field names fold A-Z and nothing else.")
+    padded = by_hand(url, extra_covered=["x-note"], headers={"X-Note": "v"})
+    add("covered-field-over-the-bound-only-before-trimming", "SignatureMismatch", method="GET",
+        body_text=None, headers={**padded, "X-Note": "v" + " " * MAX_FIELD_BYTES},
+        note="The bound is measured on the value as received, before OWS is trimmed.")
+
     honest = signed(method="GET", body=None)
     raw_sig = base64.b64decode(honest["Signature"].split("=:", 1)[1].rstrip(":"))
     s_plus_l = raw_sig[:32] + int.to_bytes(int.from_bytes(raw_sig[32:], "little") + rfc8032.q,
@@ -1365,6 +1391,29 @@ def accepts():
         presigned=digest_signed_twice(key, "https://api.example.com/x", good_first=False),
         body_text=body.decode(), note="The last sha-256 member wins (V-M2).")
     add("url-of-exactly-8192-bytes", method="GET", url=padded_url(MAX_FIELD_BYTES))
+    add("created-zero", method="GET", url="https://api.example.com/x",
+        presigned=by_hand("https://api.example.com/x", created=0),
+        note="Zero is a valid created; a port testing it for truthiness refuses this.")
+    duplicated = by_hand("https://api.example.com/x")
+    duplicated["Signature-Input"] = duplicated["Signature-Input"].replace(
+        "created=1700000000;", "created=1;", 1) + ";created=1700000000"
+    add("duplicate-parameter-keeps-its-first-position", method="GET",
+        url="https://api.example.com/x", presigned=duplicated,
+        note="RFC 8941 section 4.2.3.2: a repeated parameter overwrites the value and keeps the "
+             "first position, so the base carries created=1700000000 where created=1 was.")
+    kelvin_twin = by_hand("https://api.example.com/x", extra_covered=["key-id"],
+                          headers={"Key-Id": "real"})
+    add("kelvin-field-beside-the-real-one", method="GET", url="https://api.example.com/x",
+        presigned={**kelvin_twin, "\u212aey-Id": "decoy"},
+        note="A field named with U+212A is another field, never the covered one.")
+    add("oversized-host-beside-an-absolute-url", method="GET", url="https://api.example.com/x",
+        headers={"Host": "h" * (MAX_FIELD_BYTES * 2)},
+        note="An absolute URL's authority is its own; a Host nobody reads is not bounded.")
+    add("oversized-uncovered-field", method="GET", url="https://api.example.com/x",
+        headers={"X-Junk": "j" * (MAX_FIELD_BYTES * 2)},
+        note="A field nothing covers is never read, so it is not refused.")
+    add("at-sign-in-path-and-query", method="GET", url="https://api.example.com/a@b?c=@d",
+        note="An @ outside the authority is not userinfo.")
     for case_id, signer_seed, crafted_headers, note in mixed_order_accepts(signed_at):
         add(case_id, method="GET", url="https://api.example.com/x", presigned=crafted_headers,
             note=note)
@@ -1388,20 +1437,23 @@ def signs():
 
     def add(case_id, *, kind="request", method="GET", url="https://api.example.com/things?limit=1",
             headers=None, body_text=None, covered=None, created=1700000000, expires=None,
-            nonce=None, tag=None, minimum=None, status=None, request=None, error=None, note=None):
+            nonce=None, tag=None, minimum=None, status=None, request=None, error=None, note=None,
+            keyid=None, label="sig"):
         key = Key.from_seed(SEED_A)
         case = {"id": case_id, "kind": kind, "seed_hex": SEED_A.hex(), "method": method,
                 "url": url, "headers": headers or {}, "body": body_text, "covered": covered,
                 "created": created, "expires": expires, "nonce": nonce, "tag": tag,
-                "minimum": minimum, "status": status, "request": request}
+                "minimum": minimum, "status": status, "request": request, "keyid": keyid,
+                "label": label}
         payload = None if body_text is None else body_text.encode()
         args = dict(key=key, headers=dict(headers or {}), body=payload, covered=covered,
-                    created=created, expires=expires, nonce=nonce, tag=tag, minimum=minimum)
+                    created=created, expires=expires, nonce=nonce, tag=tag, minimum=minimum,
+                    keyid=keyid, label=label)
         try:
             if kind == "request":
                 out = sign_request(method=method, url=url, **args)
             else:
-                out = sign_response(status=status, request=Request(**{
+                out = sign_response(status=status, request=None if request is None else Request(**{
                     **request, "body": None if request["body"] is None else request["body"].encode()}),
                     **args)
         except Exception as ex:  # noqa: BLE001 - the case records which refusal it is
@@ -1428,8 +1480,27 @@ def signs():
     add("expires-nonce-and-tag", expires=1700000600, nonce="n-1", tag="app-1",
         note="Parameters in fiki's emission order: created, expires, nonce, alg, keyid, tag.")
     add("relative-url-with-host", url="/things?limit=1", headers={"Host": "api.example.com"})
+    add("request-under-the-profile-minimum", minimum=["@method", "@path", "@query"])
+    add("caller-keyid", keyid="EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6",
+        note="A caller-supplied keyid, such as a KERI AID, signed as given (@6g9zjsv9).")
+    add("label-other-than-sig", label="signify")
+    add("covered-names-in-uppercase", headers={"X-Note": "v"},
+        covered=["@method", "@authority", "@path", "@query", "X-Note"],
+        note="A caller's covered field names are folded A-Z to a-z.")
+    add("url-over-8192-bytes", url=padded_url(MAX_FIELD_BYTES + 1), error="caller",
+        note="An unreadable URL is the caller's mistake when signing.")
+    add("covered-field-over-8192-bytes", headers={"X-Note": "n" * (MAX_FIELD_BYTES + 1)},
+        covered=["@method", "@authority", "@path", "@query", "x-note"], error="SignatureMismatch",
+        note="A field value over the bound is refused on either side as an unbuildable base.")
     request = {"method": "POST", "url": "https://api.example.com/things",
                "headers": {"Content-Digest": content_digest(body.encode())}, "body": body}
+    add("response-under-the-profile-minimum", kind="response", status=200,
+        body_text='{"done": true}', method=None, url=None, request=request,
+        minimum=["@status", '"@method";req', '"@path";req', '"@query";req'])
+    add("response-without-a-request", kind="response", status=200, body_text='{"done": true}',
+        method=None, url=None, request=None,
+        note="Covers only the response's own components; the default verifier refuses it, "
+             "which the guide says.")
     add("response-default-covered", kind="response", status=200, body_text='{"done": true}',
         method=None, url=None, request=request,
         note="A response binds @status, its body, and the request's method, path, query and "
@@ -1442,16 +1513,21 @@ def responses():
     """verify_response's own policy (@524c8qgv, 'verify_response applies RESPONSE_MINIMUM')."""
     key, stranger = Key.from_seed(SEED_A), Key.from_seed(SEED_B)
     url = "https://api.example.com/things?limit=1"
-    request = {"method": "GET", "url": url, "headers": {}, "body": None}
+    request = plain = {"method": "GET", "url": url, "headers": {}, "body": None}
     as_request = Request(method="GET", url=url, headers={}, body=None)
     cases = []
 
     def add(case_id, *, signer=key, covered=None, minimum="default", expected_keyid=None,
             status=200, body='{"done": true}', request=request, error=None, note=None,
-            mangle=None, max_age=None, now=1700000000):
+            mangle=None, max_age=None, now=1700000000, presigned=None):
         payload = None if body is None else body.encode()
-        headers = sign_response(key=signer, status=status, request=as_request, body=payload,
-                                covered=covered, created=1700000000)
+        signed_for = as_request if request is not None else None
+        if request is not None and request is not plain and presigned is None:
+            signed_for = Request(method=request["method"], url=request["url"],
+                                 headers=request["headers"],
+                                 body=None if request["body"] is None else request["body"].encode())
+        headers = presigned or sign_response(key=signer, status=status, request=signed_for,
+                                             body=payload, covered=covered, created=1700000000)
         if mangle:
             headers = mangle(headers)
         case = {"id": case_id, "status": status, "headers": headers, "body": body,
@@ -1477,6 +1553,58 @@ def responses():
         error="UnknownKey", note="Profile R1: a client checks the keyid is the AID it expects.")
     add("expected-keyid-declined", expected_keyid=None,
         note="An explicit decline admits any signer, and the verdict names it.")
+
+    # Part two, from the challenge of its test plan.
+    def drop(component):
+        def mangle(headers):
+            value = headers["Signature-Input"]
+            assert f" {component}" in value or f"({component}" in value, component
+            return {**headers, "Signature-Input": value.replace(f" {component}", "", 1)}
+        return mangle
+
+    add("response-without-created-under-the-default", expected_keyid=mine,
+        mangle=lambda h: {**h, "Signature-Input": h["Signature-Input"].replace(";created=1700000000", "")},
+        error="MalformedSignatureInput", note="Every minimum requires created.")
+    add("response-without-query-req", expected_keyid=mine, mangle=drop('"@query";req'),
+        error="InsufficientCoverage")
+    add("response-without-its-own-body-digest", expected_keyid=mine, mangle=drop('"content-digest"'),
+        error="InsufficientCoverage")
+    with_body = {"method": "POST", "url": url,
+                 "headers": {"Content-Digest": content_digest(b'{"a": 1}')}, "body": '{"a": 1}'}
+    add("response-to-a-request-with-a-body-without-the-req-digest", expected_keyid=mine,
+        request=with_body, mangle=drop('"content-digest";req'), error="InsufficientCoverage")
+    add("response-under-the-default-with-no-request", expected_keyid=mine, request=None,
+        presigned=sign_response(key=key, status=200, request=as_request, body=b'{"done": true}',
+                                created=1700000000),
+        error="MissingComponent",
+        note="It covers the req components the default requires, and no request was supplied "
+             "to read them from.")
+    asked_by_a = {"method": "GET", "url": url, "body": None,
+                  "headers": sign_request(key=key, method="GET", url=url, created=1700000000)}
+    add("response-by-another-key-to-a-request-the-expected-key-signed", signer=stranger,
+        expected_keyid=mine, request=asked_by_a, error="UnknownKey",
+        note="The keyid checked is the response's, never the request's own Signature-Input.")
+    # Signed over the base a port without the bound would build: a twin one byte shorter, its
+    # "@path";req line lengthened by one byte, re-signed.
+    at_bound = padded_url(MAX_FIELD_BYTES)
+    twin = Request(method="GET", url=at_bound, headers={}, body=None)
+    twin_headers = sign_response(key=key, status=200, request=twin, body=b'{"done": true}',
+                                 created=1700000000)
+    parsed = http_sfv.Dictionary()
+    parsed.parse(twin_headers["Signature-Input"].encode("ascii"))
+    grown_base = response_signature_base(
+        status=200, headers=twin_headers, covered=[str(item) for item in parsed["sig"]],
+        created=1700000000, keyid=keyid_of(key), request=twin, alg="ed25519")
+    assert key.sign(grown_base) == base64.b64decode(twin_headers["Signature"].split("=:", 1)[1][:-1])
+    path = at_bound[len("https://api.example.com"):]
+    longer = grown_base.replace(f'"@path";req: {path}'.encode(), f'"@path";req: {path}p'.encode(), 1)
+    assert longer != grown_base
+    add("response-whose-request-url-is-over-8192-bytes", expected_keyid=mine,
+        request={**plain, "url": padded_url(MAX_FIELD_BYTES + 1)}, error="SignatureMismatch",
+        presigned={**twin_headers,
+                   "Signature": f"sig=:{base64.b64encode(key.sign(longer)).decode()}:"},
+        note="A req component reads the request's URL, which is bounded too. The signature is "
+             "good over the base a port without the bound would build.")
     return {**HEADER, "about": "Responses every implementation must accept or refuse.",
             "cases": cases}
 
@@ -1524,6 +1652,8 @@ def misuse():
                   "error": "caller", "note": "expected_keyid is a required decision (@524c8qgv)."})
     cases.append({**response, "id": "response-minimum-below-the-profiles", "minimum": ["@status"],
                   "error": "caller", "note": "A response minimum must include RESPONSE_MINIMUM."})
+    cases.append({**response, "id": "response-expected-keyid-empty", "expected_keyid": "",
+                  "error": "caller", "note": "An empty AID names nothing; it is not the decline."})
     return {**HEADER, "about": "Calls every implementation must reject as a caller's mistake.",
             "cases": cases}
 

@@ -111,7 +111,15 @@ _VERIFY_FIELDS = {"id", "method", "url", "headers", "body", "max_age", "now", "m
                   "omit", "kind", "status", "request", "expected_keyid"}
 _SIGN_FIELDS = {"id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created",
                 "expires", "nonce", "tag", "minimum", "status", "request", "expected_headers",
-                "error", "note"}
+                "error", "note", "keyid", "label"}
+
+
+def _well_formed(error: Exception) -> None:
+    """Every refusal's message holds no control character and is at most 1024 characters, so an
+    untrusted value is quoted escaped and cut (@524c8qgv, part-two refinements)."""
+    message = str(error)
+    assert len(message) <= 1024, len(message)
+    assert not any(ord(c) < 0x20 or ord(c) == 0x7F for c in message), repr(message[:200])
 
 
 def _policy(case) -> dict:
@@ -133,6 +141,8 @@ def test_the_verify_vectors_are_not_empty(name):
 
 
 def _request_of(message):
+    if message is None:
+        return None
     return Request(method=message["method"], url=message["url"], headers=message["headers"],
                    body=None if message["body"] is None else message["body"].encode("utf-8"))
 
@@ -163,6 +173,7 @@ def test_response_vectors(case):
         with pytest.raises(FikiError) as caught:
             _verify_response(case)
         assert type(caught.value).__name__ == case["error"]
+        _well_formed(caught.value)
     else:
         verdict = _verify_response(case)
         assert verdict.keyid == case["keyid"]
@@ -177,17 +188,23 @@ def test_sign_vectors(case):
     args = dict(key=key, headers=case["headers"],
                 body=None if case["body"] is None else case["body"].encode("utf-8"),
                 covered=case["covered"], created=case["created"], expires=case["expires"],
-                nonce=case["nonce"], tag=case["tag"], minimum=case["minimum"])
+                nonce=case["nonce"], tag=case["tag"], minimum=case["minimum"],
+                keyid=case["keyid"], label=case["label"])
 
     def sign():
         if case["kind"] == "request":
             return sign_request(method=case["method"], url=case["url"], **args)
         return sign_response(status=case["status"], request=_request_of(case["request"]), **args)
 
-    if "error" in case:
+    if case.get("error") == "caller":
+        with pytest.raises((TypeError, ValueError)) as caught:
+            sign()
+        assert not isinstance(caught.value, FikiError)
+    elif "error" in case:
         with pytest.raises(FikiError) as caught:
             sign()
         assert type(caught.value).__name__ == case["error"]
+        _well_formed(caught.value)
     else:
         assert sign() == case["expected_headers"]
 
@@ -232,6 +249,7 @@ def test_refusal_vectors(case):
             **_policy(case),
         )
     assert type(caught.value).__name__ == case["error"]
+    _well_formed(caught.value)
 
 
 @pytest.mark.parametrize("case", cases("accepts.json"))

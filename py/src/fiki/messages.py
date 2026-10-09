@@ -409,6 +409,7 @@ def verify_request(
     and :data:`MAX_PARAMETERS` parameters on an item, and a header over any of them is malformed.
     """
     _check_window(max_age, skew)
+    _check_expected_keyid(expected_keyid)
     authorities = _check_authorities(authorities)
     minimum = _floored(DEFAULT_MINIMUM if minimum is _DEFAULT else minimum, REQUEST_MINIMUM)
     headers = canonical(headers)
@@ -453,6 +454,7 @@ def verify_response(
     not given.
     """
     _check_window(max_age, skew)
+    _check_expected_keyid(expected_keyid)
     minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
@@ -582,7 +584,13 @@ def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:
     # that there is no body. Only SP and HTAB are optional whitespace (@5zrf8gjk); a no-break
     # space or a vertical tab makes the value something other than a decimal.
     length = length.strip(" \t")
-    return not re.fullmatch(r"[0-9]+", length) or int(length) > 0
+    if not re.fullmatch(r"[0-9]+", length):
+        return True
+    # Past 18 significant digits a length cannot fit a signed 64-bit integer, and Python refuses
+    # to convert one of over 4300 digits with a ValueError from outside fiki's taxonomy; either
+    # way it announces a body rather than being parsed (@524c8qgv, part-two refinements).
+    significant = length.lstrip("0")
+    return len(significant) > 18 or int(significant or "0") > 0
 
 
 def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) -> None:
@@ -600,6 +608,21 @@ def _check_minimum(items, minimum, *, has_body: bool, request_had_body: bool) ->
                 "signature over what an intermediary is free to change.",
                 component=spec_of(item),
             )
+
+
+def _check_expected_keyid(expected_keyid) -> None:
+    """expected_keyid is an AID or None, never an empty string (@524c8qgv, part-two refinements).
+
+    "" names no AID, and reading it as the decline would turn a caller's missing value into
+    "accept any signer"; that is a mistake in the call.
+    """
+    if expected_keyid is None:
+        return
+    if not isinstance(expected_keyid, str):
+        raise TypeError(f"expected_keyid is an AID or None; this one is {type(expected_keyid).__name__}.")
+    if not expected_keyid:
+        raise ValueError("expected_keyid is empty, which names no AID; pass None to accept any "
+                         "signer and read it from the verdict.")
 
 
 def _check_authorities(authorities) -> frozenset[str] | None:

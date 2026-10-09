@@ -2351,6 +2351,129 @@
       "note": "Host, when it supplies @authority, is a covered value and bounded like one."
     },
     {
+      "id": "empty-userinfo",
+      "method": "GET",
+      "url": "https://@api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "An empty userinfo is still userinfo; a check for a non-empty user name passes these."
+    },
+    {
+      "id": "empty-user-and-password",
+      "method": "GET",
+      "url": "https://:@api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "An empty userinfo is still userinfo; a check for a non-empty user name passes these."
+    },
+    {
+      "id": "content-length-that-overflows-64-bits",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Content-Length": "18446744073709551616"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "InsufficientCoverage",
+      "note": "A length past 18 significant digits announces a body; a port that fails to parse it and reads the failure as no body fails open."
+    },
+    {
+      "id": "content-length-of-4301-digits",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:",
+        "Content-Length": "11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "InsufficientCoverage",
+      "note": "A length past 18 significant digits announces a body; a port that fails to parse it and reads the failure as no body fails open."
+    },
+    {
+      "id": "expires-zero",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;expires=0;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:x5uBmOS+Ar1Hh1+hKLPEY90Yo+QwS/ENZnDMzDS4EZa/GKU8xvVXZyB+5ROfvqKYDg8nhHocNcZWz59iLbYAAg==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureExpired",
+      "note": "Zero is a time, long past; a port testing expires for truthiness never checks it."
+    },
+    {
+      "id": "field-name-with-a-long-s-is-not-the-covered-name",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-sig\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:GvZTan6cjB6MS1HTuFJ09+UQ1c5i1bQJXnLt7/hSi2Gw0AUlWt/SBbMTxWPHr+KlFKFgnMGL2QjijImgmB2jBQ==:",
+        "X-\u017fig": "v"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingComponent",
+      "note": "U+017F folds to s only through uppercase; field names fold A-Z and nothing else."
+    },
+    {
+      "id": "covered-field-over-the-bound-only-before-trimming",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "X-Note": "v                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"x-note\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:pwfP/K5SRLQDX+RjZAUMIH/LLja9mIQXQ5n0MTbR9ZzfrJY86yfW4/Qqalb1MMzAkbUjIwCXCsPLUDKPVqnAAA==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "The bound is measured on the value as received, before OWS is trimmed."
+    },
+    {
       "id": "signature-whose-s-is-not-below-l",
       "method": "GET",
       "url": "https://api.example.com/things?limit=1&sort=name",

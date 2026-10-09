@@ -120,3 +120,9 @@ def test_field_names_fold_ascii_only():
     assert ascii_lower("X-Note") == "x-note"
     assert ascii_lower("Key") == "Key"
     assert set(canonical({"Key-Id": "v", "Key-Id": "w"})) == {"Key-id", "key-id"}
+
+
+@pytest.mark.parametrize("expected_keyid", [42, b"EIhwv8kM"], ids=["int", "bytes"])
+def test_an_expected_keyid_that_is_not_a_string_is_a_caller_error(expected_keyid):
+    with pytest.raises(TypeError, match="AID or None"):
+        verify_request(**_signed(), authorities=None, expected_keyid=expected_keyid)

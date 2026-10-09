@@ -329,7 +329,7 @@ def _port(text: str, message: _Message) -> int | None:
     digits = text.lstrip("0")
     if (not text.isascii() or not text.isdigit() or len(digits) > 5
             or int(digits or "0") > _PORT_MAX):
-        raise _unreadable(message, f"its port {text!r} is not a number from 0 to {_PORT_MAX}.")
+        raise _unreadable(message, f"its port {shown(text)} is not a number from 0 to {_PORT_MAX}.")
     return int(digits or "0")
 
 
