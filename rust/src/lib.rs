@@ -31,6 +31,8 @@ mod base;
 #[cfg(test)]
 mod corpus_tests;
 mod errors;
+#[cfg(test)]
+mod fuzz_tests;
 mod keys;
 mod messages;
 mod sfv;
