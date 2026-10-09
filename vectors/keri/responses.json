@@ -1,6 +1,6 @@
 {
   "about": "Signed responses a canonical client must ACCEPT, each with the signed request it answers.",
-  "keri_vectors_format": 4,
+  "keri_vectors_format": 5,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",

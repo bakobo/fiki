@@ -1,6 +1,6 @@
 {
   "about": "Messages a canonical verifier must REFUSE, and the section 9 code.",
-  "keri_vectors_format": 4,
+  "keri_vectors_format": 5,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
@@ -862,6 +862,56 @@
       "error": "digest-mismatch"
     },
     {
+      "id": "absent-created",
+      "kind": "request",
+      "note": "created is REQUIRED in the profile (section 4); refused before the signature is examined.",
+      "request": {
+        "method": "GET",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\");nonce=\"otezoS6pdU7UZMLY8bXmvA\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:MeoS8Q4CdKp8E38GvY+NG59mVemLHA0B1jDZ6ZJNpvEPwTH412VKWJ0z21rybTniuDBmk/ixp6CCXpldYPcOBg==:"
+        },
+        "body": null
+      },
+      "now": 1700000030,
+      "error": "malformed-signature-input"
+    },
+    {
+      "id": "lowercase-content-length-body-without-digest",
+      "kind": "request",
+      "note": "Field names match case-insensitively; a verifier that looks this header up by its capitalized spelling sees no body and fails open.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "content-length": "52",
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;nonce=\"kVzXKjuCDZF1PkwvI7oz5A\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:IiyAsmX2U+PtjsFcJmRjJAqJ7ACuMy6hzrGqGzsT5hzEMmeIchjcqXU8kn1bfyy03PXypYp62N4g3gRN9yaqCQ==:"
+        },
+        "body": null
+      },
+      "now": 1700000030,
+      "error": "insufficient-coverage"
+    },
+    {
+      "id": "lowercase-transfer-encoding-body-without-digest",
+      "kind": "request",
+      "note": "Field names match case-insensitively; a verifier that looks this header up by its capitalized spelling sees no body and fails open.",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "transfer-encoding": "chunked",
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;nonce=\"4eDwGcx6nZ-ElopilFcg1A\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:jlHeWvZgb9UdrKSi3Dz1NHT2EwHpRPECpdswblQnl0x5GacP3obyByAg7PNNuRqr3LjJnCtHjNsKxk0G+g6oAg==:"
+        },
+        "body": null
+      },
+      "now": 1700000030,
+      "error": "insufficient-coverage"
+    },
+    {
       "id": "response-status-altered",
       "kind": "response",
       "note": "The status was changed in transit.",
@@ -1111,6 +1161,35 @@
         "headers": {
           "Signature-Input": "signify=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;nonce=\"7hQeql4CE3VQh5uFzymCIQ\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
           "Signature": "signify=:G45WQ6r9JNLIi7Zys6W40ZN9qZWV3u3ny/kMhTaboB85h3brCBr6jQE57teEjBGd+ifsk1OogdW3detOsDFoDQ==:",
+          "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+        },
+        "body": "{\"done\": true}"
+      },
+      "policy": {
+        "expected_keyid": "EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"
+      },
+      "now": 1700000030,
+      "error": "unknown-key"
+    },
+    {
+      "id": "response-from-an-unexpected-non-transferable-aid",
+      "kind": "response",
+      "note": "Validly signed by a self-certifying B key while the client expects the agent's AID (profile R1). A verifier that waives expected_keyid for keys that carry themselves accepts any stranger (review V-C3; keri_vectors_format 5).",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers/alice/events",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"KhFPkjriyc0blh5Hvr5S2w\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=:9gHQrXKRKitBgMB+dAznQcgSCJyUpuRzG2Z4NHShxBTUYfy6t3uZGKAhlHZ3YHUYK43ccnZlVTtndsuBUN1yAQ==:",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Signature-Input": "signify=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;nonce=\"Ib-U4FrBbMF40pwt3ygDOQ\";alg=\"ed25519\";keyid=\"BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4\"",
+          "Signature": "signify=:nImRIeb8x15R7NBX7OfNwmjRMZSYgiXe2JpWy8PdZHqEZZqdUdNQOhyevsq7B33vDE+M9cf9kH5uPYukuuarBw==:",
           "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
         },
         "body": "{\"done\": true}"

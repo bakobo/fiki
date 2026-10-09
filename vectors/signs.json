@@ -1,0 +1,212 @@
+{
+  "about": "What every implementation's signer must emit, byte for byte.",
+  "vectors_format": 3,
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "default-covered-get",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {},
+      "body": null,
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      },
+      "note": "The default covered set: method, authority, path, query."
+    },
+    {
+      "id": "default-covered-post-with-a-body",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {},
+      "body": "{\"hello\": \"world\"}",
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:K8Q1MpxNQXQ6Hfm3MZJWDr2nCN1j8JYWy9oR6jQJOD66EOv+z/WXU0BltGgtc0IKwW5S1U5rnb96691Brxb7Cg==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "note": "A body adds a Content-Digest, computed and covered."
+    },
+    {
+      "id": "chosen-covered-set-with-the-digest",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {},
+      "body": "{\"hello\": \"world\"}",
+      "covered": [
+        "@method",
+        "@path",
+        "content-digest"
+      ],
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@path\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8jwnf7NAwJSgKAzXhJpasrYvXqcRBjDKfrdsr9xvSzUPQyc2H+Gk6CQf03o3LZ4Lc+N97P1pkB+pLdRqFt4YAw==:",
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      }
+    },
+    {
+      "id": "chosen-covered-set-omitting-the-digest-of-a-body",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {},
+      "body": "{\"hello\": \"world\"}",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "error": "UncoveredBody",
+      "note": "A body nothing digests is refused, with no minimum (README's guarantee)."
+    },
+    {
+      "id": "caller-supplied-digest-is-used",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "POST",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {
+        "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+      },
+      "body": "{\"hello\": \"world\"}",
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:K8Q1MpxNQXQ6Hfm3MZJWDr2nCN1j8JYWy9oR6jQJOD66EOv+z/WXU0BltGgtc0IKwW5S1U5rnb96691Brxb7Cg==:"
+      }
+    },
+    {
+      "id": "expires-nonce-and-tag",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "headers": {},
+      "body": null,
+      "covered": null,
+      "created": 1700000000,
+      "expires": 1700000600,
+      "nonce": "n-1",
+      "tag": "app-1",
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;expires=1700000600;nonce=\"n-1\";alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\";tag=\"app-1\"",
+        "Signature": "sig=:89gGDi8tG8FJ0YHO0xz0ZklYhwMJfksx7IBxxtQt5pqqIMu4jz4SuqYIxb+UdmaD6Q9WdfLvmkqAB53xvr4RBA==:"
+      },
+      "note": "Parameters in fiki's emission order: created, expires, nonce, alg, keyid, tag."
+    },
+    {
+      "id": "relative-url-with-host",
+      "kind": "request",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": "GET",
+      "url": "/things?limit=1",
+      "headers": {
+        "Host": "api.example.com"
+      },
+      "body": null,
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": null,
+      "request": null,
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:2rJerds8zNbm4TFb/SPCbtNtsSuPapEvB28aOetOMm4Pi34RS9GrdWdRYVtU4UcN7zzu10SyLLeJjjqP8xK/DQ==:"
+      }
+    },
+    {
+      "id": "response-default-covered",
+      "kind": "response",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": null,
+      "url": null,
+      "headers": {},
+      "body": "{\"done\": true}",
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things",
+        "headers": {
+          "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
+        },
+        "body": "{\"hello\": \"world\"}"
+      },
+      "expected_headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:rG+ff657l0KgB6TAoBkZsmMVG8CfQ/VJAXk8+LdnhzHjZuor8FhaIPUQdw45gwPRNslqyh4At4ces0x1u5ZhCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "note": "A response binds @status, its body, and the request's method, path, query and digest, each marked req."
+    }
+  ]
+}

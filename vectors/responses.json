@@ -1,0 +1,142 @@
+{
+  "about": "Responses every implementation must accept or refuse.",
+  "vectors_format": 3,
+  "generated_by": "vectors/generate.py",
+  "default_covered": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "default_minimum": [
+    "@method",
+    "@authority",
+    "@path",
+    "@query"
+  ],
+  "cases": [
+    {
+      "id": "default-response",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest"
+      ]
+    },
+    {
+      "id": "response-covering-only-status-under-the-default",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:eA0dUEoFu9bFops4sSAeHEKjjjPK25Wdlf4VaNsz4WTEL50sX2iy18mTBJcyiQu4qsk2lRMuZbXiY4zRivY/Dg==:"
+      },
+      "body": null,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "InsufficientCoverage",
+      "note": "The default minimum is RESPONSE_MINIMUM. Before format 3 this verified."
+    },
+    {
+      "id": "response-covering-only-status-under-the-opt-out",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:eA0dUEoFu9bFops4sSAeHEKjjjPK25Wdlf4VaNsz4WTEL50sX2iy18mTBJcyiQu4qsk2lRMuZbXiY4zRivY/Dg==:"
+      },
+      "body": null,
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": null,
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status"
+      ]
+    },
+    {
+      "id": "response-from-a-key-other-than-the-expected",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ\"",
+        "Signature": "sig=:1+1wHA0A0EetMrGZdPBRWKF9Q/z25LF62xgWMSsecRhDlD4Ce+m5T0UwIePwByTyniaw8ydPdrviOWnD9HlfAA==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "error": "UnknownKey",
+      "note": "Profile R1: a client checks the keyid is the AID it expects."
+    },
+    {
+      "id": "expected-keyid-declined",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": null,
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest"
+      ],
+      "note": "An explicit decline admits any signer, and the verdict names it."
+    }
+  ]
+}

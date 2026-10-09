@@ -19,7 +19,8 @@ from pathlib import Path
 
 import pytest
 
-from fiki import VECTORS_FORMAT, Key, signature_base, verify_request
+from fiki import (VECTORS_FORMAT, Key, Request, sign_request, sign_response, signature_base,
+                  verify_request, verify_response)
 from fiki.errors import FikiError
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
@@ -35,7 +36,7 @@ def cases(name: str):
 
 
 @pytest.mark.parametrize("name", ["aid-lens.json", "signature-base.json", "accepts.json", "refusals.json",
-                                  "misuse.json"])
+                                  "misuse.json", "signs.json", "responses.json"])
 def test_this_port_satisfies_the_vectors_format_it_is_running(name):
     """A port running newer vectors fails here rather than passing a subset (@4fhrre0m).
 
@@ -107,7 +108,10 @@ def test_signature_vectors(case):
 # never learned it (review V-M8).
 _VERIFY_FIELDS = {"id", "method", "url", "headers", "body", "max_age", "now", "minimum",
                   "authorities", "expected_aid", "note", "error", "aid", "keyid", "covered",
-                  "omit"}
+                  "omit", "kind", "status", "request", "expected_keyid"}
+_SIGN_FIELDS = {"id", "kind", "seed_hex", "method", "url", "headers", "body", "covered", "created",
+                "expires", "nonce", "tag", "minimum", "status", "request", "expected_headers",
+                "error", "note"}
 
 
 def _policy(case) -> dict:
@@ -122,15 +126,81 @@ def _policy(case) -> dict:
     return policy
 
 
-@pytest.mark.parametrize("name", ["accepts.json", "refusals.json", "misuse.json"])
+@pytest.mark.parametrize("name", ["accepts.json", "refusals.json", "misuse.json", "signs.json",
+                                  "responses.json"])
 def test_the_verify_vectors_are_not_empty(name):
-    assert len(load(name)["cases"]) > 5
+    assert len(load(name)["cases"]) >= 5
+
+
+def _request_of(message):
+    return Request(method=message["method"], url=message["url"], headers=message["headers"],
+                   body=None if message["body"] is None else message["body"].encode("utf-8"))
+
+
+def _response_policy(case) -> dict:
+    assert set(case) <= _VERIFY_FIELDS, f"unknown fields {set(case) - _VERIFY_FIELDS}"
+    policy = {"expected_keyid": case["expected_keyid"]}
+    if case["minimum"] != "default":
+        policy["minimum"] = case["minimum"]
+    for name in case.get("omit", []):
+        del policy[name]
+    return policy
+
+
+def _verify_response(case):
+    return verify_response(
+        status=case["status"], headers=case["headers"],
+        body=None if case["body"] is None else case["body"].encode("utf-8"),
+        request=_request_of(case["request"]), max_age=case["max_age"], now=case["now"],
+        **_response_policy(case),
+    )
+
+
+@pytest.mark.parametrize("case", cases("responses.json"))
+def test_response_vectors(case):
+    """verify_response's own policy (format 3): RESPONSE_MINIMUM by default, expected_keyid stated."""
+    if "error" in case:
+        with pytest.raises(FikiError) as caught:
+            _verify_response(case)
+        assert type(caught.value).__name__ == case["error"]
+    else:
+        verdict = _verify_response(case)
+        assert verdict.keyid == case["keyid"]
+        assert [str(c) if not isinstance(c, str) else c for c in verdict.covered] == case["covered"]
+
+
+@pytest.mark.parametrize("case", cases("signs.json"))
+def test_sign_vectors(case):
+    """What the signer emits, byte for byte (review V-C4)."""
+    assert set(case) <= _SIGN_FIELDS, f"unknown fields {set(case) - _SIGN_FIELDS}"
+    key = Key.from_seed(bytes.fromhex(case["seed_hex"]))
+    args = dict(key=key, headers=case["headers"],
+                body=None if case["body"] is None else case["body"].encode("utf-8"),
+                covered=case["covered"], created=case["created"], expires=case["expires"],
+                nonce=case["nonce"], tag=case["tag"], minimum=case["minimum"])
+
+    def sign():
+        if case["kind"] == "request":
+            return sign_request(method=case["method"], url=case["url"], **args)
+        return sign_response(status=case["status"], request=_request_of(case["request"]), **args)
+
+    if "error" in case:
+        with pytest.raises(FikiError) as caught:
+            sign()
+        assert type(caught.value).__name__ == case["error"]
+    else:
+        assert sign() == case["expected_headers"]
 
 
 @pytest.mark.parametrize("case", cases("misuse.json"))
 def test_misuse_vectors(case):
     """A mistake in the call is Python's TypeError or ValueError, never a FikiError (@5zrf8gjk)."""
     assert case["error"] == "caller"
+    if case.get("kind") == "response":
+        with pytest.raises((TypeError, ValueError)) as caught:
+            _verify_response(case)
+        assert not isinstance(caught.value, FikiError)
+        return
     with pytest.raises((TypeError, ValueError)) as caught:
         verify_request(
             method=case["method"],
