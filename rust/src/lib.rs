@@ -28,6 +28,8 @@ pub const VECTORS_FORMAT: u32 = 3;
 pub const KERI_VECTORS_FORMAT: u32 = 5;
 
 mod base;
+#[cfg(test)]
+mod corpus_tests;
 mod errors;
 mod keys;
 mod messages;
