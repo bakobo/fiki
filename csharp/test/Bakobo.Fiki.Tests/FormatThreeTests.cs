@@ -154,8 +154,9 @@ namespace Bakobo.Fiki.Tests
         public void AKelvinSignIsNeverLoweredIntoAServedHost()
         {
             // .NET lowercases U+212A to "k" (review B5); the host is checked for ASCII first.
+            // Whether ToLowerInvariant does so depends on the runtime's Unicode tables: .NET does,
+            // .NET Framework 4.8.1 does not (#17 CI). The refusal below holds either way.
             var kelvin = "Key.example";
-            Assert.Equal("key.example", kelvin.ToLowerInvariant());
 
             Assert.Throws<ArgumentException>(() => Signed("https://" + kelvin + "/x"));
             var headers = Signed("https://key.example/x");
