@@ -140,7 +140,7 @@ class ProfileTest {
 
     private static Fiki.Verdict verify(Signed s, UnaryOperator<Fiki.VerifyOptions> opts) {
         return Fiki.verifyRequest(s.method(), s.url(), s.headers(),
-            opts.apply(Fiki.VerifyOptions.decliningFreshness().withBody(s.body())));
+            opts.apply(OptedOut.decliningFreshness().withBody(s.body())));
     }
 
     private static Fiki.Verdict verify(Signed s) {
@@ -172,7 +172,7 @@ class ProfileTest {
     private static Fiki.Verdict check(Map<String, String> headers, int status, byte[] body,
             Fiki.Request request, UnaryOperator<Fiki.VerifyOptions> opts) {
         return Fiki.verifyResponse(status, headers, request,
-            opts.apply(Fiki.VerifyOptions.decliningFreshness().withBody(body)));
+            opts.apply(OptedOut.decliningFreshness().withBody(body)));
     }
 
     private static Fiki.Verdict check(Map<String, String> headers, UnaryOperator<Fiki.VerifyOptions> opts) {
@@ -486,7 +486,7 @@ class ProfileTest {
             assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, method, URL, Map.of(),
                 Fiki.SignOptions.none().withCreated(AT)));
             assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(method, URL, sign().headers(),
-                Fiki.VerifyOptions.decliningFreshness()));
+                OptedOut.decliningFreshness()));
             assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase(method, URL, Map.of(),
                 List.of("@path"), Fiki.Params.of(AT, "k")));
             assertThrows(IllegalArgumentException.class, () -> new Fiki.Request(method, URL, Map.of(), null));
@@ -652,7 +652,7 @@ class ProfileTest {
         Map<String, String> received = new LinkedHashMap<>(sign().headers());
         received.put("content-digest", "sha-256=:AAAA:");
         assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("POST", URL, received,
-            Fiki.VerifyOptions.decliningFreshness().withBody(BODY)));
+            OptedOut.decliningFreshness().withBody(BODY)));
         assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("POST", URL, twoSpellings(), BODY));
         Map<String, String> answered = new LinkedHashMap<>(respond());
         answered.put("content-digest", "sha-256=:AAAA:");
@@ -773,9 +773,9 @@ class ProfileTest {
     @Test
     void absentAndEmptyInputsAreRefusedForWhatTheyAre() {
         assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", null, Map.of(),
-            Fiki.VerifyOptions.decliningFreshness()));
+            OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.MissingSignature, kindOf(() -> Fiki.verifyRequest("GET", URL, null,
-            Fiki.VerifyOptions.decliningFreshness())));
+            OptedOut.decliningFreshness())));
         Signed s = sign();
         s.headers().put("Signature", "");
         assertEquals(FikiException.Kind.MissingSignature, kindOf(() -> verify(s)));
@@ -798,9 +798,9 @@ class ProfileTest {
         Map<String, String> headers = Map.of(
             "Signature-Input", "sig=" + text.substring(text.indexOf("(")),
             "Signature", "sig=:" + Base64.getEncoder().encodeToString(KEY.sign(base)) + ":");
-        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, headers, Fiki.VerifyOptions.decliningFreshness()).aid());
+        assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, headers, OptedOut.decliningFreshness()).aid());
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() -> Fiki.verifyRequest("GET", URL, headers,
-            Fiki.VerifyOptions.maxAge(300).withNow(AT))));
+            OptedOut.maxAge(300).withNow(AT))));
     }
 
     @Test
@@ -810,8 +810,12 @@ class ProfileTest {
     }
 
     @Test
-    void anAuthorityThatIsEmptyFallsBackToTheHostHeader() {
-        assertEquals("\"@authority\": h.example", firstLine(Fiki.signatureBase("GET", "https:///f",
+    void anAbsoluteUrlWithAnEmptyAuthorityIsRefusedAndOnlyOriginFormTakesTheHostHeader() {
+        // Format 3 (@524c8qgv): "https:///f" is neither origin-form nor an absolute URI with an
+        // authority, so it no longer falls back to Host; it cannot be read at all.
+        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https:///f",
+            Map.of("Host", "H.example"), List.of("@authority"), Fiki.Params.of(AT, "k")));
+        assertEquals("\"@authority\": h.example", firstLine(Fiki.signatureBase("GET", "/f",
             Map.of("Host", "H.example"), List.of("@authority"), Fiki.Params.of(AT, "k"))));
         assertEquals("\"@authority\": x.example:443", firstLine(Fiki.signatureBase("GET", "git+ssh://x.example:443/f",
             Map.of(), List.of("@authority"), Fiki.Params.of(AT, "k"))));
@@ -985,7 +989,7 @@ class ProfileTest {
         Signed s = sign(opts -> opts.withExpires(AT + 10));
         assertEquals(FikiException.Kind.SignatureTooOld, kindOf(() ->
             Fiki.verifyRequest(s.method(), s.url(), s.headers(),
-                Fiki.VerifyOptions.maxAge(300).withSkew(60).withNow(AT + 1000).withBody(BODY))));
+                OptedOut.maxAge(300).withSkew(60).withNow(AT + 1000).withBody(BODY))));
     }
 
     /* ------------------------------------------------ the minimum covered set (section 3) */
@@ -1389,10 +1393,13 @@ class ProfileTest {
 
     @Test
     void thePathAndQueryAreTakenAsSent() {
-        String[] lines = new String(Fiki.signatureBase("GET", "https://x.example/a/../b%2Fc?x=%20y#frag", Map.of(),
+        String[] lines = new String(Fiki.signatureBase("GET", "https://x.example/a/../b%2Fc?x=%20y", Map.of(),
             List.of("@path", "@query"), Fiki.Params.of(AT, "k")), StandardCharsets.UTF_8).split("\n");
         assertEquals("\"@path\": /a/../b%2Fc", lines[0]);
         assertEquals("\"@query\": ?x=%20y", lines[1]);
+        // A fragment is no part of a request target, so format 3 refuses it rather than dropping it.
+        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https://x.example/a?x=1#frag",
+            Map.of(), List.of("@path", "@query"), Fiki.Params.of(AT, "k")));
     }
 
     /* ------------------------------------ RFC 8941 read as http_sfv reads it (@8yucn7nv) */

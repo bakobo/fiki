@@ -174,7 +174,7 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 
 ```java
 Fiki.Verdict verdict = Fiki.verifyRequest(method, url, headers,
-    Fiki.VerifyOptions.maxAge(300).withBody(body));
+    Fiki.VerifyOptions.maxAge(300).withBody(body).withAuthorities(Set.of("api.example.com")));
 ```
 
 ### C#
@@ -482,7 +482,7 @@ Map<String, byte[]> keyState = ...;   // each AID to the raw 32 bytes of its cur
 Fiki.Resolver resolver = keyid -> keyState.get(keyid);   // 32 raw bytes, or null if unknown
 Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
     Fiki.VerifyOptions.maxAge(300).withBody(body).withResolver(resolver)
-        .withMinimum(Fiki.REQUEST_MINIMUM));
+        .withMinimum(Fiki.REQUEST_MINIMUM).withAuthorities(Set.of("keria.example.com")));
 String signer = verdict.keyid();   // the AID the resolver vouched for
 ```
 
