@@ -268,10 +268,32 @@ namespace Bakobo.Fiki.Tests
                 c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c, response));
         }
 
+        // Cases per file at hardening-a, read from the files once and never at test time (tick
+        // 7xbw, review T8): an emptied or truncated file fails here rather than passing on fewer.
+        private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
+        {
+            { "aid-lens.json", 3 }, { "signature-base.json", 14 }, { "accepts.json", 44 }, { "refusals.json", 144 },
+            { "misuse.json", 10 }, { "signs.json", 16 }, { "responses.json", 13 },
+        };
+
+        // The data each file's theories run from; xunit runs one case per distinct id.
+        private static readonly Dictionary<string, Func<IEnumerable<object[]>>> Sources = new Dictionary<string, Func<IEnumerable<object[]>>>
+        {
+            { "aid-lens.json", AidLens }, { "signature-base.json", SignatureBases }, { "accepts.json", Accepts },
+            { "refusals.json", Refusals }, { "misuse.json", Misuses }, { "signs.json", Signs }, { "responses.json", Responses },
+        };
+
         [Theory]
-        [MemberData(nameof(VerifyFiles))]
-        public void TheVerifyVectorsAreNotEmpty(string name) =>
-            Assert.True(Load(name).GetProperty("cases").GetArrayLength() >= 5);
+        [MemberData(nameof(FileNames))]
+        public void EachFileHoldsExactlyItsPinnedCasesAndEveryOneRuns(string name)
+        {
+            Assert.Equal(Files.OrderBy(f => f), Pinned.Keys.OrderBy(f => f));
+            Assert.Equal(Pinned[name], Load(name).GetProperty("cases").GetArrayLength());
+            var ids = Sources[name]().Select(row => (string)row[0]).ToList();
+            Assert.Equal(Pinned[name], ids.Count);
+            // Two cases under one id would run as one, so every id is distinct.
+            Assert.Equal(Pinned[name], ids.Distinct(StringComparer.Ordinal).Count());
+        }
 
         [Theory]
         [MemberData(nameof(Responses))]

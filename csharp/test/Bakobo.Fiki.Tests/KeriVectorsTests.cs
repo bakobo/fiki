@@ -74,6 +74,31 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> LegacyCases() => Ids("legacy.json");
 
+        // Cases per file at hardening-a, read from the files once and never at test time (tick
+        // 7xbw, review T8). rfc9421.json's one case is the RFC's own, run by name below.
+        private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
+        {
+            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 64 }, { "legacy.json", 4 },
+        };
+
+        private static readonly Dictionary<string, Func<IEnumerable<object[]>>> Sources = new Dictionary<string, Func<IEnumerable<object[]>>>
+        {
+            { "rfc9421.json", () => Ids("rfc9421.json") }, { "requests.json", RequestCases }, { "responses.json", ResponseCases },
+            { "refusals.json", RefusalCases }, { "legacy.json", LegacyCases },
+        };
+
+        [Theory]
+        [MemberData(nameof(FileNames))]
+        public void EachFileHoldsExactlyItsPinnedCasesAndEveryOneRuns(string name)
+        {
+            Assert.Equal(Files.OrderBy(f => f), Pinned.Keys.OrderBy(f => f));
+            Assert.Equal(Pinned[name], Load(name).GetProperty("cases").GetArrayLength());
+            var ids = Sources[name]().Select(row => (string)row[0]).ToList();
+            Assert.Equal(Pinned[name], ids.Count);
+            // Two cases under one id would run as one, so every id is distinct.
+            Assert.Equal(Pinned[name], ids.Distinct(StringComparer.Ordinal).Count());
+        }
+
         private static string[] Strings(JsonElement array) => array.EnumerateArray().Select(x => x.GetString()!).ToArray();
 
         // --- generate.py's rules, ported ---
