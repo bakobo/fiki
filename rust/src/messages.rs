@@ -970,7 +970,30 @@ fn read(
 /// Parse one signature-related header, bounded before it is read (`this.i` @5zrf8gjk): its size on
 /// the raw field value, before any trimming or parsing, then its counts on what parsed. Any refusal
 /// is `kind`, the header's own malformed kind.
-fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Member)>> {
+pub(crate) fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Member)>> {
+    check_size(raw, name, kind)?;
+    let parsed = parse_dictionary(raw).map_err(|_| {
+        Error::new(
+            kind,
+            format!(
+                "I could not parse the {name} header; it is spelled as an RFC 8941 dictionary."
+            ),
+        )
+    })?;
+    // A field of nothing but optional whitespace is present and says nothing, which is no RFC 8941
+    // dictionary a signer meant: malformed, as every port says alike (review B7).
+    if parsed.is_empty() {
+        return Err(Error::new(
+            kind,
+            format!("The {name} header holds no members, so there is nothing in it to read."),
+        ));
+    }
+    check_counts(parsed.iter().map(|(_, member)| member), name, kind)?;
+    Ok(parsed)
+}
+
+/// The size bound, on the raw field value before any trimming or parsing.
+pub(crate) fn check_size(raw: &str, name: &str, kind: Kind) -> Result<()> {
     if raw.len() > MAX_FIELD_BYTES {
         return Err(Error::new(
             kind,
@@ -980,14 +1003,16 @@ fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Membe
             ),
         ));
     }
-    let parsed = parse_dictionary(raw).map_err(|_| {
-        Error::new(
-            kind,
-            format!(
-                "I could not parse the {name} header; it is spelled as an RFC 8941 dictionary."
-            ),
-        )
-    })?;
+    Ok(())
+}
+
+/// The count bounds, on what parsed: members, items in an inner list, and parameters on any item
+/// or inner list. A top-level list's members are bounded as a dictionary's are.
+pub(crate) fn check_counts<'a>(
+    members: impl ExactSizeIterator<Item = &'a Member>,
+    name: &str,
+    kind: Kind,
+) -> Result<()> {
     let too_many = |what: &str, limit: usize| {
         Err(Error::new(
             kind,
@@ -997,18 +1022,10 @@ fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Membe
             ),
         ))
     };
-    // A field of nothing but optional whitespace is present and says nothing, which is no RFC 8941
-    // dictionary a signer meant: malformed, as every port says alike (review B7).
-    if parsed.is_empty() {
-        return Err(Error::new(
-            kind,
-            format!("The {name} header holds no members, so there is nothing in it to read."),
-        ));
-    }
-    if parsed.len() > MAX_DICTIONARY_MEMBERS {
+    if members.len() > MAX_DICTIONARY_MEMBERS {
         return too_many("members", MAX_DICTIONARY_MEMBERS);
     }
-    for (_, member) in &parsed {
+    for member in members {
         let (items, params) = match member {
             Member::Item(item) => (&[][..], &item.params),
             Member::List(list) => (&list.items[..], &list.params),
@@ -1025,7 +1042,7 @@ fn parse_bounded(raw: &str, name: &str, kind: Kind) -> Result<Vec<(String, Membe
             return too_many("parameters on one item", MAX_PARAMETERS);
         }
     }
-    Ok(parsed)
+    Ok(())
 }
 
 /// Refuse a Signature-Input member fiki would otherwise have to guess about.

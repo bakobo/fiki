@@ -313,19 +313,41 @@ fn whole<T>(text: &str, parse: impl FnOnce(&mut Cursor) -> Parsed<T>) -> Parsed<
     Ok(out)
 }
 
+/// The comma-separated members of a top-level list or dictionary, each read by `member`, with the
+/// optional whitespace RFC 8941 allows around each comma and no trailing comma.
+fn members(cursor: &mut Cursor, mut member: impl FnMut(&mut Cursor) -> Parsed<()>) -> Parsed<()> {
+    while !cursor.done() {
+        member(cursor)?;
+        cursor.skip(b" \t");
+        if cursor.done() {
+            break;
+        }
+        cursor.expect(b',')?;
+        cursor.skip(b" \t");
+        if cursor.done() {
+            return Err(SyntaxError);
+        }
+    }
+    Ok(())
+}
+
+fn parse_item_or_inner_list(cursor: &mut Cursor) -> Parsed<Member> {
+    if cursor.peek() == b'(' {
+        Ok(Member::List(cursor.parse_inner_list()?))
+    } else {
+        Ok(Member::Item(cursor.parse_item()?))
+    }
+}
+
 /// Parse an RFC 8941 dictionary, preserving member order because the verify side depends on it.
 pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
     whole(text, |cursor| {
         let mut out = Ordered::new();
-        while !cursor.done() {
+        members(cursor, |cursor| {
             let key = cursor.parse_key()?;
             let member = if cursor.peek() == b'=' {
                 cursor.at += 1;
-                if cursor.peek() == b'(' {
-                    Member::List(cursor.parse_inner_list()?)
-                } else {
-                    Member::Item(cursor.parse_item()?)
-                }
+                parse_item_or_inner_list(cursor)?
             } else {
                 Member::Item(Item {
                     value: Value::Boolean(true),
@@ -333,17 +355,23 @@ pub(crate) fn parse_dictionary(text: &str) -> Parsed<Vec<(String, Member)>> {
                 })
             };
             out.put(key, member);
-            cursor.skip(b" \t");
-            if cursor.done() {
-                break;
-            }
-            cursor.expect(b',')?;
-            cursor.skip(b" \t");
-            if cursor.done() {
-                return Err(SyntaxError);
-            }
-        }
+            Ok(())
+        })?;
         Ok(out.entries)
+    })
+}
+
+/// Parse an RFC 8941 list. No header fiki reads is a list, so only the tests read one: the httpwg
+/// corpus's list cases run through it (`this.i` @7fexwu3s).
+#[cfg(test)]
+pub(crate) fn parse_list(text: &str) -> Parsed<Vec<Member>> {
+    whole(text, |cursor| {
+        let mut out = Vec::new();
+        members(cursor, |cursor| {
+            out.push(parse_item_or_inner_list(cursor)?);
+            Ok(())
+        })?;
+        Ok(out)
     })
 }
 
