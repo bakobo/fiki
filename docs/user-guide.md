@@ -176,7 +176,7 @@ verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
 
 ```rust
 let verdict = verify_request(method, url, &headers, &VerifyOptions {
-    max_age: Some(300),
+    max_age: MaxAge::seconds(300),
     authorities: Authorities::served(["api.example.com"]),
     body: Some(body.to_vec()),
     ..Default::default()
@@ -240,7 +240,7 @@ Covering `@authority` binds a signature to the host it names, but the sender con
 
 ### Preregistration
 
-If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`. C#: `.WithExpectedAid(...)`.
+If you already know whose request this should be, say so, and fiki verifies against that key rather than the one the request carries. Python: `expected_aid=`. JavaScript: `expectedAid`. Go: `ExpectedAID: fiki.String(aid)`. Rust: `expected_aid`. Java: `.withExpectedAid(...)`. C#: `.WithExpectedAid(...)`.
 
 That closes the gap where a request carries a perfectly valid signature from the wrong party. Without it, you get a verdict naming a stranger and you have to compare it yourself, which works but puts the check in your code rather than fiki's.
 
@@ -463,7 +463,7 @@ verdict, err := fiki.VerifyRequest("POST", url, headers, fiki.VerifyOptions{
 // verdict.Keyid is the AID the resolver vouched for; verdict.AID is the same.
 ```
 
-A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. For a request, a nil `Minimum` applies `DefaultMinimum` and `NoMinimum: true` applies none; `Authorities` and `AnyAuthority: true` are the two ways to state the authority decision, and stating neither, both, or an empty list is `ErrInvalidOptions`. A nil `Body` is no body, while an empty one is a body of no bytes.
+A Go resolver refuses by returning an error, which passes through unchanged: `&fiki.Error{Kind: fiki.KindUnsupportedSigner, Keyid: keyid, Message: "..."}`. For a request, a nil `Minimum` applies `DefaultMinimum` and `NoMinimum: true` applies none; `Authorities` and `AnyAuthority: true` are the two ways to state the authority decision, and stating neither, both, or an empty list is `ErrInvalidOptions`; `MaxAge` and `AnyAge: true` are the same for the age decision. A nil `Body` is no body, while an empty one is a body of no bytes.
 
 ### Rust
 
@@ -478,10 +478,10 @@ let verdict = verify_request(
     "https://keria.example.com/identifiers",
     headers,
     &VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         body: Some(body.to_vec()),
         resolve: Some(resolve),
-        minimum: Minimum::Of(REQUEST_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::of(REQUEST_MINIMUM),
         authorities: Authorities::served(["keria.example.com"]),
         ..Default::default()
     },
@@ -537,7 +537,7 @@ A client states the AID it expects to be talking to, and a response signed by an
 |---|---|---|
 | Python | `expected_keyid=aid` | `expected_keyid=None` |
 | JavaScript | `expectedKeyid: aid` | `expectedKeyid: null` |
-| Go | `ExpectedKeyid: aid` | `AnyKeyid: true` |
+| Go | `ExpectedKeyid: fiki.String(aid)` | `AnyKeyid: true` |
 | Rust | `expected_keyid: ExpectedKeyid::is(aid)` | `expected_keyid: ExpectedKeyid::Unchecked` |
 | Java | `.withExpectedKeyid(aid)` | `.withoutKeyidCheck()` |
 | C# | `.WithExpectedKeyId(aid)` | `.DecliningKeyidCheck()` |
@@ -616,7 +616,7 @@ verdict, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOpt
 	Body:          responseBody,
 	Resolve:       resolve,
 	Minimum:       fiki.ResponseMinimum,
-	ExpectedKeyid: agentAID, // the AID you meant to talk to (profile R1)
+	ExpectedKeyid: fiki.String(agentAID), // the AID you meant to talk to (profile R1)
 	MaxAge:        &maxAge,
 	Skew:          &skew,
 })
@@ -649,11 +649,11 @@ let verdict = verify_response(
     response_headers,
     Some(request),
     &VerifyOptions {
-        max_age: Some(300),
+        max_age: MaxAge::seconds(300),
         body: Some(br#"{"done": true}"#.to_vec()),
         resolve: Some(resolve),
         expected_keyid: ExpectedKeyid::is("EIhwv8kMnCY92GevqHtBlMT8cQD96m3XkNav--Ti-4Q6"),
-        minimum: Minimum::Of(RESPONSE_MINIMUM.map(String::from).to_vec()),
+        minimum: Minimum::of(RESPONSE_MINIMUM),
         ..Default::default()
     },
 )?;

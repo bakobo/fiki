@@ -31,11 +31,17 @@ verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
     fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
 
-`Authorities` is a decision you must state, as `MaxAge` is: the hosts this verifier serves, compared exactly with the `@authority` the request derives, or `AnyAuthority: true` to check none. Go cannot make a field mandatory at compile time, so stating neither, both, or an empty list is `ErrInvalidOptions` when `VerifyRequest` runs. With no `Minimum` given, `VerifyRequest` requires `DefaultMinimum` (`@method @authority @path @query`, plus `content-digest` when there is a body), which is what fiki signs by default; `NoMinimum: true` opts out explicitly.
+`Authorities` is a decision you must state, as the age is: the hosts this verifier serves, compared exactly with the `@authority` the request derives, or `AnyAuthority: true` to check none. Go cannot make a field mandatory at compile time, so stating neither, both, or an empty list is `ErrInvalidOptions` when `VerifyRequest` runs. With no `Minimum` given, `VerifyRequest` requires `DefaultMinimum` (`@method @authority @path @query`, plus `content-digest` when there is a body), which is what fiki signs by default; `NoMinimum: true` opts out explicitly.
 
-`MaxAge` is a `*int64` rather than an `int64` because there is no default: a positive number of seconds of tolerance, or an explicit `nil` to decline the check. Zero or less, for `MaxAge` or `Skew`, is `ErrInvalidOptions`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
+The age is a decision too, with no default: `MaxAge`, a positive number of seconds of tolerance, or `AnyAge: true` to decline the check. Stating neither or both is `ErrInvalidOptions`, and so is zero or less for `MaxAge` or `Skew`. Both defaults would be wrong — a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the field exists to prevent. An `expires` the signer declared is enforced either way.
+
+`ExpectedAID` and `ExpectedKeyid` are `*string`, written `fiki.String(aid)`, so that an empty string from a missing configuration value is a stated empty AID, refused as `ErrInvalidOptions`, rather than read as no check at all.
 
 Signature, Signature-Input and Content-Digest are bounded before they are parsed: at most `MaxFieldBytes` (8192) each, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) covered components and `MaxParameters` (16) parameters on an item. A header over any of them is refused as malformed.
+
+## Responses, KERI identifiers, and resolvers
+
+The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/`. That adds `SignResponse` and `VerifyResponse`, whose `ExpectedKeyid` (or `AnyKeyid: true`) is a required decision; a caller-chosen keyid on `SignOptions`; a `Resolver` for keyids that are not keys, such as a transferable KERI AID, which is authoritative; and the profile's minimum covered sets, `RequestMinimum` and `ResponseMinimum`. The [user guide](../docs/user-guide.md#signing-with-a-keri-identifier) shows each in Go, and `guide_test.go` runs every Go sample in it.
 
 ## What its coverage gate does and does not say
 
