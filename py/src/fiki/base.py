@@ -359,6 +359,10 @@ def _authority(message: _Message) -> str:
 
 def _hostport(hostport: str, scheme: str, message: _Message) -> str:
     """host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built."""
+    # Checked as written, before lowercasing: str.lower reads U+212A KELVIN SIGN as an ASCII
+    # "k", so a host that is not ASCII could otherwise pass as one that is (review A6, B5).
+    if not hostport.isascii():
+        raise _unreadable(message, "its host is not ASCII.")
     # From Python 3.11.4 urlsplit refuses all of this itself, as "Invalid IPv6 URL" and the
     # like, which _split made unreadable; before it, only an unbalanced bracket. fiki checks
     # every Python it supports alike, so the IP-literal rule does not turn on a patch release.

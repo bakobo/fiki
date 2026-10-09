@@ -1432,6 +1432,40 @@
       "note": "Host is the authority of an origin-form request and passes the same checks as an absolute URL's authority. The signature is good over the base a port that took Host verbatim would build."
     },
     {
+      "id": "absolute-url-host-with-a-kelvin-sign",
+      "method": "GET",
+      "url": "https://api.example.\u212aom/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:UI/VvlODsJCKNzoC4HgciUR/TD6HFheJ0Cb2iRbMo/fHFQZU9Gm3ncP0Pk1DK278entUp3xusyhgzDdF1i4pAQ==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "U+212A lowercases to an ASCII k. A host is checked as written, before it is lowercased; the signature is good over the base a port that lowercased first would build."
+    },
+    {
+      "id": "host-header-with-a-kelvin-sign",
+      "method": "GET",
+      "url": "/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:UI/VvlODsJCKNzoC4HgciUR/TD6HFheJ0Cb2iRbMo/fHFQZU9Gm3ncP0Pk1DK278entUp3xusyhgzDdF1i4pAQ==:",
+        "Host": "api.example.\u212aom"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch"
+    },
+    {
       "id": "host-keeps-its-default-port",
       "method": "GET",
       "url": "/things?limit=1&sort=name",

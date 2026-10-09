@@ -253,6 +253,9 @@ function hostAndPort(hostport, message) {
  * port at all, as section 6.2.3 normalizes it.
  */
 function hostport(text, scheme, message) {
+  // Checked as written, before lowercasing: toLowerCase reads U+212A KELVIN SIGN as an ASCII "k",
+  // so a host that is not ASCII could otherwise pass as one that is (review A6, B5).
+  if (/[^\x00-\x7f]/.test(text)) throw unreadable(message, 'its host is not ASCII.');
   const [host, port] = hostAndPort(text, message);
   if (port === '') return host.toLowerCase();
   const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;

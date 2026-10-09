@@ -852,6 +852,25 @@ def refusals():
             note="Host is the authority of an origin-form request and passes the same checks "
                  "as an absolute URL's authority. The signature is good over the base a port "
                  "that took Host verbatim would build.")
+    # Lowercasing before the ASCII check reads U+212A KELVIN SIGN as "k" (review A6, B5), so a
+    # non-ASCII host is refused as written, in an absolute URL as in Host. Signed over the base a
+    # port that lowercased first would build.
+    kelvin_base = signature_base(method="GET", url="https://api.example.com" + query, headers={},
+                                 covered=DEFAULT_COVERED, created=1700000000,
+                                 keyid=keyid_of(key), alg="ed25519")
+    kelvin_base = kelvin_base.replace(b'"@authority": api.example.com',
+                                      b'"@authority": api.example.kom')
+    kelvin_signed = {
+        "Signature-Input": "sig=" + kelvin_base.decode().rsplit('"@signature-params": ', 1)[1],
+        "Signature": f"sig=:{base64.b64encode(key.sign(kelvin_base)).decode()}:",
+    }
+    add("absolute-url-host-with-a-kelvin-sign", "SignatureMismatch", method="GET",
+        body_text=None, target="https://api.example.\u212aom" + query, headers=kelvin_signed,
+        note="U+212A lowercases to an ASCII k. A host is checked as written, before it is "
+             "lowercased; the signature is good over the base a port that lowercased first "
+             "would build.")
+    add("host-header-with-a-kelvin-sign", "SignatureMismatch", method="GET", body_text=None,
+        target=query, headers={**kelvin_signed, "Host": "api.example.\u212aom"})
     add("host-keeps-its-default-port", "SignatureMismatch", method="GET", body_text=None,
         target=query, headers={**get_default, "Host": "api.example.com:443"},
         note="With no scheme no port is a default port, so this @authority is "
