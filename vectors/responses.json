@@ -268,6 +268,26 @@
       "note": "The keyid checked is the response's, never the request's own Signature-Input."
     },
     {
+      "id": "unsigned-401-with-a-whitespace-signature",
+      "status": 401,
+      "headers": {
+        "Signature": " \t "
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": null,
+      "expected_keyid": null,
+      "max_age": null,
+      "now": 1700000000,
+      "error": "MissingSignatureInput",
+      "note": "Only an empty Signature makes a 401 unsigned (Unauthenticated); whitespace is a header present, and with no Signature-Input that is MissingSignatureInput."
+    },
+    {
       "id": "response-whose-request-url-is-over-8192-bytes",
       "status": 200,
       "headers": {

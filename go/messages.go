@@ -381,7 +381,8 @@ func requestHasBody(found map[string]string, body []byte) bool {
 		return false
 	}
 	// Fail closed: a length that is not a plain decimal, negative ones included, is not evidence
-	// that there is no body. Only SP and HTAB are optional whitespace (this.i @5zrf8gjk); a
+	// that there is no body. A length is never parsed into an integer, so one of any number of
+	// digits cannot overflow into "no body": any non-zero digit announces one (this.i @524c8qgv). Only SP and HTAB are optional whitespace (this.i @5zrf8gjk); a
 	// no-break space or a vertical tab makes the value something other than a decimal.
 	length = strings.Trim(length, " \t")
 	return length == "" || strings.TrimLeft(length, "0123456789") != "" || strings.Trim(length, "0") != ""
@@ -450,16 +451,20 @@ type VerifyOptions struct {
 	// Minimum is the verifier's covered-set policy, RequestMinimum or ResponseMinimum or a
 	// superset of it: a signature covering less is refused even though it verifies, and so is a
 	// body without a covered content-digest (@7f28p7xk). Any minimum also requires created, and a
-	// keyid even beside ExpectedAID. Left nil, VerifyRequest applies DefaultMinimum (@524c8qgv)
-	// and VerifyResponse applies none.
+	// keyid even beside ExpectedAID. Left nil, VerifyRequest applies DefaultMinimum and
+	// VerifyResponse applies ResponseMinimum (@524c8qgv).
 	Minimum []string
 	// NoMinimum is the explicit opt-out from any minimum, the body rule included: a body handed
 	// over with no covered content-digest is then accepted, and the verdict's Covered is the only
 	// place that shows it (@2f227n4r). Setting it beside a Minimum is ErrInvalidOptions.
 	NoMinimum bool
 	// ExpectedKeyid refuses a signature by any other keyid as UnknownKey; a client passes the AID
-	// it is talking to (profile R1).
+	// it is talking to (profile R1). VerifyResponse requires a decision, like Authorities for a
+	// request (this.i @524c8qgv): an ExpectedKeyid, or AnyKeyid to accept any signer and read it
+	// from the verdict. Neither, both, or an empty ExpectedKeyid is ErrInvalidOptions there.
+	// VerifyRequest checks no keyid unless given one, and refuses both.
 	ExpectedKeyid string
+	AnyKeyid      bool
 	// Authorities and AnyAuthority are a decision VerifyRequest requires, like MaxAge, with no
 	// default (@524c8qgv): state exactly one. Authorities is the non-empty set of @authority
 	// values this verifier serves, each compared exactly with the one the request derives, so
@@ -489,6 +494,9 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 	if err := checkAuthorities(opts); err != nil {
 		return nil, err
 	}
+	if opts.AnyKeyid && opts.ExpectedKeyid != "" {
+		return nil, errBothKeyids
+	}
 	if err := checkNoMinimum(opts); err != nil {
 		return nil, err
 	}
@@ -507,7 +515,10 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 
 // VerifyResponse verifies a signed response to request.
 //
-// With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
+// It fails closed as VerifyRequest does (this.i @524c8qgv): left without a Minimum it applies
+// ResponseMinimum, whose req components are read from request, so a response verified under the
+// default with no request is MissingComponent; NoMinimum opts out. ExpectedKeyid or AnyKeyid is
+// a required decision. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
 // "content-digest";req, and that digest is recomputed over request.Body, so verifying such a
 // response against a Request with no Body is ErrInvalidOptions. A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
@@ -517,8 +528,14 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	if err := checkWindow(opts); err != nil {
 		return nil, err
 	}
+	if err := checkExpectedKeyid(opts); err != nil {
+		return nil, err
+	}
 	if err := checkNoMinimum(opts); err != nil {
 		return nil, err
+	}
+	if opts.Minimum == nil && !opts.NoMinimum {
+		opts.Minimum = responseMinimum[:]
 	}
 	if err := floored(opts.Minimum, responseMinimum[:]); err != nil {
 		return nil, err
@@ -531,8 +548,9 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	if err != nil {
 		return nil, err
 	}
-	// Empty counts as absent, as read treats it: an empty Signature header signs nothing.
-	if status == 401 && blank(m.headers["signature"]) {
+	// Empty counts as absent, as read treats it: an empty Signature header signs nothing. One of
+	// only whitespace is present, and malformed, in every port (review B7).
+	if status == 401 && m.headers["signature"] == "" {
 		return nil, errorf(KindUnauthenticated,
 			"The server answered 401 without signing the answer, so the request was not "+
 				"authenticated and the body of the refusal cannot be trusted.")
@@ -587,7 +605,7 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	if opts.ExpectedKeyid != "" && keyid != opts.ExpectedKeyid {
 		return nil, &Error{
 			Kind:    KindUnknownKey,
-			Message: fmt.Sprintf("This message is signed by %q, and the one expected is %q.", keyid, opts.ExpectedKeyid),
+			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(opts.ExpectedKeyid)),
 			Keyid:   keyid,
 		}
 	}
@@ -599,7 +617,7 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	if alg, ok := list.param("alg"); ok && alg != Alg {
 		return nil, &Error{
 			Kind:    KindUnsupportedAlgorithm,
-			Message: fmt.Sprintf("This signature is made with %q, and fiki verifies only %s signatures.", alg, Alg),
+			Message: fmt.Sprintf("This signature is made with %s, and fiki verifies only %s signatures.", shown(fmt.Sprint(alg)), Alg),
 			Alg:     alg.(string),
 		}
 	}
@@ -624,8 +642,8 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 			served, _ := valueOf(item, m)
 			if !slices.Contains(opts.Authorities, served) {
 				return nil, errorf(KindSignatureMismatch,
-					"The signature covers the authority %q, which this verifier does not serve, so "+
-						"it was signed for somebody else.", served)
+					"The signature covers the authority %s, which this verifier does not serve, so "+
+						"it was signed for somebody else.", shown(served))
 			}
 		}
 	}
@@ -684,10 +702,11 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 // Signature-Input, the members' shape before the label count.
 func read(found map[string]string, requireKeyid, requireCreated bool) (innerList, []byte, error) {
 	var empty innerList
-	if blank(found["signature"]) {
+	// Absent or empty only: a value of whitespace is present and fails to parse (review B7).
+	if found["signature"] == "" {
 		return empty, nil, errorf(KindMissingSignature, "This message has no Signature header, so there is nothing to verify.")
 	}
-	if blank(found["signature-input"]) {
+	if found["signature-input"] == "" {
 		return empty, nil, errorf(KindMissingSignatureInput,
 			"This message has no Signature-Input header, so there is no way to know which "+
 				"components a signature would cover.")
@@ -726,8 +745,8 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 	if !ok {
 		return empty, nil, &Error{
 			Kind: KindMissingSignatureLabel,
-			Message: fmt.Sprintf("The Signature header carries no entry labelled %q, so the covered "+
-				"components describe a signature that is not here.", label),
+			Message: fmt.Sprintf("The Signature header carries no entry labelled %s, so the covered "+
+				"components describe a signature that is not here.", shown(label)),
 			Label: label,
 		}
 	}
@@ -740,9 +759,6 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 	return inputs[label].List, raw, nil
 }
 
-// blank is a field value with nothing in it but optional whitespace, which is no value at all.
-func blank(value string) bool { return strings.Trim(value, " \t") == "" }
-
 // parseField parses one of the three signature-related headers, bounded before it is read (this.i
 // @5zrf8gjk): its size is measured as received, before anything is trimmed or parsed, and the
 // counts are the parser's. Either refusal, like a parse failure, is the header's malformed kind.
@@ -752,6 +768,11 @@ func parseField(raw, name, kind string) ([]string, map[string]member, error) {
 			name, len(raw), MaxFieldBytes)
 	}
 	order, parsed, err := parseDictionary(raw)
+	if err == nil && strings.Trim(raw, " \t") == "" {
+		// Present, so not absent, and empty after OWS: a dictionary of nothing is malformed, as
+		// every port must say alike (review B7).
+		err = errSyntax
+	}
 	if err != nil {
 		return nil, nil, errorf(kind, "I could not parse the %s header as an RFC 8941 dictionary: %v.", name, err)
 	}
@@ -772,8 +793,8 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 		}
 		if !strings.HasPrefix(name, "@") && name != strings.ToLower(name) {
 			return errorf(KindMalformedSignatureInput,
-				"The covered field %q is not lowercase, and RFC 9421 section 2.1 requires field "+
-					"names in the covered list to be lowercased by the signer.", name)
+				"The covered field %s is not lowercase, and RFC 9421 section 2.1 requires field "+
+					"names in the covered list to be lowercased by the signer.", shown(name))
 		}
 	}
 	if _, ok := entry.List.param("keyid"); requireKeyid && !ok {
@@ -795,8 +816,8 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 		integer, known := signatureParams[p.Key]
 		if !known {
 			return errorf(KindMalformedSignatureInput,
-				"The signature parameter %q is not one fiki understands; it accepts created, "+
-					"expires, nonce, alg, keyid and tag.", p.Key)
+				"The signature parameter %s is not one fiki understands; it accepts created, "+
+					"expires, nonce, alg, keyid and tag.", shown(p.Key))
 		}
 		_, isInteger := p.Value.(int64)
 		_, isString := p.Value.(string)
@@ -806,6 +827,12 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 				kind = "an integer"
 			}
 			return errorf(KindMalformedSignatureInput, "The signature parameter %q must be %s.", p.Key, kind)
+		}
+		if n, ok := p.Value.(int64); ok && n < 0 {
+			// created and expires: a time before 1970 is no time a signer could have meant, refused
+			// before the signature is examined (this.i @524c8qgv).
+			return errorf(KindMalformedSignatureInput,
+				"The signature parameter %q is %d, and a UNIX time is not negative.", p.Key, n)
 		}
 	}
 	return nil
@@ -831,8 +858,8 @@ func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, s
 		if misspelledAID(keyid) {
 			return nil, "", &Error{
 				Kind: KindMalformedKey,
-				Message: fmt.Sprintf("The keyid %q is shaped like an AID and is not its canonical "+
-					"spelling, so it is not an AID at all.", keyid),
+				Message: fmt.Sprintf("The keyid %s is shaped like an AID and is not its canonical "+
+					"spelling, so it is not an AID at all.", shown(keyid)),
 				Keyid: keyid,
 			}
 		}
@@ -845,8 +872,8 @@ func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, s
 	if !rawKeyidShape.MatchString(keyid) || err != nil {
 		return nil, "", &Error{
 			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The keyid %q is not the canonical base64url spelling of a 32-byte "+
-				"Ed25519 public key: that is exactly 43 characters from the base64url alphabet, unpadded.", keyid),
+			Message: fmt.Sprintf("The keyid %s is not the canonical base64url spelling of a 32-byte "+
+				"Ed25519 public key: that is exactly 43 characters from the base64url alphabet, unpadded.", shown(keyid)),
 			Keyid: keyid,
 		}
 	}
@@ -865,14 +892,14 @@ func resolvedKey(keyid string, resolve Resolver) (ed25519.PublicKey, string, err
 	if raw == nil {
 		return nil, "", &Error{
 			Kind:    KindUnknownKey,
-			Message: fmt.Sprintf("No key is known for the keyid %q, so the signature cannot be checked.", keyid),
+			Message: fmt.Sprintf("No key is known for the keyid %s, so the signature cannot be checked.", shown(keyid)),
 			Keyid:   keyid,
 		}
 	}
 	if len(raw) != keyLength {
 		return nil, "", &Error{
 			Kind:    KindMalformedKey,
-			Message: fmt.Sprintf("The key resolved for %q is not a %d-byte Ed25519 public key.", keyid, keyLength),
+			Message: fmt.Sprintf("The key resolved for %s is not a %d-byte Ed25519 public key.", shown(keyid), keyLength),
 			Keyid:   keyid,
 		}
 	}
@@ -885,16 +912,16 @@ func usable(public ed25519.PublicKey, aid, named string) (ed25519.PublicKey, str
 	if !canonicalPoint(public) {
 		return nil, "", &Error{
 			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The key for %q is not the canonical encoding of a point on the "+
-				"Ed25519 curve, so no signature could verify under it.", named),
+			Message: fmt.Sprintf("The key for %s is not the canonical encoding of a point on the "+
+				"Ed25519 curve, so no signature could verify under it.", shown(named)),
 			Keyid: named,
 		}
 	}
 	if smallOrder(public) {
 		return nil, "", &Error{
 			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The key for %q is a point of small order, under which a signature "+
-				"can be forged without any private key, so it is not a key fiki will verify with.", named),
+			Message: fmt.Sprintf("The key for %s is a point of small order, under which a signature "+
+				"can be forged without any private key, so it is not a key fiki will verify with.", shown(named)),
 			Keyid: named,
 		}
 	}
@@ -915,6 +942,24 @@ func checkAuthorities(opts VerifyOptions) error {
 	case opts.Authorities != nil && len(opts.Authorities) == 0:
 		return invalidOptions("Authorities is empty, which serves no host at all; set " +
 			"AnyAuthority instead to decline the check.")
+	}
+	return nil
+}
+
+var errBothKeyids = invalidOptions("Pass ExpectedKeyid or set AnyKeyid, not both; they are opposite answers.")
+
+// checkExpectedKeyid requires a response verifier's decision about whose response it accepts
+// (this.i @524c8qgv): Go cannot make a field mandatory at compile time, so leaving both
+// ExpectedKeyid and AnyKeyid unset is refused when the response is verified. An empty
+// ExpectedKeyid names no AID and is never read as the decline, which would turn a caller's
+// missing value into "accept any signer"; in Go it is the same mistake as stating nothing.
+func checkExpectedKeyid(opts VerifyOptions) error {
+	switch {
+	case opts.AnyKeyid && opts.ExpectedKeyid != "":
+		return errBothKeyids
+	case !opts.AnyKeyid && opts.ExpectedKeyid == "":
+		return invalidOptions("ExpectedKeyid is a required decision for a response: pass the AID " +
+			"you are talking to, or set AnyKeyid to accept any signer and read it from the verdict.")
 	}
 	return nil
 }

@@ -39,7 +39,7 @@ One badge per language above, each clickable through to that port's workflow —
 
 The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all; C# fetches `BouncyCastle.Cryptography`, because .NET's has no Ed25519 yet, along with xUnit and coverlet for the tests.
 
-A green run means that implementation reproduces every shared conformance vector, 156 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
+A green run means that implementation reproduces every shared conformance vector, 238 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
 
 ## What is covered, and the one thing that is not
 
@@ -53,7 +53,7 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations, all released at 0.8.0, conforming to vectors format 2 and to the KERI profile's keri vectors format 4. The default branch is at vectors format 3, unreleased: verifiers fail closed by default and take a required decision about the hosts they serve (`this.i` @524c8qgv), which is breaking for any caller, and will ship as six coordinated releases.
+Six implementations, all released at 0.8.0, conforming to vectors format 2 and to the KERI profile's keri vectors format 4. The default branch is at vectors format 3 and keri vectors format 5, unreleased: request and response verifiers fail closed by default, a server states the hosts it serves and a client the AID it expects, and every untrusted value is bounded (`this.i` @524c8qgv). That is breaking for any caller, and will ship as six coordinated releases.
 
 The APIs are not frozen; this is 0.x. Each port is published to the registry its ecosystem expects, by a tag-triggered workflow that needs no long-lived credential ([docs/releasing.md](docs/releasing.md)), except the Java port, which is not yet on Maven Central and is built from source:
 

@@ -167,6 +167,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 	_, err = fiki.VerifyResponse(200, request, responseHeaders, fiki.VerifyOptions{
 		Body: responseBody, Resolve: resolve, Minimum: append(fiki.ResponseMinimum[:4:4], "content-type"),
+		ExpectedKeyid: agentAID,
 	})
 	if got := describe(err); got != "the signature does not cover content-type" {
 		t.Errorf("InsufficientCoverage: %s", got)
@@ -175,7 +176,7 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	if got := describe(err); got != "the covered list names @path twice" {
 		t.Errorf("DuplicateComponent: %s", got)
 	}
-	_, err = fiki.VerifyResponse(401, request, map[string]string{}, fiki.VerifyOptions{})
+	_, err = fiki.VerifyResponse(401, request, map[string]string{}, fiki.VerifyOptions{AnyKeyid: true})
 	if got := describe(err); got != "an unsigned 401; its body is not to be trusted" {
 		t.Errorf("Unauthenticated: %s", got)
 	}
