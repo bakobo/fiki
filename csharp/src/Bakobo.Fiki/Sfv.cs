@@ -327,12 +327,14 @@ namespace Bakobo.Fiki
             return true;
         }
 
+        /// <summary>
+        /// RFC 8941 section 4.2.2. An empty field, or one of spaces only, is an empty dictionary, as
+        /// the section reads and as http_sfv parses it (the httpwg corpus's "empty dictionary").
+        /// </summary>
         internal static SfDictionary ParseDictionary(string text)
         {
-            var reader = new Reader(text);
-            reader.SkipSpaces();
             var dictionary = new SfDictionary();
-            while (true)
+            Members(text, reader =>
             {
                 var key = reader.Key();
                 SfMember member;
@@ -348,20 +350,44 @@ namespace Bakobo.Fiki
                     member = item;
                 }
                 dictionary.Set(key, member);
+            });
+            return dictionary;
+        }
+
+        /// <summary>
+        /// RFC 8941 section 4.2.1: items and inner lists separated by commas. fiki reads no list
+        /// header; this is internal, for the httpwg corpus (this.i @7fexwu3s), built from the same
+        /// pieces the dictionary is, so the corpus's list cases test the parser fiki uses.
+        /// </summary>
+        internal static List<SfMember> ParseList(string text)
+        {
+            var members = new List<SfMember>();
+            Members(text, reader => members.Add(reader.ItemOrInnerList()));
+            return members;
+        }
+
+        /// <summary>The comma-separated members both top-level containers share: 4.2.1 and 4.2.2 read them alike.</summary>
+        private static void Members(string text, Action<Reader> member)
+        {
+            var reader = new Reader(text);
+            reader.SkipSpaces();
+            while (!reader.AtEnd)
+            {
+                member(reader);
                 reader.SkipHttpOws();
                 if (reader.AtEnd)
                 {
-                    return dictionary;
+                    return;
                 }
                 if (reader.Peek() != ',')
                 {
-                    throw new FormatException($"Dictionary member '{key}' has trailing characters.");
+                    throw new FormatException("A member has trailing characters.");
                 }
                 reader.Advance();
                 reader.SkipHttpOws();
                 if (reader.AtEnd)
                 {
-                    throw new FormatException("Dictionary has a trailing comma.");
+                    throw new FormatException("A trailing comma ends the field.");
                 }
             }
         }
