@@ -136,6 +136,16 @@ type keriFile struct {
 	Cases             []keriCase      `json:"cases"`
 }
 
+// keriCounts pins how many cases each KERI vector file holds, read from the files once at
+// hardening-a (tick 7xbw, T8); see pinned.
+var keriCounts = map[string]int{
+	"keri/rfc9421.json":   1,
+	"keri/requests.json":  21,
+	"keri/responses.json": 4,
+	"keri/refusals.json":  64,
+	"keri/legacy.json":    4,
+}
+
 func loadKeri(t *testing.T, name string) keriFile {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(keriDir, name))
@@ -529,8 +539,11 @@ func TestEveryKindHasAProfileCode(t *testing.T) {
 // --- RFC 9421 B.2.6, which anchors the set to something no Bakobo party wrote ---
 
 func TestRFC9421B26IsReproducedByteForByte(t *testing.T) {
-	for _, c := range loadKeri(t, "rfc9421.json").Cases {
+	cases := loadKeri(t, "rfc9421.json").Cases
+	ran := pinned(t, keriCounts, "keri/rfc9421.json", len(cases))
+	for _, c := range cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			base, err := SignatureBase(c.Request.Method, c.Request.URL, c.Request.Headers, c.Covered,
 				SignatureParams{Created: c.Created, Keyid: c.Keyid})
 			if err != nil {
@@ -554,8 +567,10 @@ func TestRFC9421B26IsReproducedByteForByte(t *testing.T) {
 
 func TestKeriRequestAcceptVectors(t *testing.T) {
 	file := loadKeri(t, "requests.json")
+	ran := pinned(t, keriCounts, "keri/requests.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			verdict, err := keriVerify(c.Request, nil, c.Now, policyFor(t, file, c), file.Keys)
 			if err != nil {
 				t.Fatalf("expected this request to verify, got %v", err)
@@ -576,8 +591,10 @@ func TestKeriRequestAcceptVectors(t *testing.T) {
 
 func TestKeriResponseAcceptVectors(t *testing.T) {
 	file := loadKeri(t, "responses.json")
+	ran := pinned(t, keriCounts, "keri/responses.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			// The request each response answers verifies in its own right first.
 			if _, err := keriVerify(c.Request, nil, c.Now, policyFor(t, file, keriCase{}), file.Keys); err != nil {
 				t.Fatalf("the request should verify: %v", err)
@@ -626,12 +643,14 @@ func TestTheSHA512CasesAreMarkedVerifyOnly(t *testing.T) {
 func TestKeriRefusalVectors(t *testing.T) {
 	// Each case has one defect and so one correct code under the profile's section 9 order.
 	file := loadKeri(t, "refusals.json")
+	ran := pinned(t, keriCounts, "keri/refusals.json", len(file.Cases))
 	var policy keriPolicy
 	if err := json.Unmarshal(file.Policy, &policy); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			if c.VerifiedByFiki != nil && !*c.VerifiedByFiki {
 				// Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
 				if c.Error != "mode-mismatch" || c.Why == "" {
@@ -722,8 +741,10 @@ func TestEachLegacySignatureVerifiesOverItsStatedBase(t *testing.T) {
 	if err := json.Unmarshal(raw, &file); err != nil {
 		t.Fatal(err)
 	}
+	ran := pinned(t, keriCounts, "keri/legacy.json", len(file.Cases))
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
+			ran()
 			qb64 := strings.TrimSuffix(strings.SplitN(c.Headers["Signature"], `signify="`, 2)[1], `"`)
 			signature := b64urlLoose(t, "AA"+qb64[2:])[2:]
 			key := b64urlLoose(t, "A"+c.Key[1:])[1:]

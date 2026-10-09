@@ -7,7 +7,14 @@ package fiki_test
 // what a consumer sees.
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	fiki "github.com/bakobo/fiki/go"
@@ -191,5 +198,91 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 	if got := describe(errors.New("not fiki's")); got != "not fiki's" {
 		t.Errorf("other errors: %s", got)
+	}
+}
+
+// verifySample is the Go block under "Verifying a request" in a markdown file.
+func verifySample(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	at := strings.Index(text, "## Verifying a request")
+	if at < 0 {
+		t.Fatalf("%s has no section on verifying a request", path)
+	}
+	block := regexp.MustCompile("(?s)```go\n(.*?)```").FindStringSubmatch(text[at:])
+	if block == nil {
+		t.Fatalf("%s has no Go sample for verifying a request", path)
+	}
+	return block[1]
+}
+
+// Review A10: net/http moves Host out of r.Header into r.Host, so a sample that copied r.Header
+// alone never carried the authority, and a default-covered request failed as MissingComponent.
+// The README's sample is the guide's, and the handler below runs it as written, inside a real
+// net/http server, against a request sent by net/http.
+func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
+	sample := verifySample(t, "README.md")
+	if guide := verifySample(t, "../docs/user-guide.md"); sample != guide {
+		t.Fatalf("README.md's verify sample is not the guide's:\n%s\nthe guide's:\n%s", sample, guide)
+	}
+	source, err := os.ReadFile("guide_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dedent := regexp.MustCompile(`(?m)^[ \t]+`)
+	if !strings.Contains(dedent.ReplaceAllString(string(source), ""), dedent.ReplaceAllString(sample, "")) {
+		t.Fatalf("the handler in this test does not run the sample as written:\n%s", sample)
+	}
+
+	type outcome struct {
+		verdict *fiki.Verdict
+		err     error
+	}
+	outcomes := make(chan outcome, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// The sample, as written in README.md and docs/user-guide.md:
+		// net/http moves Host out of r.Header into r.Host, so put it back: it is the authority.
+		headers := map[string]string{"host": r.Host}
+		for name, values := range r.Header {
+			headers[name] = strings.Join(values, ", ")
+		}
+		maxAge := int64(300)
+		verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
+			fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
+		outcomes <- outcome{verdict, err}
+	}))
+	defer server.Close()
+
+	key := fiki.Generate()
+	body := []byte(`{"hello": "world"}`)
+	signed, err := fiki.SignRequest(key, "POST", "http://api.example.com/things?limit=1", nil,
+		fiki.SignOptions{Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest("POST", server.URL+"/things?limit=1", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "api.example.com" // the authority it was signed for, sent to the test server
+	for name, value := range signed {
+		request.Header.Set(name, value)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	got := <-outcomes
+	if got.err != nil {
+		t.Fatalf("the sample refused a request fiki signed: %v", got.err)
+	}
+	if got.verdict.AID != key.AID() {
+		t.Errorf("AID = %q, want %q", got.verdict.AID, key.AID())
 	}
 }
