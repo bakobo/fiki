@@ -70,7 +70,7 @@ func TestSignAndVerifyResponses(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		verdict, err := VerifyResponse(200, request, merged(headers), verifyOpts())
+		verdict, err := verifyResponseOptedOut(200, request, merged(headers), verifyOpts())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,7 +81,7 @@ func TestSignAndVerifyResponses(t *testing.T) {
 		if verdict.AID != keriAID || verdict.Keyid != keriAID {
 			t.Errorf("verdict = %+v", verdict)
 		}
-		if _, err := VerifyResponse(201, request, headers, verifyOpts()); kindOf(t, err) != KindSignatureMismatch {
+		if _, err := verifyResponseOptedOut(201, request, headers, verifyOpts()); kindOf(t, err) != KindSignatureMismatch {
 			t.Error("an altered status should not verify")
 		}
 	})
@@ -91,7 +91,7 @@ func TestSignAndVerifyResponses(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		verdict, err := VerifyResponse(204, nil, headers, VerifyOptions{})
+		verdict, err := verifyResponseOptedOut(204, nil, headers, VerifyOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,11 +157,11 @@ func TestSignAndVerifyResponses(t *testing.T) {
 	})
 
 	t.Run("an unsigned 401 is Unauthenticated, before anything else", func(t *testing.T) {
-		_, err := VerifyResponse(401, request, map[string]string{"Content-Type": "text/plain"}, verifyOpts())
+		_, err := verifyResponseOptedOut(401, request, map[string]string{"Content-Type": "text/plain"}, verifyOpts())
 		if kindOf(t, err) != KindUnauthenticated {
 			t.Error("expected Unauthenticated")
 		}
-		_, err = VerifyResponse(200, request, map[string]string{}, verifyOpts())
+		_, err = verifyResponseOptedOut(200, request, map[string]string{}, verifyOpts())
 		if kindOf(t, err) != KindMissingSignature {
 			t.Error("an unsigned 200 is MissingSignature")
 		}
@@ -174,17 +174,17 @@ func TestSignAndVerifyResponses(t *testing.T) {
 		}
 		opts := verifyOpts()
 		opts.Authorities = []string{"api.example.com"}
-		_, err = VerifyResponse(200, request, headers, opts)
+		_, err = verifyResponseOptedOut(200, request, headers, opts)
 		isInvalidOptions(t, err)
 
 		opts = verifyOpts()
 		opts.Minimum = []string{"@status"}
-		_, err = VerifyResponse(200, request, headers, opts)
+		_, err = verifyResponseOptedOut(200, request, headers, opts)
 		isInvalidOptions(t, err)
 
 		bodiless := *request
 		bodiless.Body = nil
-		_, err = VerifyResponse(200, &bodiless, headers, VerifyOptions{Body: body, Resolve: resolverFor(key)})
+		_, err = verifyResponseOptedOut(200, &bodiless, headers, VerifyOptions{Body: body, Resolve: resolverFor(key)})
 		isInvalidOptions(t, err)
 
 		_, err = SignResponse(key, 200, request, nil, SignOptions{Minimum: []string{}})
@@ -339,7 +339,7 @@ func TestSignatureInputRefusals(t *testing.T) {
 	t.Run("in a response, a request component needs req and req must be true", func(t *testing.T) {
 		for _, input := range []string{`sig=("@path");keyid="k"`, `sig=("@path";req=?0);keyid="k"`, `sig=("@status";req);keyid="k"`, `sig=("@path";req;sf);keyid="k"`} {
 			headers := map[string]string{"Signature-Input": input, "Signature": zeroSignature}
-			_, err := VerifyResponse(200, nil, headers, VerifyOptions{})
+			_, err := verifyResponseOptedOut(200, nil, headers, VerifyOptions{})
 			if kindOf(t, err) != KindUnsupportedComponent {
 				t.Errorf("%s should be UnsupportedComponent", input)
 			}
@@ -362,7 +362,6 @@ func TestTheWireAndTheURLAsSent(t *testing.T) {
 	}
 	for name, c := range map[string]struct{ component, url, want string }{
 		"a path is not decoded":                                     {"@path", "https://example.com/a%7Eb/%2F", `"@path": /a%7Eb/%2F`},
-		"userinfo is not the authority":                             {"@authority", "https://user:pw@Host.example:443/", `"@authority": host.example`},
 		"an IP literal keeps its brackets and a non-default port":   {"@authority", "http://[::1]:8080/", `"@authority": [::1]:8080`},
 		"an IP literal keeps its brackets with no port":             {"@authority", "http://[::1]/", `"@authority": [::1]`},
 		"an empty port is no port":                                  {"@authority", "http://example.com:/", `"@authority": example.com`},
@@ -375,7 +374,10 @@ func TestTheWireAndTheURLAsSent(t *testing.T) {
 			}
 		})
 	}
-	for _, rawURL := range []string{"https://example.com:http/", "https://example.com:99999/", "https://example.com:-1/", "http://[::1/", "http://::1]/"} {
+	// Userinfo, even an empty one, is refused rather than stripped (RFC 9110 section 4.2.4, this.i
+	// @524c8qgv); 0.8 read "https://user:pw@Host.example:443/" as host.example.
+	for _, rawURL := range []string{"https://example.com:http/", "https://example.com:99999/", "https://example.com:-1/", "http://[::1/", "http://::1]/",
+		"https://user:pw@Host.example:443/", "https://@example.com/", "https://:@example.com/"} {
 		_, err := line(t, "@authority", rawURL)
 		isInvalidOptions(t, err)
 	}
