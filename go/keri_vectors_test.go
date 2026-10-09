@@ -230,6 +230,10 @@ func keriVerify(request keriMessage, response *keriMessage, now int64, policy ke
 	if response != nil {
 		opts.Body = response.body()
 		opts.Minimum = policy.ResponseMinimum
+		opts.NoMinimum = policy.ResponseMinimum == nil
+		// Where a case's policy names no expected keyid, the decline is stated aloud, as format 3
+		// part two requires (@524c8qgv).
+		opts.AnyKeyid = policy.ExpectedKeyid == ""
 		return VerifyResponse(response.Status, request.asRequest(), response.Headers, opts)
 	}
 	opts.Body = request.body()

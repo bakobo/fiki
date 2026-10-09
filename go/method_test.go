@@ -49,16 +49,20 @@ func TestAnEmptyMethodIsRefusedEvenWhenUncovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = VerifyResponse(200, methodless, response, VerifyOptions{})
+	_, err = verifyResponseOptedOut(200, methodless, response, VerifyOptions{})
 	isInvalidOptions(t, err)
 }
 
 // Copilot on bakobo/fiki#6: an empty Signature header on a 401 is as unsigned as an absent one.
+// One of only whitespace is present and malformed, as every port says alike (review B7), so it is
+// MalformedSignature, not Unauthenticated; 0.8's Go alone trimmed it to nothing.
 func TestAnEmptySignatureHeaderOnA401IsUnauthenticated(t *testing.T) {
-	for _, value := range []string{"", " \t"} {
-		_, err := VerifyResponse(401, nil, map[string]string{"Signature": value}, VerifyOptions{})
-		if kindOf(t, err) != KindUnauthenticated {
-			t.Errorf("%q: expected Unauthenticated, got %v", value, err)
-		}
+	_, err := verifyResponseOptedOut(401, nil, map[string]string{"Signature": ""}, VerifyOptions{})
+	if kindOf(t, err) != KindUnauthenticated {
+		t.Errorf("expected Unauthenticated, got %v", err)
+	}
+	_, err = verifyResponseOptedOut(401, nil, map[string]string{"Signature": " \t", "Signature-Input": `sig=("@status")`}, VerifyOptions{})
+	if kindOf(t, err) != KindMalformedSignature {
+		t.Errorf("expected MalformedSignature, got %v", err)
 	}
 }

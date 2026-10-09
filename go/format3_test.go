@@ -4,6 +4,7 @@ package fiki
 // Go's options, and the authority rules on the signing side.
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,10 +41,17 @@ func TestTheFormat3Policy(t *testing.T) {
 		})
 	}
 
+	t.Run("an ExpectedKeyid beside AnyKeyid is the caller's mistake", func(t *testing.T) {
+		_, err := VerifyRequest("GET", urlQuery, headers, VerifyOptions{AnyAuthority: true, AnyKeyid: true, ExpectedKeyid: "k"})
+		isInvalidOptions(t, err)
+	})
+
 	request := &Request{Method: "GET", URL: urlQuery, Headers: headers}
 	for name, opts := range map[string]VerifyOptions{
-		"AnyAuthority":               {AnyAuthority: true},
-		"both Minimum and NoMinimum": {Minimum: ResponseMinimum, NoMinimum: true},
+		"AnyAuthority":                    {AnyAuthority: true, AnyKeyid: true},
+		"both Minimum and NoMinimum":      {Minimum: ResponseMinimum, NoMinimum: true, AnyKeyid: true},
+		"no decision about the keyid":     {},
+		"both ExpectedKeyid and AnyKeyid": {ExpectedKeyid: "k", AnyKeyid: true},
 	} {
 		t.Run(name+" on a response is the caller's mistake", func(t *testing.T) {
 			_, err := VerifyResponse(200, request, map[string]string{}, opts)
@@ -147,5 +155,103 @@ func TestThePrivateMinimumsMatchTheExportedOnes(t *testing.T) {
 		if strings.Join(pair[0], "|") != strings.Join(pair[1], "|") {
 			t.Errorf("%s: exported %v, private %v", name, pair[0], pair[1])
 		}
+	}
+}
+
+// Format 3 part two (this.i @524c8qgv): VerifyResponse fails closed, and its keyid decision.
+func TestTheFormat3ResponsePolicy(t *testing.T) {
+	key := testKey(t)
+	request := &Request{Method: "GET", URL: urlQuery}
+	statusOnly, err := SignResponse(key, 200, nil, nil, SignOptions{Created: signedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("left unstated, the minimum is ResponseMinimum", func(t *testing.T) {
+		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{AnyKeyid: true})
+		if kindOf(t, err) != KindInsufficientCoverage {
+			t.Errorf("expected InsufficientCoverage, got %v", err)
+		}
+	})
+	t.Run("NoMinimum and AnyKeyid opt out of both", func(t *testing.T) {
+		verdict, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, AnyKeyid: true})
+		if err != nil || verdict.Keyid != key.Keyid() {
+			t.Errorf("verdict %+v, err %v", verdict, err)
+		}
+	})
+	t.Run("an ExpectedKeyid refuses any other signer", func(t *testing.T) {
+		_, err := VerifyResponse(200, request, statusOnly, VerifyOptions{NoMinimum: true, ExpectedKeyid: keriAID})
+		if kindOf(t, err) != KindUnknownKey {
+			t.Errorf("expected UnknownKey, got %v", err)
+		}
+	})
+}
+
+// An error quotes at most 64 characters of an untrusted value, says it was cut and how long it
+// was, and escapes control characters (this.i @524c8qgv; review A9, B9). Not a vector: the
+// drivers' message check pins the cap portably, and this pins Go's spelling of it.
+func TestAnErrorQuotesAtMost64CharactersOfAnUntrustedValue(t *testing.T) {
+	key := testKey(t)
+	headers, err := SignRequest(key, "GET", "https://api.example.com/x", nil, SignOptions{Created: signedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := "https://api.example.com/" + strings.Repeat("p", 9000)
+	_, err = verifyOptedOut("GET", long, headers, VerifyOptions{})
+	if kindOf(t, err) != KindSignatureMismatch {
+		t.Fatalf("expected SignatureMismatch, got %v", err)
+	}
+	if len(err.Error()) > 400 || !strings.Contains(err.Error(), "(cut from 9024 characters)") ||
+		!strings.Contains(err.Error(), strconv.Quote(long[:64])+" ") {
+		t.Errorf("message: %s", err)
+	}
+	_, err = verifyOptedOut("GET", "https://api.example.com/a\x1bb", headers, VerifyOptions{})
+	if strings.ContainsRune(err.Error(), 0x1b) || !strings.Contains(err.Error(), `\x1b`) {
+		t.Errorf("message: %q", err)
+	}
+	// Cut by characters, never inside one.
+	if got := shown(strings.Repeat("K", 65)); got != strconv.Quote(strings.Repeat("K", 64))+" (cut from 65 characters)" {
+		t.Errorf("shown = %s", got)
+	}
+	if got := shown(strings.Repeat("a", 64)); got != strconv.Quote(strings.Repeat("a", 64)) {
+		t.Errorf("shown = %s", got)
+	}
+}
+
+// Field names fold A-Z to a-z and nothing else (this.i @524c8qgv; review A6, B5).
+func TestFieldNamesFoldASCIIOnly(t *testing.T) {
+	if asciiLower("X-Note") != "x-note" || asciiLower("Key") != "Key" || asciiLower("\xffA") != "\xffa" {
+		t.Error("asciiLower folds more or less than A-Z")
+	}
+	canonical, err := canonicalHeaders(map[string]string{"Key-Id": "v", "Key-Id": "w"})
+	if err != nil || canonical["key-id"] != "v" || canonical["Key-id"] != "w" {
+		t.Errorf("canonical = %v, %v", canonical, err)
+	}
+	if Req("@PATH") != `"@path";req` {
+		t.Error(Req("@PATH"))
+	}
+}
+
+// Every covered value is bounded at MaxFieldBytes, inclusive, as received (this.i @524c8qgv), on
+// the signing side as on the verifying one; Content-Digest keeps its own bound and kind.
+func TestEveryCoveredValueIsBounded(t *testing.T) {
+	key := testKey(t)
+	exactly := "/" + strings.Repeat("p", MaxFieldBytes-1)
+	if _, err := SignatureBase("GET", exactly, map[string]string{"Host": "a.example"}, []string{"@path"}, SignatureParams{}); err != nil {
+		t.Errorf("a URL of exactly %d bytes: %v", MaxFieldBytes, err)
+	}
+	_, err := SignRequest(key, "GET", exactly+"p", map[string]string{"Host": "a.example"}, SignOptions{})
+	isInvalidOptions(t, err)
+	host := map[string]string{"Host": strings.Repeat("a", MaxFieldBytes+1)}
+	if _, err := SignRequest(key, "GET", "/x", host, SignOptions{}); kindOf(t, err) != KindSignatureMismatch {
+		t.Errorf("an oversized Host: %v", err)
+	}
+	note := map[string]string{"X-Note": strings.Repeat("a", MaxFieldBytes) + " "}
+	if _, err := SignRequest(key, "GET", "/x", note, SignOptions{Covered: []string{"@method", "@path", "@query", "x-note"}}); kindOf(t, err) != KindSignatureMismatch {
+		t.Errorf("a covered field over the bound before trimming: %v", err)
+	}
+	digest := map[string]string{"Content-Digest": strings.Repeat("a", MaxFieldBytes+1)}
+	_, err = SignatureBase("GET", "https://a.example/x", digest, []string{"content-digest"}, SignatureParams{})
+	if err != nil {
+		t.Errorf("Content-Digest is not bounded as a field value: %v", err)
 	}
 }

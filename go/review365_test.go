@@ -35,8 +35,8 @@ func TestAHeadersMapWithTwoSpellingsOfOneFieldIsRefused(t *testing.T) {
 	isInvalidOptions(t, err)
 	_, err = ResponseSignatureBase(200, request, nil, []string{"@status"}, SignatureParams{Created: 1})
 	isInvalidOptions(t, err)
-	_, err = VerifyResponse(200, nil, merged(dup, signed), VerifyOptions{})
+	_, err = verifyResponseOptedOut(200, nil, merged(dup, signed), VerifyOptions{})
 	isInvalidOptions(t, err)
-	_, err = VerifyResponse(200, request, signed, VerifyOptions{})
+	_, err = verifyResponseOptedOut(200, request, signed, VerifyOptions{})
 	isInvalidOptions(t, err)
 }
