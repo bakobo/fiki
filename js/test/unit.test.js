@@ -10,6 +10,7 @@ import { describe, it } from 'node:test';
 
 import {
   DEFAULT_COVERED,
+  DEFAULT_MINIMUM,
   Key,
   contentDigest,
   errors,
@@ -21,6 +22,12 @@ import {
   verifyingKey,
 } from '../src/index.js';
 import { parseDictionary, serializeInnerList } from '../src/sfv.js';
+
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
 
 const SEED = Uint8Array.from({ length: 32 }, (_, i) => i);
 const AID = 'BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4';
@@ -163,7 +170,10 @@ describe('the signature base', () => {
     // The KERI profile's section 2 and RFC 9421 section 2.2.6: no decoding, no dot segments
     // resolved, no re-encoding. A WHATWG URL would rewrite every one of these.
     assert.equal(line('@path', { url: 'https://example.com/a/../b/%7euser' }), '"@path": /a/../b/%7euser');
-    assert.equal(line('@query', { url: 'https://example.com/f?q=a b#frag' }), '"@query": ?q=a b');
+    assert.equal(line('@query', { url: 'https://example.com/f?q=a%20b/../c' }), '"@query": ?q=a%20b/../c');
+    // A space or a fragment is refused rather than kept or stripped (@524c8qgv), a caller error here.
+    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a b' }), TypeError);
+    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a#frag' }), TypeError);
   });
 
   it('treats an empty path as the slash the origin server sees', () => {
@@ -205,7 +215,7 @@ describe('the signature base', () => {
 describe('signing and verifying', () => {
   it('round-trips and names the signer', async () => {
     const { request, headers } = await signed();
-    const verdict = await verifyRequest({ ...request, headers, maxAge: null });
+    const verdict = await verifyRequest({ ...POLICY, ...request, headers, maxAge: null });
     assert.equal(verdict.aid, AID);
     for (const component of DEFAULT_COVERED) assert.ok(verdict.covered.includes(component));
   });
@@ -219,7 +229,7 @@ describe('signing and verifying', () => {
   it('digests a body and covers the digest', async () => {
     const { request, headers } = await signed();
     assert.ok(headers['Content-Digest']);
-    const verdict = await verifyRequest({ ...request, headers, maxAge: null });
+    const verdict = await verifyRequest({ ...POLICY, ...request, headers, maxAge: null });
     assert.ok(verdict.covered.includes('content-digest'));
   });
 
@@ -227,7 +237,7 @@ describe('signing and verifying', () => {
     const supplied = { 'Content-Digest': await contentDigest(BODY) };
     const { request, headers } = await signed({ headers: supplied });
     assert.equal(headers['Content-Digest'], supplied['Content-Digest']);
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: null })).aid, AID);
   });
 
   it('refuses to sign a body under a chosen covered set that omits the digest', async () => {
@@ -239,42 +249,42 @@ describe('signing and verifying', () => {
 
   it('signs a body under a chosen covered set that includes the digest', async () => {
     const { request, headers } = await signed({ covered: ['@method', '@path', 'content-digest'] });
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: null })).aid, AID);
   });
 
   it('needs no digest for a bodyless request', async () => {
     const { request, headers } = await signed({ body: null });
     assert.equal(headers['Content-Digest'], undefined);
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: null })).aid, AID);
   });
 
   it('does not verify a request signed with a lowercase method as its uppercase twin', async () => {
     const { request, headers } = await signed({ method: 'post' });
-    await verifyRequest({ ...request, headers, maxAge: null });
+    await verifyRequest({ ...POLICY, ...request, headers, maxAge: null });
     await assert.rejects(
-      () => verifyRequest({ ...request, method: 'POST', headers, maxAge: null }),
+      () => verifyRequest({ ...POLICY, ...request, method: 'POST', headers, maxAge: null }),
       errors.SignatureMismatch,
     );
   });
 
   it('uses the wall clock when no created is given', async () => {
     const { request, headers } = await signed({ created: null });
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: 300 })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: 300 })).aid, AID);
   });
 
   it('treats an expected AID as authoritative over the inline keyid', async () => {
     const { request, headers } = await signed();
-    assert.equal((await verifyRequest({ ...request, headers, expectedAid: AID, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, expectedAid: AID, maxAge: null })).aid, AID);
     const stranger = (await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i + 1))).aid;
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, expectedAid: stranger, maxAge: null }),
+      () => verifyRequest({ ...POLICY, ...request, headers, expectedAid: stranger, maxAge: null }),
       errors.SignatureMismatch,
     );
   });
 
   it('refuses a request with no freshness policy stated at all', async () => {
     const { request, headers } = await signed();
-    await assert.rejects(() => verifyRequest({ ...request, headers }), TypeError);
+    await assert.rejects(() => verifyRequest({ ...POLICY, ...request, headers }), TypeError);
   });
 
   it('refuses to sign a digest naming only algorithms it cannot compute, as the caller\'s mistake', async () => {
@@ -286,25 +296,25 @@ describe('signing and verifying', () => {
   it('accepts a digest naming an unknown algorithm alongside one it knows', async () => {
     const supplied = { 'Content-Digest': `sha-1=:AAAA:, ${await contentDigest(BODY)}` };
     const { request, headers } = await signed({ headers: supplied });
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: null })).aid, AID);
   });
 });
 
 describe('freshness', () => {
   it('accepts a signature inside max age and refuses one outside it', async () => {
     const { request, headers } = await signed();
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: 300, now: SIGNED_AT + 299 })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: 300, now: SIGNED_AT + 299 })).aid, AID);
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, maxAge: 300, now: SIGNED_AT + 400 }),
+      () => verifyRequest({ ...POLICY, ...request, headers, maxAge: 300, now: SIGNED_AT + 400 }),
       errors.SignatureTooOld,
     );
   });
 
   it('tolerates skew, and lets the allowance be tightened', async () => {
     const { request, headers } = await signed();
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: 300, now: SIGNED_AT + 303 })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: 300, now: SIGNED_AT + 303 })).aid, AID);
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, maxAge: 300, skew: 1, now: SIGNED_AT + 302 }),
+      () => verifyRequest({ ...POLICY, ...request, headers, maxAge: 300, skew: 1, now: SIGNED_AT + 302 }),
       errors.SignatureTooOld,
     );
   });
@@ -312,16 +322,16 @@ describe('freshness', () => {
   it('refuses a created in the future beyond the skew allowance', async () => {
     const { request, headers } = await signed();
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, maxAge: 300, now: SIGNED_AT - 60 }),
+      () => verifyRequest({ ...POLICY, ...request, headers, maxAge: 300, now: SIGNED_AT - 60 }),
       errors.SignatureTooOld,
     );
   });
 
   it('enforces the signer\'s own expires even when max age is declined', async () => {
     const { request, headers } = await signed({ expires: SIGNED_AT + 60 });
-    assert.equal((await verifyRequest({ ...request, headers, maxAge: null, now: SIGNED_AT + 30 })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, ...request, headers, maxAge: null, now: SIGNED_AT + 30 })).aid, AID);
     await assert.rejects(
-      () => verifyRequest({ ...request, headers, maxAge: null, now: SIGNED_AT + 66 }),
+      () => verifyRequest({ ...POLICY, ...request, headers, maxAge: null, now: SIGNED_AT + 66 }),
       errors.SignatureExpired,
     );
   });
@@ -340,9 +350,9 @@ describe('freshness', () => {
       'Signature-Input': `sig=${serializeInnerList(inner)}`,
       Signature: `sig=:${Buffer.from(signature).toString('base64')}:`,
     };
-    assert.equal((await verifyRequest({ method: 'GET', url: '/a', headers, maxAge: null })).aid, AID);
+    assert.equal((await verifyRequest({ ...POLICY, method: 'GET', url: '/a', headers, maxAge: null })).aid, AID);
     await assert.rejects(
-      () => verifyRequest({ method: 'GET', url: '/a', headers, maxAge: 300, now: SIGNED_AT }),
+      () => verifyRequest({ ...POLICY, method: 'GET', url: '/a', headers, maxAge: 300, now: SIGNED_AT }),
       errors.SignatureTooOld,
     );
   });
@@ -417,7 +427,7 @@ describe('the defensive arms', () => {
       key, method: 'POST', url: 'https://example.com/f', body: BODY, created: 1,
     });
     assert.ok(headers['Content-Digest'].startsWith('sha-256=:'));
-    const verdict = await verifyRequest({
+    const verdict = await verifyRequest({ ...POLICY,
       method: 'POST', url: 'https://example.com/f', headers, body: BODY, maxAge: null,
     });
     assert.equal(verdict.aid, AID);
@@ -425,7 +435,7 @@ describe('the defensive arms', () => {
 
   it('refuses to verify a request with no headers at all', async () => {
     await assert.rejects(
-      () => verifyRequest({ method: 'GET', url: '/f', maxAge: null }),
+      () => verifyRequest({ ...POLICY, method: 'GET', url: '/f', maxAge: null }),
       // The KERI profile's section 9 order: the Signature header is looked for first.
       errors.MissingSignature,
     );
@@ -438,4 +448,46 @@ describe('the defensive arms', () => {
   it('refuses a member whose value runs off the end of the field', () => {
     assert.throws(() => parseDictionary('a='));
   });
+});
+
+describe("the verifier's stated policy (@524c8qgv)", () => {
+  it('exports DEFAULT_MINIMUM as fiki own signing default, frozen', () => {
+    assert.deepEqual(DEFAULT_MINIMUM, DEFAULT_COVERED);
+    assert.ok(Object.isFrozen(DEFAULT_MINIMUM));
+  });
+
+  it('applies DEFAULT_MINIMUM when minimum is left out, and none when it is null', async () => {
+    const { request, headers } = await signed({ covered: ['@method', '@path', '@query', 'content-digest'] });
+    await assert.rejects(
+      () => verifyRequest({ ...request, headers, maxAge: null, authorities: null }),
+      (e) => e instanceof errors.InsufficientCoverage && e.component === '@authority',
+    );
+    // undefined is "not stated", exactly as leaving the key out.
+    await assert.rejects(
+      () => verifyRequest({ ...request, headers, maxAge: null, authorities: null, minimum: undefined }),
+      errors.InsufficientCoverage,
+    );
+    assert.equal((await verifyRequest({ ...request, headers, maxAge: null, authorities: null, minimum: null })).aid, AID);
+  });
+
+  it('takes authorities as any iterable of strings, a Set included', async () => {
+    const { request, headers } = await signed();
+    const verdict = await verifyRequest({ ...request, headers, maxAge: null, authorities: new Set(['api.example.com']) });
+    assert.equal(verdict.aid, AID);
+  });
+
+  for (const [id, authorities] of [
+    ['a number', 443],
+    ['a plain object', { 'api.example.com': true }],
+    ['a String object', Object('api.example.com')],
+    ['an empty Set', new Set()],
+    ['a Set holding a number', new Set(['api.example.com', 443])],
+  ]) {
+    it(`refuses ${id} as authorities with a TypeError before reading the message`, async () => {
+      await assert.rejects(
+        () => verifyRequest({ method: 'GET', url: '/', headers: {}, maxAge: null, authorities }),
+        (e) => e instanceof TypeError && !(e instanceof errors.FikiError),
+      );
+    });
+  }
 });

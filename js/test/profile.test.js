@@ -29,6 +29,12 @@ import {
   verifyingKey,
 } from '../src/index.js';
 
+// Format 3 made the verifier's default minimum fiki's own signing default and authorities a
+// required decision (@524c8qgv). These tests predate both and are about other things, so they
+// state the 0.8 policy explicitly — no minimum, no authority check — and a test that wants either
+// says so after it.
+const POLICY = { minimum: null, authorities: null };
+
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
 const OTHER = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i + 1));
 const URL_ = 'https://keria.example.com/identifiers?type=rot';
@@ -71,7 +77,7 @@ async function signOver(digest) {
 }
 
 const verify = ({ request, headers }, overrides = {}) =>
-  verifyRequest({ ...request, headers, maxAge: null, ...overrides });
+  verifyRequest({ ...POLICY, ...request, headers, maxAge: null, ...overrides });
 
 function mangle(headers, old, replacement) {
   assert.ok(headers['Signature-Input'].includes(old), `${old} is not in ${headers['Signature-Input']}`);

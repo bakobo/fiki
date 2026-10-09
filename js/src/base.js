@@ -143,25 +143,6 @@ export function checkCovered(items, { response }) {
   }
 }
 
-/** A URL split as sent, per RFC 3986 section 3, with nothing decoded or normalized.
- *
- * Not `new URL`, which follows the WHATWG URL standard: it resolves dot segments and
- * percent-encodes characters such as a space, so its pathname is not the path that was sent. The
- * KERI profile requires @path "in its encoded form, percent-encoding included and unnormalized"
- * (section 2), and so does RFC 9421 section 2.2.6, which is what fiki-py's urlsplit gives.
- *
- * Cleaned first exactly as urlsplit cleans it, so every port builds one base for the same URL
- * (@0e832nug): leading C0 controls and spaces are stripped, and TAB, CR and LF are removed
- * wherever they are. Trailing controls are kept, as urlsplit keeps them, and a covered component
- * holding one is then refused like any other control character.
- */
-export function splitUrl(url) {
-  const cleaned = url.replace(/^[\x00-\x20]+/, '').replace(/[\t\r\n]/g, '');
-  const match = /^(?:([A-Za-z][A-Za-z0-9+.-]*):)?(?:\/\/([^/?#]*))?([^?#]*)(?:\?([^#]*))?/.exec(cleaned);
-  const [, scheme = '', netloc, path, query = ''] = match;
-  return { scheme: scheme.toLowerCase(), netloc: netloc ?? '', path, query };
-}
-
 /** A URL fiki cannot read: the caller's mistake when signing, an unbuildable base when not.
  *
  * The profile's section 9 names a base that cannot be built a signature mismatch, so a received
@@ -177,6 +158,49 @@ function unreadable(message, reason) {
   }
   return new TypeError(`The URL ${message.url} cannot be read: ${reason}`);
 }
+
+// A scheme, "://", and at least one character of authority (RFC 3986 section 3).
+const ABSOLUTE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]/;
+
+/** The target as RFC 9112 section 3.2 reads it (@524c8qgv), split with nothing decoded.
+ *
+ * A target beginning with "/" is origin-form: everything before the first "?" is the path,
+ * verbatim, however many slashes it starts with, and it has no authority of its own, so `authority`
+ * reads the Host header. Reading "//evil.example/p" as a network-path reference would let the
+ * sender choose the authority (review A1). Anything else must be an absolute URI with a non-empty
+ * authority. A space or an ASCII control anywhere, or a fragment, which no request target has, is
+ * refused rather than stripped.
+ *
+ * Not `new URL`, which follows the WHATWG URL standard: it resolves dot segments and
+ * percent-encodes characters, so its pathname is not the path that was sent. The KERI profile
+ * requires @path "in its encoded form, percent-encoding included and unnormalized" (section 2), and
+ * so does RFC 9421 section 2.2.6. Split only when a component needs it, so a target nothing covers
+ * is never refused, as in every other port.
+ */
+function splitUrl(message) {
+  const { url } = message;
+  if (/[\x00-\x20\x7f]/.test(url)) throw unreadable(message, 'it contains a space or a control character.');
+  if (url.includes('#')) throw unreadable(message, 'it carries a fragment, which no request target has.');
+  if (url.startsWith('/')) {
+    const mark = url.indexOf('?');
+    return mark < 0
+      ? { scheme: '', netloc: '', path: url, query: '' }
+      : { scheme: '', netloc: '', path: url.slice(0, mark), query: url.slice(mark + 1) };
+  }
+  if (!ABSOLUTE.test(url)) {
+    throw unreadable(
+      message,
+      'it is neither origin-form, beginning with a slash, nor an absolute URI with a scheme and an authority.',
+    );
+  }
+  const [, scheme, netloc, path, query = ''] = /^([^:]+):\/\/([^/?]*)([^?]*)(?:\?(.*))?$/.exec(url);
+  return { scheme: scheme.toLowerCase(), netloc, path, query };
+}
+
+const partsOf = (message) => {
+  message.parts ??= splitUrl(message);
+  return message.parts;
+};
 
 // RFC 3986 section 3.2.2's IP-literal, as Python's urlsplit checks it from 3.11.4, so a host fiki-py
 // refuses is refused here too: IPvFuture ("v", hex digits, ".", then anything but a line feed), or
@@ -221,25 +245,30 @@ function hostAndPort(hostport, message) {
   return [host, port];
 }
 
-function authority(message) {
-  // RFC 9421 section 2.2.3: lowercase host, default port omitted. A relative URL falls back to the
-  // Host header, which in HTTP/1.1 *is* the authority — the shape a server-side verifier actually
-  // holds. Nothing is normalized away there, because without a scheme no port is a default port.
-  const { parts, headers } = message;
-  if (parts.netloc) {
-    const [host, port] = hostAndPort(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), message);
-    // An empty port is no port at all, as RFC 3986 section 6.2.3 normalizes it.
-    if (port === '') return host.toLowerCase();
-    // RFC 3986 section 3.2.3: port = *DIGIT, so any run of ASCII digits, leading zeros and all, and
-    // the value is the number: "000080" is 80 and is the default, as urlsplit reads it. The range
-    // is checked on the digits that remain, so a long run of zeros cannot hide an overflow.
-    const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
-    if (digits === null || digits.length > 5 || Number(digits) > 65535) {
-      throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
-    }
-    if (digits === DEFAULT_PORTS.get(parts.scheme)) return host.toLowerCase();
-    return `${host.toLowerCase()}:${digits}`;
+/** host[:port] normalized per RFC 9421 section 2.2.3, or a base that cannot be built.
+ *
+ * Lowercase host, default port omitted. RFC 3986 section 3.2.3: port = *DIGIT, so any run of ASCII
+ * digits, leading zeros and all, and the value is the number: "000080" is 80. The range is checked
+ * on the digits that remain, so a long run of zeros cannot hide an overflow. An empty port is no
+ * port at all, as section 6.2.3 normalizes it.
+ */
+function hostport(text, scheme, message) {
+  const [host, port] = hostAndPort(text, message);
+  if (port === '') return host.toLowerCase();
+  const digits = /^[0-9]+$/.test(port) ? port.replace(/^0+(?=[0-9])/, '') : null;
+  if (digits === null || digits.length > 5 || Number(digits) > 65535) {
+    throw unreadable(message, `its port "${port}" is not a number from 0 to 65535.`);
   }
+  if (digits === DEFAULT_PORTS.get(scheme)) return host.toLowerCase();
+  return `${host.toLowerCase()}:${digits}`;
+}
+
+function authority(message) {
+  // A target with no authority of its own is origin-form, and the Host header, which in HTTP/1.1
+  // *is* the authority, supplies it — the shape a server-side verifier actually holds.
+  const { headers } = message;
+  const parts = partsOf(message);
+  if (parts.netloc) return hostport(parts.netloc.slice(parts.netloc.lastIndexOf('@') + 1), parts.scheme, message);
   const host = headers.get('host');
   if (host === undefined) {
     throw new MissingComponent(
@@ -248,7 +277,12 @@ function authority(message) {
       { component: '@authority' },
     );
   }
-  return ows(checked(host, '"@authority"')).toLowerCase();
+  const value = ows(checked(host, '"@authority"'));
+  // Host passes the same checks as an absolute URL's authority, and with no scheme no port is a
+  // default one (this.i, "Host is validated like any authority"). Userinfo and a list of hosts
+  // have no place in it.
+  if (/[@,]/.test(value)) throw unreadable(message, 'its Host header is not a single host and optional port.');
+  return hostport(value, '', message);
 }
 
 /** Headers with every name lowercased, refusing two names that are one field (D-Q9ZT).
@@ -325,7 +359,7 @@ export function requestMessage(method, url, headers, { received = false } = {}) 
   checkMethod(method);
   // `received` marks a message handed to a verifier rather than built by a signer, which decides
   // what a URL that cannot be read is: a base that cannot be built, or a caller error.
-  return { headers: lowered(headers), method, url, parts: splitUrl(url), received };
+  return { headers: lowered(headers), method, url, parts: null, received };
 }
 
 export const responseMessage = (status, headers, request, { received = false } = {}) => ({
@@ -364,10 +398,10 @@ function componentValue(item, message) {
   if (name === '@method') return source.method;
   if (name === '@authority') return authority(source);
   // An empty path is the "/" the origin server would have received.
-  if (name === '@path') return source.parts.path || '/';
+  if (name === '@path') return partsOf(source).path || '/';
   // Section 2.2.7: the whole query string including the leading "?", percent-encoding preserved,
   // and a bare "?" when the request carries no query at all.
-  if (name === '@query') return `?${source.parts.query}`;
+  if (name === '@query') return `?${partsOf(source).query}`;
   const value = source.headers.get(name);
   if (value === undefined) {
     throw new MissingComponent(
