@@ -74,19 +74,19 @@ class FailClosedTest {
 
     @Test
     void emptyAuthoritiesServeNoHostAndAreACallerError() {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.decliningFreshness().withAuthorities(Set.of()));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Authorities(Set.of()));
+        Caller.refused("authorities is empty, which serves no host at all", () -> Fiki.VerifyOptions.decliningFreshness().withAuthorities(Set.of()));
+        Caller.refused("authorities is empty, which serves no host at all", () -> new Fiki.Authorities(Set.of()));
     }
 
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
     void anAuthorityThatIsNotAStringIsACallerError() {
         List raw = new ArrayList(List.of("api.example.com", 443));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.decliningFreshness().withAuthorities(raw));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Authorities(new HashSet(raw)));
+        Caller.refused("Every authority is a string", () -> Fiki.VerifyOptions.decliningFreshness().withAuthorities(raw));
+        Caller.refused("Every authority is a string", () -> new Fiki.Authorities(new HashSet(raw)));
         List withNull = new ArrayList();
         withNull.add(null);
-        assertThrows(IllegalArgumentException.class, () -> Fiki.Authorities.of(withNull));
+        Caller.refused("Every authority is a string", () -> Fiki.Authorities.of(withNull));
     }
 
     @Test
@@ -123,7 +123,7 @@ class FailClosedTest {
         Fiki.VerifyOptions stated = Fiki.VerifyOptions.decliningFreshness().withExpectedKeyid(KEY.keyid());
         assertEquals(KEY.aid(), Fiki.verifyResponse(200, answer, asked, stated).aid());
         assertEquals(KEY.aid(), Fiki.verifyResponse(200, answer, asked, stated.withoutAuthorityCheck()).aid());
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyResponse(200, answer, asked,
+        Caller.refused("Served authorities are a request policy", () -> Fiki.verifyResponse(200, answer, asked,
             stated.withAuthorities(Set.of("api.example.com"))));
     }
 
@@ -143,7 +143,7 @@ class FailClosedTest {
             () -> Fiki.verifyResponse(200, answer, asked, unstated));
         assertTrue(e.getMessage().contains("withoutKeyidCheck()"), e.getMessage());
         // Checked before the message is read: an unsigned 401 does not get past it either.
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyResponse(401, Map.of(), asked, unstated));
+        Caller.refused("State the AID this client expects the response to be signed by", () -> Fiki.verifyResponse(401, Map.of(), asked, unstated));
     }
 
     @Test
@@ -162,11 +162,11 @@ class FailClosedTest {
     @Test
     void anEmptyOrNullExpectedKeyidIsACallerErrorNeverTheDecline() {
         Fiki.VerifyOptions opts = Fiki.VerifyOptions.decliningFreshness();
-        assertThrows(IllegalArgumentException.class, () -> opts.withExpectedKeyid(""));
-        assertThrows(IllegalArgumentException.class, () -> opts.withExpectedKeyid(null));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.ExpectedKeyid(""));
+        Caller.refused("expected keyid is empty, which names no AID", () -> opts.withExpectedKeyid(""));
+        Caller.refused("An expected keyid is an AID", () -> opts.withExpectedKeyid(null));
+        Caller.refused("expected keyid is empty, which names no AID", () -> new Fiki.ExpectedKeyid(""));
         // In both verify functions: a request verifier may leave it out, and still may not pass "".
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", URL, signed(),
+        Caller.refused("expected keyid is empty, which names no AID", () -> Fiki.verifyRequest("GET", URL, signed(),
             new Fiki.VerifyOptions(Fiki.Freshness.DECLINED, null, null, null, null, null, null,
                 new Fiki.ExpectedKeyid(""), Fiki.Authorities.DECLINED)));
     }
@@ -319,10 +319,10 @@ class FailClosedTest {
 
     @Test
     void toAidRefusesAKeyThatIsNot32Bytes() {
-        assertThrows(IllegalArgumentException.class, () -> Key.toAid(new byte[31]));
-        assertThrows(IllegalArgumentException.class, () -> Key.toAid(new byte[33]));
-        assertThrows(IllegalArgumentException.class, () -> Key.toAid(new byte[0]));
-        assertThrows(IllegalArgumentException.class, () -> Key.toAid(null));
+        Caller.refused("An Ed25519 public key is 32 bytes", () -> Key.toAid(new byte[31]));
+        Caller.refused("An Ed25519 public key is 32 bytes", () -> Key.toAid(new byte[33]));
+        Caller.refused("An Ed25519 public key is 32 bytes", () -> Key.toAid(new byte[0]));
+        Caller.refused("An Ed25519 public key is 32 bytes", () -> Key.toAid(null));
         assertEquals(KEY.aid(), Key.toAid(Key.verifyingKeyBytes(KEY.aid())));
     }
 
@@ -357,7 +357,7 @@ class FailClosedTest {
     @SuppressWarnings({"unchecked", "rawtypes"})
     void aMinimumHoldingSomethingOtherThanAStringIsACallerError() {
         List raw = new ArrayList(List.of("@method", 7));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.decliningFreshness().withMinimum(raw));
+        Caller.refused("Every component in a minimum is a string naming it", () -> Fiki.VerifyOptions.decliningFreshness().withMinimum(raw));
     }
 
     @Test
@@ -379,7 +379,7 @@ class FailClosedTest {
     @ParameterizedTest
     @ValueSource(strings = {"https://a:1:2/p", "https://::1/p", "https://a::/p"})
     void aHostIsSplitFromItsPortAtTheFirstColon(String url) {
-        assertThrows(IllegalArgumentException.class, () -> authority(url, Map.of()));
+        Caller.refused("is not a number from 0 to 65535", () -> authority(url, Map.of()));
         assertEquals(FikiException.Kind.SignatureMismatch,
             kindOf(() -> Fiki.verifyRequest("GET", url, signed(), OptedOut.decliningFreshness())));
     }
@@ -388,7 +388,7 @@ class FailClosedTest {
     void aSchemeIsAsciiLettersDigitsAndPlusMinusDot() {
         assertEquals("x.example:443", authority("git+ssh://x.example:443/f", Map.of()));
         for (String url : List.of("héttps://x.example/f", "1https://x.example/f", "://x.example/f", "x.example/f")) {
-            assertThrows(IllegalArgumentException.class, () -> authority(url, Map.of()), url);
+            Caller.refused("is neither origin-form, beginning with a slash, nor an absolute URI", () -> authority(url, Map.of()), url);
         }
     }
 
@@ -428,7 +428,7 @@ class FailClosedTest {
     @ValueSource(strings = {"user@api.example.com", "a.example, b.example", "api.example.com:99999",
         "api.example.com:x", "[::1", "[::1]x", "[nope]", "a]b", "a:1:2"})
     void aHostThatIsNotASingleHostAndPortCannotBeRead(String host) {
-        assertThrows(IllegalArgumentException.class, () -> authority("/p", Map.of("Host", host)));
+        Caller.unreadableTarget(() -> authority("/p", Map.of("Host", host)));
         Map<String, String> headers = new LinkedHashMap<>(Fiki.signRequest(KEY, "GET", "/p", Map.of("Host", "api.example.com"),
             Fiki.SignOptions.none()));
         headers.put("Host", host);

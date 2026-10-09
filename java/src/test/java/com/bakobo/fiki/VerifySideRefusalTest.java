@@ -25,7 +25,7 @@ class VerifySideRefusalTest {
             Fiki.verifyRequest("GET", received, headers, OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.SignatureMismatch, e.kind());
         // The same URL handed to a signer is still the caller's own mistake.
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", received, Map.of(),
+        Caller.unreadableTarget(() -> Fiki.signRequest(KEY, "GET", received, Map.of(),
             Fiki.SignOptions.none().withCreated(1)));
     }
 

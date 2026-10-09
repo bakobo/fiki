@@ -36,7 +36,7 @@ class CopilotReviewTest {
     @ValueSource(strings = {"00000000000000065536", "99999999999999999999", "65536", "0x50", "８０"})
     void aPortOutsideTheRangeIsRefusedWithoutAnUncaughtException(String port) {
         String url = "https://example.com:" + port + "/p";
-        assertThrows(IllegalArgumentException.class, () -> authority(url));
+        Caller.unreadableTarget(() -> authority(url));
         Map<String, String> headers = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(AT));
         FikiException e = assertThrows(FikiException.class, () ->
@@ -59,7 +59,7 @@ class CopilotReviewTest {
 
     @Test
     void noConstructorLeavesTheFreshnessDecisionUnstated() {
-        assertThrows(IllegalArgumentException.class, () ->
+        Caller.refused("State a freshness decision", () ->
             new Fiki.VerifyOptions(null, null, null, null, null, null, null, null, null));
         assertEquals(null, new Fiki.VerifyOptions(Fiki.Freshness.DECLINED, null, null, null, null, null, null, null, null)
             .maxAge());
@@ -68,10 +68,10 @@ class CopilotReviewTest {
 
     @Test
     void aMaxAgeOrSkewThatIsNotPositiveIsTheCallersMistake() {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.maxAge(0));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.maxAge(-1));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.maxAge(300).withSkew(0));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.VerifyOptions.decliningFreshness().withSkew(-5));
+        Caller.refused("A maximum age is a positive number of seconds", () -> Fiki.VerifyOptions.maxAge(0));
+        Caller.refused("A maximum age is a positive number of seconds", () -> Fiki.VerifyOptions.maxAge(-1));
+        Caller.refused("A clock skew allowance is a positive number of seconds", () -> Fiki.VerifyOptions.maxAge(300).withSkew(0));
+        Caller.refused("A clock skew allowance is a positive number of seconds", () -> Fiki.VerifyOptions.decliningFreshness().withSkew(-5));
     }
 
     @Test
@@ -118,18 +118,18 @@ class CopilotReviewTest {
     @ParameterizedTest
     @ValueSource(strings = {"x\r\ninjected", "x-note\n", "X Note", "", "café", "\"a b\"", "a,b", "a\"b"})
     void aComponentNameThatIsNotAFieldNameIsTheCallersMistake(String spec) {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", "https://example.com/p",
+        Caller.refused("is not an HTTP field name, so it cannot be signed", () -> Fiki.signRequest(KEY, "GET", "https://example.com/p",
             Map.of(), Fiki.SignOptions.none().withCreated(AT).withCovered(List.of("@method", spec))));
         Map<String, String> headers = Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(),
             Fiki.SignOptions.none().withCreated(AT));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", "https://example.com/p", headers,
+        Caller.refused("is not an HTTP field name, so it cannot be signed", () -> Fiki.verifyRequest("GET", "https://example.com/p", headers,
             OptedOut.decliningFreshness().withMinimum(List.of("@method", "@path", "@query", spec))));
     }
 
     @Test
     void aDerivedNameIsAStringAndOrdinaryFieldNamesStillSign() {
         for (String derived : List.of("@me\nthod", "@café")) {
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https://example.com/p",
+            Caller.refused("is not an RFC 8941 string, so it cannot be signed", () -> Fiki.signatureBase("GET", "https://example.com/p",
                 Map.of(), List.of(derived), Fiki.Params.of(AT, "k")));
         }
         Map<String, String> sent = Map.of("X-Note!#$%&'*+.^_`|~", "v");

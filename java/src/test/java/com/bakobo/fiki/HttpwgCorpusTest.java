@@ -423,8 +423,7 @@ class HttpwgCorpusTest {
     }
 
     private static void callerError(String fragment, Runnable body, String label) {
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, body::run, label);
-        assertTrue(e.getMessage().contains(fragment), label + ": " + e.getMessage());
+        Caller.refused(fragment, body::run, label);
     }
 
     // serialisation-tests/key-generated.json: 378 cases, all must_fail.
