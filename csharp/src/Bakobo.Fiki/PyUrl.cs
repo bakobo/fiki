@@ -16,7 +16,7 @@ namespace Bakobo.Fiki
     {
         private const string SchemeChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-.";
 
-        private static readonly Regex IpvFuture = new Regex(@"\Av[a-fA-F0-9]+\..+\z", RegexOptions.CultureInvariant);
+        internal static readonly Regex IpvFuture = new Regex(@"\Av[a-fA-F0-9]+\..+\z", RegexOptions.CultureInvariant);
 
         private PyUrl(string scheme, string netloc, string path, string query)
         {
@@ -33,6 +33,18 @@ namespace Bakobo.Fiki
         internal string Path { get; }
 
         internal string Query { get; }
+
+        /// <summary>
+        /// An origin-form request target (RFC 9112 section 3.2.1): everything before the first "?"
+        /// is the path, verbatim, and there is no scheme and no authority (this.i @524c8qgv).
+        /// </summary>
+        internal static PyUrl OriginForm(string target)
+        {
+            var question = target.IndexOf('?');
+            return question < 0
+                ? new PyUrl("", "", target, "")
+                : new PyUrl("", "", target.Substring(0, question), target.Substring(question + 1));
+        }
 
         internal static PyUrl Split(string url)
         {
@@ -196,13 +208,6 @@ namespace Bakobo.Fiki
             }
             return hostname;
         }
-
-        /// <summary>
-        /// True when the host is a bracketed IP-literal (RFC 3986 section 3.2.2). Python's
-        /// <c>.hostname</c> drops the brackets, and this port puts them back in @authority, a
-        /// deliberate divergence from fiki-py (tick 2h2g).
-        /// </summary>
-        internal bool HostIsIPLiteral => AfterLast(Netloc, '@').IndexOf('[') >= 0;
 
         /// <summary>The host, lowercased except for an IPv6 zone, or null when there is none.</summary>
         internal string? Hostname

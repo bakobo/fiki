@@ -184,7 +184,8 @@ Verdict verdict;
 try
 {
     verdict = HttpSignatures.VerifyRequest(method, url, headers,
-        VerifyOptions.MaxAge(300).WithBody(body));
+        VerifyOptions.MaxAge(300).WithBody(body)
+            .WithAuthorities(new[] { "api.example.com" }));   // the hosts this server answers for
 }
 catch (FikiException e)
 {

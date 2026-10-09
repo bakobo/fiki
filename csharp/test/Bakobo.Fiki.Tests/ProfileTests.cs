@@ -51,7 +51,7 @@ namespace Bakobo.Fiki.Tests
             public Dictionary<string, string> Headers = new Dictionary<string, string>();
 
             public Verdict Verify(Func<VerifyOptions, VerifyOptions>? with = null) =>
-                HttpSignatures.VerifyRequest(Method, Url, Headers, (with ?? (o => o))(VerifyOptions.DecliningFreshness().WithBody(Body)));
+                HttpSignatures.VerifyRequest(Method, Url, Headers, (with ?? (o => o))(Verifying.DecliningFreshness().WithBody(Body)));
 
             public FikiException Refused(Func<VerifyOptions, VerifyOptions>? with = null) =>
                 Assert.Throws<FikiException>(() => Verify(with));
@@ -244,7 +244,7 @@ namespace Bakobo.Fiki.Tests
         private static Verdict Check(Dictionary<string, string> headers, int status = 200, byte[]? body = null, bool noBody = false,
             Request? request = null, bool noRequest = false, Func<VerifyOptions, VerifyOptions>? with = null)
         {
-            var options = VerifyOptions.DecliningFreshness().WithBody(noBody ? null : body ?? ResponseBody);
+            var options = Verifying.DecliningFreshness().WithBody(noBody ? null : body ?? ResponseBody);
             if (!noRequest)
             {
                 options = options.WithRequest(request ?? TheRequest);
@@ -269,7 +269,7 @@ namespace Bakobo.Fiki.Tests
         {
             var headers = HttpSignatures.SignResponse(TheKey, 204);
             Assert.Equal(new[] { "Signature-Input", "Signature" }, headers.Keys.ToArray());
-            var verdict = HttpSignatures.VerifyResponse(204, headers, VerifyOptions.MaxAge(60));
+            var verdict = HttpSignatures.VerifyResponse(204, headers, Verifying.MaxAge(60));
             Assert.Equal(new[] { "@status" }, verdict.Covered);
         }
 
@@ -429,7 +429,7 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void StalenessIsReportedBeforeExpiry() =>
             Assert.Equal(FikiErrorKind.SignatureTooOld, Sign(expires: At + 10).Refused(o =>
-                VerifyOptions.MaxAge(300).WithSkew(60).WithNow(At + 1000).WithBody(Body)).Kind);
+                Verifying.MaxAge(300).WithSkew(60).WithNow(At + 1000).WithBody(Body)).Kind);
 
         [Fact]
         public void AnUnparsableUrlIsABaseThatCannotBeBuiltAndReadOnlyWhenNeeded()
@@ -600,7 +600,7 @@ namespace Bakobo.Fiki.Tests
                 { "Signature-Input", "sig=" + input },
                 { "Signature", "sig=:" + Convert.ToBase64String(TheKey.Sign(Bytes.Utf8("\"@method\": GET\n\"@signature-params\": " + input))) + ":" },
             };
-            var verdict = HttpSignatures.VerifyRequest("GET", "/", headers, VerifyOptions.DecliningFreshness().WithExpectedAid(TheKey.Aid));
+            var verdict = HttpSignatures.VerifyRequest("GET", "/", headers, Verifying.DecliningFreshness().WithExpectedAid(TheKey.Aid));
             Assert.Equal(TheKey.Aid, verdict.Aid);
             Assert.Null(verdict.KeyId);
         }
@@ -936,10 +936,10 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void OptionsCarryWhatTheyWereGiven()
         {
-            var options = VerifyOptions.MaxAge(30);
+            var options = Verifying.MaxAge(30);
             var changed = options.WithSkew(7).WithNow(9).WithExpectedKeyId("k").WithAuthorities(new[] { "a" });
             Assert.Equal(30, changed.MaxAgeSeconds);
-            Assert.Null(VerifyOptions.DecliningFreshness().WithNow(1).MaxAgeSeconds);
+            Assert.Null(Verifying.DecliningFreshness().WithNow(1).MaxAgeSeconds);
         }
     }
 }

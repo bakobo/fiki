@@ -13,7 +13,7 @@ namespace Bakobo.Fiki
         /// The conformance contract this port satisfies (this.i @4fhrre0m): two artifacts interoperate
         /// when their declared vectors format matches, whatever their own version numbers say.
         /// </summary>
-        public const int VectorsFormat = 2;
+        public const int VectorsFormat = 3;
 
         /// <summary>
         /// The KERI profile's vector set this port satisfies, <c>vectors/keri/</c> (this.i
@@ -105,6 +105,15 @@ namespace Bakobo.Fiki
         /// </summary>
         public static IReadOnlyList<string> ResponseMinimum { get; } = Array.AsReadOnly(Messages.ResponseMinimum);
 
+        /// <summary>
+        /// What <see cref="VerifyRequest"/> requires when the options state no minimum (this.i
+        /// @524c8qgv): fiki's own signing default, @method, @authority, @path and @query, plus
+        /// content-digest whenever the request has a body. Like any minimum it also makes
+        /// <c>created</c> required, and a keyid even beside an expected AID.
+        /// <see cref="VerifyOptions.WithoutMinimum"/> opts out.
+        /// </summary>
+        public static IReadOnlyList<string> DefaultMinimum { get; } = Array.AsReadOnly(Messages.DefaultMinimum);
+
         /// <summary>Clock skew tolerated by default, in seconds: two hosts disagreeing by a second is ordinary.</summary>
         public const long DefaultSkew = 5;
 
@@ -181,13 +190,15 @@ namespace Bakobo.Fiki
         /// Verify a signed request, returning a <see cref="Verdict"/> or throwing.
         /// </summary>
         /// <remarks>
-        /// <paramref name="url"/> is a full URL or the request target alone, in which case @authority
-        /// comes from the Host header. Comparing the verdict's AID with the one you registered is the
+        /// <paramref name="url"/> is a full URL or an origin-form request target beginning with "/",
+        /// in which case @authority comes from the Host header. Unless the options state a minimum,
+        /// <see cref="DefaultMinimum"/> applies. Comparing the verdict's AID with the one you registered is the
         /// authorization step, and it is yours: fiki tells you who signed, never whether they may.
         /// </remarks>
         /// <exception cref="FikiException">The request did not verify; <see cref="FikiException.Kind"/> says why.</exception>
         /// <exception cref="ArgumentException">
-        /// The call itself is wrong: both an expected AID and a resolver, a minimum below the profile's,
+        /// The call itself is wrong: no decision about authorities (<see cref="VerifyOptions.WithAuthorities(IEnumerable{string})"/>
+        /// or <see cref="VerifyOptions.DecliningAuthorityCheck"/>), both an expected AID and a resolver, a minimum below the profile's,
         /// options that apply only to responses, a method that is not an HTTP token, or a null header
         /// name or value. A URL that cannot be read, such as one whose port is not a number from 0 to
         /// 65535, is a base that cannot be built, so a covered component that needs it makes it a

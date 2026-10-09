@@ -13,7 +13,7 @@ namespace Bakobo.Fiki.Tests
     /// </summary>
     public class VectorsTests
     {
-        private static readonly string[] Files = { "aid-lens.json", "signature-base.json", "accepts.json", "refusals.json" };
+        private static readonly string[] Files = { "aid-lens.json", "signature-base.json", "accepts.json", "refusals.json", "misuse.json" };
 
         private static JsonElement Load(string name) => Repo.Json("vectors", name);
 
@@ -33,6 +33,10 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> Refusals() => Cases("refusals.json");
 
+        public static IEnumerable<object[]> Misuses() => Cases("misuse.json");
+
+        public static IEnumerable<object[]> VerifyFiles() => new[] { "accepts.json", "refusals.json", "misuse.json" }.Select(f => new object[] { f });
+
         internal static List<KeyValuePair<string, string>> Headers(JsonElement headers) =>
             headers.EnumerateObject().Select(p => new KeyValuePair<string, string>(p.Name, p.Value.GetString()!)).ToList();
 
@@ -41,9 +45,6 @@ namespace Bakobo.Fiki.Tests
 
         private static string? Optional(JsonElement c, string name) =>
             c.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value.GetString() : null;
-
-        private static long? OptionalLong(JsonElement c, string name) =>
-            c.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value.GetInt64() : (long?)null;
 
         [Theory]
         [MemberData(nameof(FileNames))]
@@ -110,13 +111,108 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(c.GetProperty("signature").GetString(), Convert.ToBase64String(signature));
         }
 
+        // Every field a verify case may carry. A field this driver does not know fails the case
+        // rather than being ignored, so a field added to the vectors cannot be silently dropped by a
+        // port that never learned it (review V-M8). Mirrors py/tests/test_vectors.py.
+        private static readonly HashSet<string> VerifyFields = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "id", "method", "url", "headers", "body", "max_age", "now", "minimum", "authorities", "expected_aid",
+            "note", "error", "aid", "keyid", "covered", "omit",
+        };
+
+        /// <summary>
+        /// The verifier's stated policy (format 3, this.i @524c8qgv): a minimum of "default" leaves it
+        /// unstated, null is <see cref="VerifyOptions.WithoutMinimum"/>, a list is that minimum;
+        /// authorities null is <see cref="VerifyOptions.DecliningAuthorityCheck"/>, a list is those
+        /// hosts. Every field named in "omit" is left out of the call.
+        /// </summary>
         private static VerifyOptions Options(JsonElement c)
         {
-            var maxAge = OptionalLong(c, "max_age");
-            var options = maxAge == null ? VerifyOptions.DecliningFreshness() : VerifyOptions.MaxAge(maxAge.Value);
-            var now = OptionalLong(c, "now");
-            options = now == null ? options : options.WithNow(now.Value);
-            return options.WithBody(Body(c));
+            var unknown = c.EnumerateObject().Select(p => p.Name).Where(n => !VerifyFields.Contains(n)).ToList();
+            Assert.True(unknown.Count == 0, $"unknown fields {string.Join(", ", unknown)}");
+            var omit = c.TryGetProperty("omit", out var o) ? o.EnumerateArray().Select(x => x.GetString()!).ToList() : new List<string>();
+            Assert.All(omit, name => Assert.Contains(name, new[] { "authorities", "minimum", "expected_aid" }));
+
+            var maxAge = c.GetProperty("max_age");
+            var options = maxAge.ValueKind == JsonValueKind.Null ? VerifyOptions.DecliningFreshness() : VerifyOptions.MaxAge(maxAge.GetInt64());
+            var now = c.GetProperty("now");
+            options = now.ValueKind == JsonValueKind.Null ? options : options.WithNow(now.GetInt64());
+            options = options.WithBody(Body(c));
+
+            if (!omit.Contains("minimum"))
+            {
+                var minimum = c.GetProperty("minimum");
+                if (minimum.ValueKind == JsonValueKind.Null)
+                {
+                    options = options.WithoutMinimum();
+                }
+                else if (minimum.ValueKind == JsonValueKind.Array)
+                {
+                    options = options.WithMinimum(minimum.EnumerateArray().Select(x => x.GetString()!));
+                }
+                else
+                {
+                    Assert.Equal("default", minimum.GetString());
+                }
+            }
+            if (!omit.Contains("expected_aid"))
+            {
+                var aid = c.GetProperty("expected_aid");
+                options = aid.ValueKind == JsonValueKind.Null ? options : options.WithExpectedAid(aid.GetString()!);
+            }
+            if (!omit.Contains("authorities"))
+            {
+                options = WithAuthorities(options, c.GetProperty("authorities"));
+            }
+            return options;
+        }
+
+        /// <summary>
+        /// A JSON string is the one shape C# refuses at compile time, through an overload marked
+        /// Obsolete as an error, so it is reached here by reflection, as the caller's mistake it
+        /// models; a member that is not a string becomes a null, the only non-host an
+        /// <c>IEnumerable&lt;string&gt;</c> can hold.
+        /// </summary>
+        private static VerifyOptions WithAuthorities(VerifyOptions options, JsonElement authorities)
+        {
+            switch (authorities.ValueKind)
+            {
+                case JsonValueKind.Null:
+                    return options.DecliningAuthorityCheck();
+                case JsonValueKind.String:
+                    var single = typeof(VerifyOptions).GetMethod(nameof(VerifyOptions.WithAuthorities), new[] { typeof(string) })!;
+                    try
+                    {
+                        return (VerifyOptions)single.Invoke(options, new object[] { authorities.GetString()! })!;
+                    }
+                    catch (System.Reflection.TargetInvocationException ex)
+                    {
+                        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex.InnerException!).Throw();
+                        throw;
+                    }
+                default:
+                    return options.WithAuthorities(authorities.EnumerateArray()
+                        .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : null).ToList()!);
+            }
+        }
+
+        private static Verdict Verify(JsonElement c) => HttpSignatures.VerifyRequest(
+            c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c));
+
+        [Theory]
+        [MemberData(nameof(VerifyFiles))]
+        public void TheVerifyVectorsAreNotEmpty(string name) =>
+            Assert.True(Load(name).GetProperty("cases").GetArrayLength() > 5);
+
+        [Theory]
+        [MemberData(nameof(Misuses))]
+        public void MisuseVectors(string id)
+        {
+            // A mistake in the call is an ArgumentException, never a FikiException (this.i @5zrf8gjk).
+            var c = Case("misuse.json", id);
+            Assert.Equal("caller", c.GetProperty("error").GetString());
+            var caught = Assert.ThrowsAny<ArgumentException>(() => Verify(c));
+            Assert.IsNotType<FikiException>(caught);
         }
 
         [Theory]
@@ -126,8 +222,7 @@ namespace Bakobo.Fiki.Tests
             // Every entry names the error fiki raises, so a port maps its own type onto the same
             // condition rather than inventing a taxonomy of its own.
             var c = Case("refusals.json", id);
-            var caught = Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest(
-                c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c)));
+            var caught = Assert.Throws<FikiException>(() => Verify(c));
             Assert.Equal(c.GetProperty("error").GetString(), caught.Kind.ToString());
         }
 
@@ -138,8 +233,7 @@ namespace Bakobo.Fiki.Tests
             // Between the others, nothing said a well-formed request must VERIFY, with the right AID
             // and the right covered set.
             var c = Case("accepts.json", id);
-            var verdict = HttpSignatures.VerifyRequest(
-                c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c));
+            var verdict = Verify(c);
             Assert.Equal(c.GetProperty("aid").GetString(), verdict.Aid);
             // Format 2 (@5zrf8gjk): the keyid exactly as it arrived, beside the identity that vouched.
             Assert.Equal(c.GetProperty("keyid").GetString(), verdict.KeyId);

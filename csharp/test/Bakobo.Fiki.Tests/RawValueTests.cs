@@ -21,7 +21,7 @@ namespace Bakobo.Fiki.Tests
         private static Verdict Verify(string role)
         {
             var signed = HttpSignatures.SignRequest(Signer, "GET", Url, new[] { H("X-Role", "admin") }, covered: Covered);
-            return HttpSignatures.VerifyRequest("GET", Url, new[] { H("X-Role", role) }.Concat(signed), VerifyOptions.DecliningFreshness());
+            return HttpSignatures.VerifyRequest("GET", Url, new[] { H("X-Role", role) }.Concat(signed), Verifying.DecliningFreshness());
         }
 
         [Theory]
@@ -65,7 +65,7 @@ namespace Bakobo.Fiki.Tests
             // A length that is not a plain decimal once SP and HTAB are gone counts as a body (fail
             // closed), so "0" with a CR beside it obliges a covered digest, and " 0\t" does not.
             var zero = HttpSignatures.SignRequest(Signer, "POST", Url);
-            var options = VerifyOptions.DecliningFreshness().WithMinimum(HttpSignatures.RequestMinimum);
+            var options = Verifying.DecliningFreshness().WithMinimum(HttpSignatures.RequestMinimum);
             Assert.Equal(Signer.Aid, HttpSignatures.VerifyRequest("POST", Url, new[] { H("Content-Length", " 0\t") }.Concat(zero), options).Aid);
             var caught = Assert.Throws<FikiException>(() =>
                 HttpSignatures.VerifyRequest("POST", Url, new[] { H("Content-Length", "0\r\n") }.Concat(zero), options));
@@ -83,7 +83,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignatureBase(method!, Url, new KeyValuePair<string, string>[0], new[] { "@method" }, 1, "k"));
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignRequest(Signer, method!, Url));
             var signed = HttpSignatures.SignRequest(Signer, "GET", Url);
-            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest(method!, Url, signed, VerifyOptions.DecliningFreshness()));
+            Assert.Throws<ArgumentException>(() => HttpSignatures.VerifyRequest(method!, Url, signed, Verifying.DecliningFreshness()));
             Assert.Throws<ArgumentException>(() => HttpSignatures.SignResponse(Signer, 200, new Request(method!, Url)));
         }
 

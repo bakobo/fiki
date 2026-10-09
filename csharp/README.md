@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 2), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 4). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 3), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 4). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 
@@ -33,10 +33,13 @@ var headers = HttpSignatures.SignRequest(key, "POST",
 
 ```csharp
 var verdict = HttpSignatures.VerifyRequest(method, url, headers,
-    VerifyOptions.MaxAge(300).WithBody(body));
+    VerifyOptions.MaxAge(300).WithBody(body)
+        .WithAuthorities(new[] { "api.example.com" }));
 ```
 
 There is no `VerifyOptions` constructor that leaves the freshness policy unstated: it is `VerifyOptions.MaxAge(seconds)` or `VerifyOptions.DecliningFreshness()`. A maximum age or a `WithSkew` that is not positive is an `ArgumentOutOfRangeException`. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the choice exists to prevent. An `expires` the signer declared is enforced either way.
+
+Verifying a request also needs a decision about the hosts it may be signed for (`this.i` @524c8qgv): `WithAuthorities(hosts)`, a non-empty collection compared exactly with the derived `@authority`, or `DecliningAuthorityCheck()`. Stating neither is an `ArgumentException` when `VerifyRequest` is called, and so is an empty collection or one holding a null; passing a single string does not compile. Unless the options state a minimum, a request is held to `HttpSignatures.DefaultMinimum`, fiki's own signing default of `@method`, `@authority`, `@path` and `@query`, plus `content-digest` for a body; `WithoutMinimum()` is the explicit opt-out.
 
 A refusal is a `FikiException` whose `Kind` names the obstacle. The `FikiErrorKind` names are fiki-py's class names, which the vectors pin, so a refusal reads the same in every port. A caller mistake rather than a message defect is an `ArgumentException`: a minimum covered set below the KERI profile's, a method that is not an HTTP token, a label that is not an RFC 8941 key, a keyid, nonce or tag outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, a null header name or value, or a `Content-Digest` you supplied that the body does not match. A URL whose port is not a number from 0 to 65535 is an `ArgumentException` when signing and a `SignatureMismatch` when verifying, and only when a covered component needs the URL.
 
@@ -63,7 +66,9 @@ fiki-py's behaviour is partly its dependencies' behaviour, so this port reproduc
 
 Each is checked against an oracle generated from the Python original (`test/Bakobo.Fiki.Tests/oracle/`), and the oracle scripts say how to regenerate it.
 
-Where this port reads the authority itself, it matches fiki-py 0.8.0 (`this.i` @9g24rdns): an IP-literal keeps its brackets, a port is any run of ASCII digits read as a number, so `:08443` is written back as `:8443` and `:000443` is the default port of https, and the URL is split only when `@authority`, `@path` or `@query` needs it. As urlsplit does, leading C0 controls and spaces are stripped from a URL, and TAB, CR and LF are removed anywhere in it.
+Where this port reads the authority itself, it matches fiki-py 0.8.0 (`this.i` @9g24rdns): an IP-literal keeps its brackets, a port is any run of ASCII digits read as a number, so `:08443` is written back as `:8443` and `:000443` is the default port of https, and the URL is split only when `@authority`, `@path` or `@query` needs it. A target beginning with `/` is origin-form, however many slashes follow, and its authority is the Host header, which is checked as any authority is and keeps its port; anything else must be a scheme, `://` and a non-empty authority. A space, an ASCII control or a `#` anywhere is a base that cannot be built. A host is checked to be ASCII before it is lowercased, since .NET lowercases U+212A KELVIN SIGN to `k`.
+
+BouncyCastle's Ed25519 verification checks the cofactored equation, which accepts signatures OpenSSL and the other ports refuse. A signature verifies here only when BouncyCastle accepts it and a hand-written cofactorless check, ported from RFC 8032 section 6, accepts it too, so a defect in the hand-written half can refuse a good signature but never accept a forged one.
 
 Headers holding two field names equal case-insensitively, such as `X-Role` and `x-role`, are refused with `ArgumentException` on every signing and verifying entry point, the paired `Request` included (conductor ruling D-Q9ZT). Under a minimum covered set, a signature with no keyid is `MissingKey` even when `WithExpectedAid` names the key, since the KERI profile makes keyid required.
 

@@ -40,6 +40,11 @@ namespace Bakobo.Fiki
         // and a response to a request that had a body adds "content-digest";req.
         internal static readonly string[] RequestMinimum = { "@method", "@path", "@query" };
 
+        // What VerifyRequest requires when the caller states no minimum of its own (this.i
+        // @524c8qgv): fiki's own signing default, so a verifier left at its defaults accepts what a
+        // fiki signer produces and nothing that covers less. WithoutMinimum opts out.
+        internal static readonly string[] DefaultMinimum = { "@method", "@authority", "@path", "@query" };
+
         internal static readonly string[] ResponseMinimum =
             { "@status", Components.Req("@method"), Components.Req("@path"), Components.Req("@query") };
 
@@ -82,7 +87,7 @@ namespace Bakobo.Fiki
             {
                 throw new ArgumentException(
                     $"A minimum covered set must include the profile's own, {string.Join(", ", floor)}; this one leaves out " +
-                    $"{string.Join(", ", missing)}. Pass no minimum to apply none at all.");
+                    $"{string.Join(", ", missing)}. Pass no minimum, or call VerifyOptions.WithoutMinimum, to apply none at all.");
             }
             return given;
         }
@@ -276,7 +281,15 @@ namespace Bakobo.Fiki
             {
                 throw new ArgumentException("A request answers no other request; WithRequest applies to verifying a response.");
             }
-            var floor = Floored(options.Minimum, RequestMinimum);
+            // A required decision, like the freshness policy (this.i @524c8qgv): which hosts this
+            // verifier serves, or that it declines the check. A default either way would be wrong.
+            if (!options.AuthoritiesStated)
+            {
+                throw new ArgumentException(
+                    "Verifying a request needs a decision about the hosts it may be signed for: " +
+                    "VerifyOptions.WithAuthorities(new[] { \"api.example.com\" }) or DecliningAuthorityCheck().");
+            }
+            var floor = Floored(options.MinimumStated ? options.Minimum : DefaultMinimum, RequestMinimum);
             return Verify(Components.RequestMessage(method, url, headers, received: true), headers, options, response: false, floor);
         }
 
