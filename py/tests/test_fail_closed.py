@@ -11,7 +11,8 @@ import inspect
 
 import pytest
 
-from fiki import DEFAULT_COVERED, DEFAULT_MINIMUM, REQUEST_MINIMUM, Key, sign_request, verify_request
+from fiki import (DEFAULT_COVERED, DEFAULT_MINIMUM, REQUEST_MINIMUM, Key, sign_request,
+                  verify_request)
 
 KEY = Key.from_seed(bytes(range(32)))
 URL = "https://api.example.com/things?limit=1"
@@ -32,7 +33,8 @@ def test_authorities_has_no_default():
 def test_the_default_minimum_is_fikis_own_signing_default_and_covers_the_profiles():
     assert tuple(DEFAULT_MINIMUM) == tuple(DEFAULT_COVERED)
     assert set(REQUEST_MINIMUM) <= set(DEFAULT_MINIMUM)
-    assert repr(inspect.signature(verify_request).parameters["minimum"].default) == "DEFAULT_MINIMUM"
+    default = inspect.signature(verify_request).parameters["minimum"].default
+    assert repr(default) == "DEFAULT_MINIMUM"
 
 
 @pytest.mark.parametrize("authorities", ["api.example.com", b"api.example.com",

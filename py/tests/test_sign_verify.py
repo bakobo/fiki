@@ -325,14 +325,16 @@ def test_a_signature_older_than_max_age_is_refused():
 def test_max_age_none_declines_the_check_explicitly():
     """The escape hatch is a written decision, not an omission."""
     request, headers = fresh()
-    assert verify_request(authorities=None, 
+    assert verify_request(
+        authorities=None,
         headers=headers, max_age=None, now=SIGNED_AT + 10**6, **request
     ).aid == KEY.aid
 
 
 def test_clock_skew_is_tolerated_so_a_second_of_disagreement_is_not_an_attack():
     request, headers = fresh()
-    assert verify_request(authorities=None, 
+    assert verify_request(
+        authorities=None,
         headers=headers, max_age=300, now=SIGNED_AT + 303, **request
     ).aid == KEY.aid
 
@@ -365,7 +367,8 @@ def test_expires_is_enforced_even_when_max_age_is_none():
 
 def test_a_signature_before_its_expiry_verifies():
     request, headers = fresh(expires=SIGNED_AT + 60)
-    assert verify_request(authorities=None, 
+    assert verify_request(
+        authorities=None,
         headers=headers, max_age=None, now=SIGNED_AT + 30, **request
     ).aid == KEY.aid
 
