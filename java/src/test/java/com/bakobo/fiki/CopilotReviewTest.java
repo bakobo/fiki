@@ -77,10 +77,19 @@ class CopilotReviewTest {
     @Test
     void theFreshnessArithmeticDoesNotWrap() {
         // fiki signs no negative created (@5zrf8gjk, B16), and a verifier still meets one from a
-        // signer that is not fiki, so this one is signed over the base directly.
+        // signer that is not fiki, so this one is signed over the base directly. Since format 3
+        // part two a verifier refuses it before the clock is read (@524c8qgv), so the oldest
+        // signature the arithmetic meets is created=0.
         String base = new String(Fiki.signatureBase("GET", "https://example.com/p", Map.of(), Fiki.DEFAULT_COVERED,
-            new Fiki.Params(0L, KEY.keyid(), null, 999_999_999_999_999L, null, null)), java.nio.charset.StandardCharsets.UTF_8)
-            .replace(";created=0;", ";created=-999999999999999;");
+            new Fiki.Params(0L, KEY.keyid(), null, 999_999_999_999_999L, null, null)), java.nio.charset.StandardCharsets.UTF_8);
+        String negative = base.replace(";created=0;", ";created=-999999999999999;");
+        Map<String, String> forged = Map.of(
+            "Signature-Input", "sig=" + negative.substring(negative.lastIndexOf(": (") + 2),
+            "Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(
+                KEY.sign(negative.getBytes(java.nio.charset.StandardCharsets.UTF_8))) + ":");
+        assertEquals(FikiException.Kind.MalformedSignatureInput, assertThrows(FikiException.class, () ->
+            Fiki.verifyRequest("GET", "https://example.com/p", forged,
+                OptedOut.maxAge(300).withNow(Long.MAX_VALUE))).kind());
         Map<String, String> old = Map.of(
             "Signature-Input", "sig=" + base.substring(base.lastIndexOf(": (") + 2),
             "Signature", "sig=:" + java.util.Base64.getEncoder().encodeToString(
