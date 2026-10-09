@@ -39,11 +39,13 @@ One badge per language above, each clickable through to that port's workflow —
 
 The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all; C# fetches `BouncyCastle.Cryptography`, because .NET's has no Ed25519 yet, along with xUnit and coverlet for the tests.
 
-A green run means that implementation reproduces all 37 shared conformance vectors — including RFC 9421's own published Ed25519 signature, byte for byte.
+A green run means that implementation reproduces every shared conformance vector, 156 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
 
 ## What is covered, and the one thing that is not
 
 By default a fiki signature binds the method, the host, the path, the query string, and — whenever you hand it a body — a digest of that body. That is deliberately more than [heti](https://github.com/bakobo/heti)'s KERI dialect covers and more than it structurally can: RFC 9421 stops `@path` at the question mark, so a signature that omits `@query` cannot tell `?limit=1` from `?limit=1000000`, and a signature that omits `Content-Digest` cannot tell one request body from another. Verification recomputes the digest over the body it receives rather than trusting the header, even though the header is itself signed.
+
+A verifier holds a signature to the same standard by default. From vectors format 3 it refuses one that covers less than fiki's own signer does, one with no `created`, and a body that arrived without a covered digest; a verifier that must admit a signer covering less says so explicitly. It also states which hosts it serves, or that it declines to check, so that a request signed for one service cannot be replayed to another. Neither is left to a default, for the same reason as the freshness policy below.
 
 A verifier states its freshness policy and cannot avoid stating it: verification takes a required maximum age, in seconds, or an explicit refusal to check — both defaults would be wrong, since a value guesses at somebody else's clock skew and replay window and skipping silently is the thing the argument exists to prevent. An `expires` the signer declared is enforced regardless, because accepting one without checking it sells a guarantee nobody bought.
 
@@ -51,7 +53,7 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations, all at 0.8.0, all conforming to vectors format 2 and to the KERI profile's keri vectors format 4. The wire behaviour is settled enough that changing it now means a vectors-format bump and six coordinated releases.
+Six implementations, all released at 0.8.0, conforming to vectors format 2 and to the KERI profile's keri vectors format 4. The default branch is at vectors format 3, unreleased: verifiers fail closed by default and take a required decision about the hosts they serve (`this.i` @524c8qgv), which is breaking for any caller, and will ship as six coordinated releases.
 
 The APIs are not frozen; this is 0.x. Each port is published to the registry its ecosystem expects, by a tag-triggered workflow that needs no long-lived credential ([docs/releasing.md](docs/releasing.md)), except the Java port, which is not yet on Maven Central and is built from source:
 
