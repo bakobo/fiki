@@ -60,16 +60,19 @@ describe('headers holding one field name twice (D-Q9ZT)', () => {
       );
       const request = { method: 'POST', url: URL_, headers: { 'Content-Digest': DIGEST }, body: BODY };
       const response = await signResponse({ key: KEY, status: 200, request, created: AT });
-      await assert.rejects(() => verifyResponse({ status: 200, headers: { ...response, ...extra }, request, maxAge: null }), TypeError);
+      await assert.rejects(() => verifyResponse({ status: 200, headers: { ...response, ...extra }, request, maxAge: null, expectedKeyid: null, minimum: null }), TypeError);
       await assert.rejects(
-        () => verifyResponse({ status: 200, headers: response, request: { ...request, headers: { ...request.headers, ...extra } }, maxAge: null }),
+        () => verifyResponse({
+          status: 200, headers: response, request: { ...request, headers: { ...request.headers, ...extra } }, maxAge: null,
+          expectedKeyid: null, minimum: null,
+        }),
         TypeError,
       );
     });
   }
 
   it('refuses the signature headers doubled in case, even on an unsigned 401', async () => {
-    await assert.rejects(() => verifyResponse({ status: 401, headers: { signature: 'a', Signature: 'b' }, maxAge: null }), TypeError);
+    await assert.rejects(() => verifyResponse({ status: 401, headers: { signature: 'a', Signature: 'b' }, maxAge: null, expectedKeyid: null, minimum: null }), TypeError);
   });
 
   it('still reads one field of any case the same way everywhere', async () => {

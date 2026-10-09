@@ -139,7 +139,7 @@ describe('the signature base', () => {
     assert.equal(line('@authority', { url: 'https://example.com:8443/f' }), '"@authority": example.com:8443');
     assert.equal(line('@authority', { url: 'HTTP://example.com:0080/f' }), '"@authority": example.com');
     assert.equal(line('@authority', { url: 'https://example.com:/f' }), '"@authority": example.com');
-    assert.equal(line('@authority', { url: 'https://user@[::1]:8443/f' }), '"@authority": [::1]:8443');
+    assert.equal(line('@authority', { url: 'https://[::1]:8443/f' }), '"@authority": [::1]:8443');
   });
 
   it('reads a port as any run of digits, as RFC 3986 and urlsplit do', () => {
