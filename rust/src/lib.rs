@@ -34,6 +34,8 @@ mod errors;
 #[cfg(test)]
 mod fuzz_tests;
 mod keys;
+#[cfg(test)]
+mod linear_tests;
 mod messages;
 mod sfv;
 

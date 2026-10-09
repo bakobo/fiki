@@ -1959,18 +1959,8 @@ fn a_huge_covered_list_is_checked_in_linear_time() {
     assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
 }
 
-#[test]
-fn a_huge_parameter_list_is_parsed_in_linear_time() {
-    let params: String = (0..50_000).map(|i| format!(";p{i}=1")).collect();
-    let mut sent = signed(SignOptions::default());
-    sent.headers.insert(
-        "Signature-Input".into(),
-        format!("sig=(\"@method\");keyid=\"k\"{params}"),
-    );
-    let started = std::time::Instant::now();
-    assert_eq!(sent.kind(opted_out()), Kind::MalformedSignatureInput);
-    assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
-}
+// The parameter-list test that stood here lives in src/linear_tests.rs: it has to reach the parser
+// below the 8192-byte field bound, which only the crate can (review T5).
 
 #[test]
 fn a_minimum_requires_a_keyid_even_when_the_verifier_names_the_key() {
