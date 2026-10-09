@@ -606,7 +606,7 @@
         "input": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtz\nc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1yUX0IL+g8+zDdzkPRuwAA\nAIh7zbTSe8200gAAAAtzc2gtZWQyNTUxOQAAACAmtAuPk//z2JcRL368WCsjLb1y\nUX0IL+g8+zDdzkPRuwAAAECfg2L4ekhKlU5udAxbTA6EIpE5ogqoq1b/Zlhvan0p\nxSa0C4+T//PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7AAAAAAECAwQF\n-----END OPENSSH PRIVATE KEY-----\n",
         "aid": "BCa0C4-T__PYlxEvfrxYKyMtvXJRfQgv6Dz7MN3OQ9G7",
         "signature": "LmMzwOEkPeXMhwudb6lbWz7n4l7NtyBBGlq2sdGCY7WLYzlQj1Ldn_mLR06x3Gxe2FmLjYHfaeaC78sLMq3OBg",
-        "source": "cryptography's OpenSSH writer, RFC 9421 B.1.4's key",
+        "source": "cryptography's OpenSSH writer, RFC 9421 B.1.4's key, frozen in openssh/",
         "ssh_keygen_refuses": false
       }
     ],

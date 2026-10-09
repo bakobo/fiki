@@ -395,11 +395,13 @@ def private_accepts() -> list[dict]:
     assert len(near) > MAX_PRIVATE_CHARS - 80
     add("written-near-bound", near, SEED_A, "the longest key this writer makes within the bound")
     add("written-long-lines", armor(openssh_key(SEED_B), width=64), SEED_B, "64-character lines")
-    add("cryptography", serialization.load_ssh_private_key(
-        armor(openssh_key(RFC_SEED)).encode("ascii"), password=None
-    ).private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH, serialization.NoEncryption()
-    ).decode("ascii"), RFC_SEED, "cryptography's OpenSSH writer, RFC 9421 B.1.4's key")
+    # cryptography's writer picks random check integers, so its output is frozen as a fixture
+    # (written once, by the call below) rather than regenerated, which would change this file on
+    # every run. To refresh it, write the call's output to openssh/cryptography-rfc9421.key:
+    # serialization.load_ssh_private_key(armor(openssh_key(RFC_SEED)).encode(), None).private_bytes(
+    #     Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+    add("cryptography", (HERE / "openssh" / "cryptography-rfc9421.key").read_text("ascii"), RFC_SEED,
+        "cryptography's OpenSSH writer, RFC 9421 B.1.4's key, frozen in openssh/")
     return cases
 
 
