@@ -1,0 +1,12 @@
+# The Rust port's differential runner, a crate of its own so the port's manifest gains nothing. It
+# builds against the port in this repository and takes only serde_json, which the port's own tests
+# already use; Cargo.lock pins the same versions as rust/Cargo.lock.
+[package]
+name = "fiki-differential"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+fiki = { path = "../../rust" }
+serde_json = "1"
