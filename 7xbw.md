@@ -2,3 +2,4 @@
 kind: todo
 created: 2026-10-08T16:49Z
 
+- 2026-10-09T20:40Z Ruled 2026-10-09: do every item except Rust/Java coverage gates, which stay in 4buh.
