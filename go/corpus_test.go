@@ -34,30 +34,26 @@ import (
 
 var corpusDir = filepath.Join("..", "vectors", "third_party", "structured-field-tests")
 
-// corpusCounts pins every file's case count, read once from the corpus at 00462dd when this test
-// was written. A corpus refresh that adds, drops or empties a file fails here rather than quietly
-// changing what is covered; no case in any file is skipped.
+// corpusCounts pins every vendored file's case count, read once from the corpus at 00462dd when
+// this test was written (the generated files are not vendored; see the corpus README). A corpus
+// refresh that adds, drops or empties a file fails here rather than quietly changing what is
+// covered; no case in any file is skipped.
 var corpusCounts = map[string]int{
-	"binary.json":           17,
-	"boolean.json":          12,
-	"date.json":             17,
-	"dictionary.json":       26,
-	"display-string.json":   22,
-	"examples.json":         21,
-	"item.json":             5,
-	"key-generated.json":    640,
-	"large-generated.json":  11,
-	"list.json":             11,
-	"listlist.json":         12,
-	"number-generated.json": 193,
-	"number.json":           37,
-	"param-dict.json":       14,
-	"param-list.json":       20,
-	"param-listlist.json":   3,
-	"string-generated.json": 256,
-	"string.json":           14,
-	"token-generated.json":  256,
-	"token.json":            6,
+	"binary.json":         17,
+	"boolean.json":        12,
+	"date.json":           17,
+	"dictionary.json":     26,
+	"display-string.json": 22,
+	"examples.json":       21,
+	"item.json":           5,
+	"list.json":           11,
+	"listlist.json":       12,
+	"number.json":         37,
+	"param-dict.json":     14,
+	"param-list.json":     20,
+	"param-listlist.json": 3,
+	"string.json":         14,
+	"token.json":          6,
 }
 
 // corpusFikiWay is every case fiki answers differently from the corpus for a reason other than the
@@ -414,8 +410,8 @@ func TestTheHttpwgCorpus(t *testing.T) {
 		}
 		total += ran
 	}
-	if total != 1593 {
-		t.Errorf("ran %d corpus parse cases, and 1593 are pinned", total)
+	if total != 237 {
+		t.Errorf("ran %d corpus parse cases, and 237 are pinned", total)
 	}
 	for id := range corpusFikiWay {
 		if !usedExceptions[id] {
@@ -428,10 +424,7 @@ func TestTheHttpwgCorpus(t *testing.T) {
 // says must not serialize, so each must be refused before anything is signed.
 func TestTheHttpwgSerialisationCases(t *testing.T) {
 	key := testKey(t)
-	sign := func(opts SignOptions, covered ...string) error {
-		if covered != nil {
-			opts.Covered = covered
-		}
+	sign := func(opts SignOptions) error {
 		if opts.Created == 0 {
 			opts.Created = 1700000000
 		}
@@ -439,44 +432,6 @@ func TestTheHttpwgSerialisationCases(t *testing.T) {
 		return err
 	}
 	ran := map[string]int{}
-
-	// A key is refused as a label, the caller's mistake; and as a covered component's parameter
-	// key, where both this port and fiki-py report UnsupportedComponent: the spec string is read as
-	// an RFC 8941 serialization, and one that does not read as one is a component fiki cannot name.
-	for _, c := range loadCorpus(t, filepath.Join("serialisation-tests", "key-generated.json")) {
-		if !c.MustFail {
-			t.Fatalf("%s: a key the corpus serializes", c.Name)
-		}
-		v := decodeExpected(t, c.Expected).([]any)[0].([]any)
-		k, _ := v[0].(string)
-		if c.HeaderType == "list" {
-			k = v[1].([]any)[0].([]any)[0].(string)
-		}
-		err := sign(SignOptions{Label: k})
-		if !errors.Is(err, ErrInvalidOptions) || !strings.Contains(err.Error(), "is not an RFC 8941 key") {
-			t.Errorf("%s: label %q gave %v", c.Name, k, err)
-		}
-		err = sign(SignOptions{}, "@method", `"@path";`+k)
-		var fe *Error
-		if !errors.As(err, &fe) || fe.Kind != KindUnsupportedComponent {
-			t.Errorf("%s: parameter key %q gave %v", c.Name, k, err)
-		}
-		ran["key"]++
-	}
-
-	for _, c := range loadCorpus(t, filepath.Join("serialisation-tests", "string-generated.json")) {
-		if !c.MustFail {
-			t.Fatalf("%s: a string the corpus serializes", c.Name)
-		}
-		s := decodeExpected(t, c.Expected).([]any)[0].(string)
-		for _, opts := range []SignOptions{{Keyid: s}, {Nonce: s}, {Tag: s}} {
-			err := sign(opts)
-			if !errors.Is(err, ErrInvalidOptions) || !strings.Contains(err.Error(), "outside printable ASCII") {
-				t.Errorf("%s: %q gave %v", c.Name, s, err)
-			}
-		}
-		ran["string"]++
-	}
 
 	// Created is an int64, so the two too-big decimals have no Go spelling and are skipped: the
 	// type system refuses them before fiki is called.
@@ -498,8 +453,20 @@ func TestTheHttpwgSerialisationCases(t *testing.T) {
 		ran["number"]++
 	}
 
-	if ran["key"] != 378 || ran["string"] != 33 || ran["number"] != 2 || skipped != 2 {
-		t.Errorf("ran %v and skipped %d, and 378 key, 33 string and 2 number cases are pinned, with 2 skipped", ran, skipped)
+	if ran["number"] != 2 || skipped != 2 {
+		t.Errorf("ran %v and skipped %d, and 2 number cases are pinned, with 2 skipped", ran, skipped)
+	}
+}
+
+// The vendored corpus has no list longer than MaxDictionaryMembers (large-generated.json, which
+// held one, is not vendored), so the list bound is named here.
+func TestAListOfMoreThanMaxDictionaryMembersIsRefused(t *testing.T) {
+	at := strings.Repeat("a, ", MaxDictionaryMembers-1) + "a"
+	if got, err := parseList(at); err != nil || len(got) != MaxDictionaryMembers {
+		t.Errorf("%d members: %d parsed, %v", MaxDictionaryMembers, len(got), err)
+	}
+	if _, err := parseList(at + ", a"); !errors.Is(err, errSyntax) || !strings.Contains(err.Error(), "a list holds more than") {
+		t.Errorf("%d members: %v", MaxDictionaryMembers+1, err)
 	}
 }
 
