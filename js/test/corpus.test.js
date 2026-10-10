@@ -187,7 +187,8 @@ function outcome(file, c) {
   return 'accepted';
 }
 
-// Every parsing file, with the number of cases it holds, how many fiki accepts and how many it
+// Every vendored parsing file (the generated ones are not vendored; see the corpus README), with
+// the number of cases it holds, how many fiki accepts and how many it
 // refuses; nothing is skipped. Pinned, so a change to the corpus cannot shrink coverage silently.
 const COUNTS = {
   'binary.json': [17, 4, 13],
@@ -197,18 +198,13 @@ const COUNTS = {
   'display-string.json': [22, 0, 22],
   'examples.json': [21, 21, 0],
   'item.json': [5, 2, 3],
-  'key-generated.json': [640, 166, 474],
-  'large-generated.json': [11, 5, 6],
   'list.json': [11, 8, 3],
   'listlist.json': [12, 5, 7],
-  'number-generated.json': [193, 189, 4],
   'number.json': [37, 19, 18],
   'param-dict.json': [14, 9, 5],
   'param-list.json': [20, 10, 10],
   'param-listlist.json': [3, 3, 0],
-  'string-generated.json': [256, 95, 161],
   'string.json': [14, 6, 8],
-  'token-generated.json': [256, 134, 122],
   'token.json': [6, 6, 0],
 };
 
@@ -256,34 +252,7 @@ const signWith = (overrides) => signRequest({ key: KEY, method: 'GET', url: 'htt
 
 
 describe('the corpus serialisation cases, through signRequest', () => {
-  const counts = { label: 0, param: 0, string: 0, number: 0 };
-
-  // Each gives a key: the dictionary member's, or the list item's parameter's.
-  for (const c of loadKeepingNumbers(new URL('key-generated.json', SERIAL))) {
-    const [first] = c.expected;
-    const key = c.header_type === 'dictionary' ? first[0] : first[1][0][0];
-    it(`key-generated: ${c.name}`, async () => {
-      assert.equal(c.must_fail, true);
-      counts.label += 1;
-      counts.param += 1;
-      await assert.rejects(signWith({ label: key }), callerError('is not an RFC 8941 key'));
-      // A serialized component that does not parse, or parses to a parameter other than req, is
-      // UnsupportedComponent in fiki-py too: the spec names a component fiki cannot build, which
-      // its taxonomy names rather than calling it a caller error.
-      await assert.rejects(signWith({ covered: [`"@method";${key}`] }), errors.UnsupportedComponent);
-    });
-  }
-
-  for (const c of loadKeepingNumbers(new URL('string-generated.json', SERIAL))) {
-    const [text] = c.expected;
-    it(`string-generated: ${c.name}`, async () => {
-      assert.equal(c.must_fail, true);
-      for (const name of ['keyid', 'nonce', 'tag']) {
-        counts.string += 1;
-        await assert.rejects(signWith({ [name]: text }), callerError('is not a string of printable ASCII'));
-      }
-    });
-  }
+  const counts = { number: 0 };
 
   for (const c of loadKeepingNumbers(new URL('number.json', SERIAL)).filter((c) => c.name.startsWith('too big'))) {
     const literal = c.expected[0].__number;
@@ -295,6 +264,6 @@ describe('the corpus serialisation cases, through signRequest', () => {
   }
 
   it('ran every case', () => {
-    assert.deepEqual(counts, { label: 378, param: 378, string: 99, number: 4 });
+    assert.deepEqual(counts, { number: 4 });
   });
 });
