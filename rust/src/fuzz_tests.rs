@@ -236,7 +236,8 @@ fn misbehaviour(text: &str, header: &str, base: &Base, opts: &VerifyOptions) -> 
 #[test]
 fn mutants_of_the_corpus_and_the_vectors_never_panic_or_blame_the_caller() {
     let seeds = seeds();
-    assert!(seeds.len() > 1800, "{} seeds", seeds.len());
+    // 237 corpus values (the vendored, hand-written files) and 371 vector header values.
+    assert!(seeds.len() > 600, "{} seeds", seeds.len());
     let base = base();
     let policies = policies(base.now);
     let mut rng = Rng(SEED);

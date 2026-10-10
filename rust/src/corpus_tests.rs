@@ -35,10 +35,11 @@ use crate::{
 const NAME: &str = "Signature-Input";
 const KIND: Kind = Kind::MalformedSignatureInput;
 
-/// Every file's case count, read once from the corpus at 00462dd when this test was written. A
-/// corpus refresh that adds, drops or empties a file fails here rather than quietly changing what
-/// is covered; no case in any file is skipped.
-const CORPUS_COUNTS: [(&str, usize); 20] = [
+/// Every vendored file's case count, read once from the corpus at 00462dd when this test was
+/// written (the generated files are not vendored; see the corpus README). A corpus refresh that
+/// adds, drops or empties a file fails here rather than quietly changing what is covered; no case
+/// in any file is skipped.
+const CORPUS_COUNTS: [(&str, usize); 15] = [
     ("binary.json", 17),
     ("boolean.json", 12),
     ("date.json", 17),
@@ -46,21 +47,16 @@ const CORPUS_COUNTS: [(&str, usize); 20] = [
     ("display-string.json", 22),
     ("examples.json", 21),
     ("item.json", 5),
-    ("key-generated.json", 640),
-    ("large-generated.json", 11),
     ("list.json", 11),
     ("listlist.json", 12),
-    ("number-generated.json", 193),
     ("number.json", 37),
     ("param-dict.json", 14),
     ("param-list.json", 20),
     ("param-listlist.json", 3),
-    ("string-generated.json", 256),
     ("string.json", 14),
-    ("token-generated.json", 256),
     ("token.json", 6),
 ];
-const CORPUS_TOTAL: usize = 1593;
+const CORPUS_TOTAL: usize = 237;
 
 /// Every case fiki answers differently from the corpus for a reason other than the two rules
 /// applied to every case (RFC 9651's types and the bounds): the case, whether fiki refuses it, and
@@ -473,73 +469,6 @@ fn the_httpwg_serialisation_cases() {
     };
     let dir = "serialisation-tests";
 
-    // A key is refused as a label, the caller's mistake; and as a covered component's parameter
-    // key, where every port reports UnsupportedComponent: the spec string is read as an RFC 8941
-    // serialization, and one that does not read as one is a component fiki cannot name.
-    let mut keys = 0;
-    for case in load(&format!("{dir}/key-generated.json")) {
-        let value = first(&case, "key-generated.json");
-        let k = match case.header_type.as_str() {
-            "list" => value[1][0][0].as_str(),
-            _ => value[0].as_str(),
-        }
-        .expect("a key")
-        .to_string();
-        let err = sign(SignOptions {
-            label: Some(k.clone()),
-            ..Default::default()
-        })
-        .unwrap_err();
-        assert!(
-            err.kind == Kind::InvalidArgument && err.message.contains("is not an RFC 8941 key"),
-            "{}: label {k:?} gave {err:?}",
-            case.name
-        );
-        let err = sign(SignOptions {
-            covered: Some(vec!["@method".into(), format!("\"@path\";{k}")]),
-            ..Default::default()
-        })
-        .unwrap_err();
-        assert_eq!(
-            err.kind,
-            Kind::UnsupportedComponent,
-            "{}: parameter key {k:?} gave {err:?}",
-            case.name
-        );
-        keys += 1;
-    }
-
-    let mut strings = 0;
-    for case in load(&format!("{dir}/string-generated.json")) {
-        let s = first(&case, "string-generated.json")
-            .as_str()
-            .expect("a string")
-            .to_string();
-        for opts in [
-            SignOptions {
-                keyid: Some(s.clone()),
-                ..Default::default()
-            },
-            SignOptions {
-                nonce: Some(s.clone()),
-                ..Default::default()
-            },
-            SignOptions {
-                tag: Some(s.clone()),
-                ..Default::default()
-            },
-        ] {
-            let err = sign(opts).unwrap_err();
-            assert!(
-                err.kind == Kind::InvalidArgument
-                    && err.message.contains("outside printable ASCII"),
-                "{}: {s:?} gave {err:?}",
-                case.name
-            );
-        }
-        strings += 1;
-    }
-
     // created is an i64, so the two too-big decimals have no Rust spelling and are skipped: the
     // type system refuses them before fiki is called.
     let (mut numbers, mut skipped) = (0, 0);
@@ -568,8 +497,8 @@ fn the_httpwg_serialisation_cases() {
     }
 
     assert_eq!(
-        (keys, strings, numbers, skipped),
-        (378, 33, 2, 2),
-        "key, string and number cases run, and number cases skipped"
+        (numbers, skipped),
+        (2, 2),
+        "number cases run, and number cases skipped"
     );
 }
