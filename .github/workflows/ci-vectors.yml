@@ -37,6 +37,10 @@ jobs:
       - name: Regenerate the KERI profile's vectors
         run: uv run python ../vectors/keri/generate.py
       - name: Regenerate the key-spelling vectors
+        # Without asking ssh-keygen, whose answers depend on the installed OpenSSH; the next step
+        # restores the committed ssh_keygen_refuses values.
+        env:
+          FIKI_KEYS_SKIP_SSH_KEYGEN: "1"
         run: uv run --with base58 python ../vectors/keys/generate.py
       - name: Fail if any generated file changed
         run: |
