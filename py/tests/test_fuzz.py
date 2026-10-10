@@ -127,6 +127,6 @@ def test_mutants_reach_only_fiki_outcomes():
 
 
 def test_the_fuzz_inputs_are_all_there():
-    # 1593 corpus values, and the two signature headers of every vector that carries them.
-    assert len(TEXTS) > 1593 + 2 * 100
+    # 237 corpus values (the vendored, hand-written files), and the two signature headers of every vector that carries them.
+    assert len(TEXTS) > 237 + 2 * 100
     assert len(REQUESTS) > 100

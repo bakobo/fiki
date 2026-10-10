@@ -32,7 +32,8 @@ from fiki.messages import _parse
 
 CORPUS = Path(__file__).resolve().parents[2] / "vectors" / "third_party" / "structured-field-tests"
 
-# Every file's case count, read once from the corpus at 00462dd when this test was written. A
+# Every vendored file's case count, read once from the corpus at 00462dd when this test was written
+# (the generated files are not vendored; see the corpus README). A
 # refresh that adds, drops or empties a file fails here rather than quietly changing what is
 # covered. No case in any file is skipped.
 COUNTS = {
@@ -43,21 +44,16 @@ COUNTS = {
     "display-string.json": 22,
     "examples.json": 21,
     "item.json": 5,
-    "key-generated.json": 640,
-    "large-generated.json": 11,
     "list.json": 11,
     "listlist.json": 12,
-    "number-generated.json": 193,
     "number.json": 37,
     "param-dict.json": 14,
     "param-list.json": 20,
     "param-listlist.json": 3,
-    "string-generated.json": 256,
     "string.json": 14,
-    "token-generated.json": 256,
     "token.json": 6,
 }
-TOTAL = 1593
+TOTAL = 237
 
 # Every case fiki answers by a recorded decision rather than by the corpus, beyond the two rules
 # every case is held to (RFC 9651's types and fiki's bounds): True if fiki refuses it. Every
@@ -258,44 +254,6 @@ def sign(**overrides):
 
 def serialisation(name: str) -> list:
     return load(f"serialisation-tests/{name}")
-
-
-UNREADABLE_KEYS = 372
-
-
-def test_a_corpus_key_is_refused_as_a_label_and_as_a_component_parameter():
-    ran = unreadable = 0
-    for case in serialisation("key-generated.json"):
-        assert case["must_fail"], case["name"]
-        expected = case["expected"]
-        key = expected[0][0] if case["header_type"] == "dictionary" else expected[0][1][0][0]
-        with pytest.raises(ValueError, match="is not an RFC 8941 key"):
-            sign(label=key)
-        # Read as an RFC 8941 serialization: a key that does not parse is a component fiki
-        # cannot read, and one that parses as some other parameter, such as "a,a" read as "a",
-        # is a parameter fiki does not support. UnsupportedComponent either way, as in go, java
-        # and csharp.
-        with pytest.raises(UnsupportedComponent) as caught:
-            sign(covered=["@method", '"@path";' + key])
-        message = str(caught.value)
-        if "as a component identifier" in message:
-            unreadable += 1
-        else:
-            assert "the only component parameter it supports" in message, message
-        ran += 1
-    assert (ran, unreadable) == (378, UNREADABLE_KEYS)
-
-
-def test_a_corpus_string_is_refused_as_a_keyid_a_nonce_and_a_tag():
-    ran = 0
-    for case in serialisation("string-generated.json"):
-        assert case["must_fail"], case["name"]
-        string = case["expected"][0]
-        for field in ("keyid", "nonce", "tag"):
-            with pytest.raises(ValueError, match="outside printable ASCII"):
-                sign(**{field: string})
-            ran += 1
-    assert ran == 3 * 33
 
 
 def test_a_corpus_number_too_big_to_serialize_is_refused_as_created():
