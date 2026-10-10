@@ -105,7 +105,7 @@ def test_mutants_reach_only_fiki_outcomes():
         try:
             _parse(mutant, "Signature-Input", MalformedSignatureInput, structure)
         except MalformedSignatureInput:
-            pass
+            pass  # fiki's own refusal of the mutant: an allowed outcome, so nothing to check
         except Exception as ex:  # pragma: no cover - only a bug reaches here
             raise AssertionError(f"seed {SEED:#x} iteration {i}: parsing {mutant!r} as "
                                  f"{structure.__name__} raised {ex!r}") from ex
@@ -120,7 +120,7 @@ def test_mutants_reach_only_fiki_outcomes():
                 **_policy(rng, case))
             assert isinstance(outcome, Verdict)
         except FikiError:
-            pass
+            pass  # fiki's own refusal of the mutant: an allowed outcome, so nothing to check
         except Exception as ex:  # pragma: no cover - only a bug reaches here
             raise AssertionError(f"seed {SEED:#x} iteration {i}: verify_request with {field} "
                                  f"{headers[field]!r} raised {ex!r}") from ex

@@ -27,7 +27,7 @@ import pytest
 
 from fiki import (MAX_DICTIONARY_MEMBERS, MAX_FIELD_BYTES, MAX_INNER_LIST_ITEMS, MAX_PARAMETERS,
                   Key, sign_request)
-from fiki.errors import MalformedSignatureInput, UnsupportedComponent
+from fiki.errors import MalformedSignatureInput
 from fiki.messages import _parse
 
 CORPUS = Path(__file__).resolve().parents[2] / "vectors" / "third_party" / "structured-field-tests"

@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { FikiError, Key, errors, signRequest, verifyRequest } from '../src/index.js';
+import { Key, errors, signRequest, verifyRequest } from '../src/index.js';
 import { callerError } from './caller.js';
 
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
