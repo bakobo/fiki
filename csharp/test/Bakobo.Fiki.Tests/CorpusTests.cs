@@ -28,14 +28,14 @@ namespace Bakobo.Fiki.Tests
         private static readonly string Dir = Repo.PathTo("vectors", "third_party", "structured-field-tests");
 
         // Cases per file at hardening-a, read from the files once, so an emptied or truncated file
-        // fails rather than passing on fewer cases. Every case runs; none is skipped.
+        // fails rather than passing on fewer cases. Every case runs; none is skipped. The generated
+        // files are not vendored (see the corpus README), so only the hand-written ones are counted.
         private static readonly Dictionary<string, int> Counts = new Dictionary<string, int>
         {
             { "binary.json", 17 }, { "boolean.json", 12 }, { "date.json", 17 }, { "dictionary.json", 26 },
-            { "display-string.json", 22 }, { "examples.json", 21 }, { "item.json", 5 }, { "key-generated.json", 640 },
-            { "large-generated.json", 11 }, { "list.json", 11 }, { "listlist.json", 12 }, { "number-generated.json", 193 },
-            { "number.json", 37 }, { "param-dict.json", 14 }, { "param-list.json", 20 }, { "param-listlist.json", 3 },
-            { "string-generated.json", 256 }, { "string.json", 14 }, { "token-generated.json", 256 }, { "token.json", 6 },
+            { "display-string.json", 22 }, { "examples.json", 21 }, { "item.json", 5 }, { "list.json", 11 },
+            { "listlist.json", 12 }, { "number.json", 37 }, { "param-dict.json", 14 }, { "param-list.json", 20 },
+            { "param-listlist.json", 3 }, { "string.json", 14 }, { "token.json", 6 },
         };
 
         // The can_fail cases other than padding, and fiki-py's outcome for each: http_sfv parses the
@@ -399,58 +399,6 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void EveryGeneratedKeyIsRefusedAsALabelAndAsAComponentParameter()
-        {
-            // Every case is must_fail. As the label it is the caller's error, as py's ValueError is;
-            // as a covered component's parameter key fiki-py refuses it as UnsupportedComponent, a
-            // FikiError, since a component spelled in serialized form is read with the RFC 8941
-            // parser and any parameter but req is unsupported. Both checked against fiki-py 0.9.0.
-            var failures = new List<string>();
-            var cases = Serial("key-generated.json");
-            foreach (var test in cases)
-            {
-                var name = test.GetProperty("name").GetString()!;
-                Assert.True(test.GetProperty("must_fail").GetBoolean());
-                var first = test.GetProperty("expected")[0];
-                var key = test.GetProperty("header_type").GetString() == "dictionary" ? first[0].GetString()! : first[1][0][0].GetString()!;
-                CallerError(() => HttpSignatures.SignRequest(Signer, "GET", Url, created: 1, label: key), "is not an RFC 8941 dictionary key", name, failures);
-                try
-                {
-                    HttpSignatures.SignRequest(Signer, "GET", Url, created: 1, covered: new[] { "@method", "@path", "@query", "\"x-a\";" + key });
-                    failures.Add(name + ": signed with the key as a parameter");
-                }
-                catch (FikiException ex) when (ex.Kind == FikiErrorKind.UnsupportedComponent)
-                {
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"{name}: {ex.GetType().Name} rather than UnsupportedComponent: {ex.Message}");
-                }
-            }
-            Assert.True(failures.Count == 0, string.Join("\n", failures));
-            Assert.Equal(378, cases.Length);
-        }
-
-        [Fact]
-        public void EveryGeneratedStringIsRefusedAsAKeyidANonceAndATag()
-        {
-            var failures = new List<string>();
-            var cases = Serial("string-generated.json");
-            foreach (var test in cases)
-            {
-                var name = test.GetProperty("name").GetString()!;
-                Assert.True(test.GetProperty("must_fail").GetBoolean());
-                var text = test.GetProperty("expected")[0].GetString()!;
-                const string Fragment = "holds a character outside printable ASCII";
-                CallerError(() => HttpSignatures.SignRequest(Signer, "GET", Url, created: 1, keyId: text), Fragment, name + " (keyid)", failures);
-                CallerError(() => HttpSignatures.SignRequest(Signer, "GET", Url, created: 1, nonce: text), Fragment, name + " (nonce)", failures);
-                CallerError(() => HttpSignatures.SignRequest(Signer, "GET", Url, created: 1, tag: text), Fragment, name + " (tag)", failures);
-            }
-            Assert.True(failures.Count == 0, string.Join("\n", failures));
-            Assert.Equal(33, cases.Length);
-        }
-
-        [Fact]
         public void EveryTooBigIntegerIsRefusedAsCreated()
         {
             // The subset is number.json's "too big" cases. created is a long here, so the two
@@ -489,8 +437,8 @@ namespace Bakobo.Fiki.Tests
         public void TheSerialisationFilesAreTheOnesThisSubsetReads()
         {
             var present = Directory.GetFiles(SerialDir, "*.json").Select(Path.GetFileName).OrderBy(f => f, StringComparer.Ordinal);
-            // token-generated.json is not in the subset: fiki serializes no token a caller chose.
-            Assert.Equal(new[] { "key-generated.json", "number.json", "string-generated.json", "token-generated.json" }, present);
+            // The generated serialisation files are not vendored (see the corpus README).
+            Assert.Equal(new[] { "number.json" }, present);
         }
     }
 }
