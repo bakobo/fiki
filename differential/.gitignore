@@ -1,3 +1,5 @@
+# generate.py writes the cases deterministically, so they are generated where they are used, not committed.
+cases.json
 # Each runner writes its outcome map here; CI uploads them as artifacts, nothing commits them.
 out/
 # Build trees of the runners that need one.

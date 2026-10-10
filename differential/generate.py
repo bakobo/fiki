@@ -7,8 +7,8 @@ runners beside it record each port's answer so `compare.py` can fail on any disa
 7xbw).
 
 Deterministic and stdlib-only: a fixed seed, no clock, no set or dict iteration whose order
-depends on hashing. CI regenerates the file and fails if it differs from the committed one, as
-ci-vectors.yml does for the vectors, so the committed cases are always what this script writes.
+depends on hashing. The file is not committed: every CI runner job writes it with this script
+before answering it, so every port answers the same cases.
 
 Every case states every verifier decision -- max_age (a number, or null to decline the check), now,
 authorities (a list, or null to decline), minimum ("default", null for the explicit opt-out, or a

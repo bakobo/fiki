@@ -3,8 +3,9 @@ name: Differential
 # docs/user-guide.md and `this.i` @5zrf8gjk promise that every port gives the same answer to the
 # same input. The shared vectors check about two hundred chosen answers; on 2026-10-08 a hand-made
 # differential across the ports found the promise false on inputs nobody had chosen (tick 7xbw).
-# This runs that differential on every change: each port answers the 3,000 mutated requests in
-# differential/cases.json, and the last job fails if any case has more than one answer or any port
+# This runs that differential on every change: each port answers the 3,000 mutated requests that
+# differential/generate.py writes to differential/cases.json (deterministic and stdlib-only, so
+# every job generates the same file rather than reading a committed copy), and the last job fails if any case has more than one answer or any port
 # crashed. There is no allowlist; differential/README.md says what to do when it is red.
 on:
   push:
@@ -20,23 +21,6 @@ permissions:
   contents: read
 
 jobs:
-  # The committed cases are what the generator writes, as ci-vectors.yml checks for the vectors: a
-  # hand edit or a generator change committed without regenerating fails here.
-  drift:
-    name: differential-drift
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Regenerate the cases
-        run: python3 differential/generate.py
-      - name: Fail if cases.json changed
-        run: |
-          if ! git diff --exit-code --stat -- differential/cases.json; then
-            echo "::error::differential/cases.json differs from what differential/generate.py writes; regenerate and commit, or revert the hand edit."
-            exit 1
-          fi
-
   # One job per port, each building the port as that port's own CI workflow does, with the same
   # action pins and toolchain versions, and uploading its outcome map.
 
@@ -46,6 +30,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -68,6 +54,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -85,6 +73,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.22"
@@ -103,6 +93,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       # A debug build, as `cargo test` in ci-rust.yml is, so an integer overflow panics and is
       # recorded as a crash rather than wrapping silently.
       - name: Answer every case
@@ -120,6 +112,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -148,6 +142,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generate the cases
+        run: python3 differential/generate.py
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: "10.0.x"
