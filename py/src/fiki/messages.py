@@ -25,6 +25,7 @@ import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 
 import http_sfv
 from cryptography.exceptions import InvalidSignature
@@ -545,7 +546,7 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
         for item in items:
             if item.value == "@authority" and value_of(item, message) not in authorities:
                 raise SignatureMismatch(
-                    f'The signature covers the authority "{value_of(item, message)}", which '
+                    f"The signature covers the authority {brief(value_of(item, message))}, which "
                     "this verifier does not serve, so it was signed for somebody else."
                 )
 
@@ -848,8 +849,14 @@ _SCANNED = re.compile(
 _PADDED_BASE64 = re.compile(r"(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
 
 
-def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
-    """Parse one signature-related header, bounded before it is read (@5zrf8gjk)."""
+def _parse(raw: str, name: str, error: type[Exception], structure=http_sfv.Dictionary):
+    """Parse one signature-related header, bounded before it is read (@5zrf8gjk).
+
+    Every header fiki reads is a dictionary. ``structure`` may name http_sfv's List or Item
+    instead, which nothing in fiki reads, so that the httpwg corpus (@7fexwu3s) can run its list
+    and item cases through the same bounds and checks; a list's members are bounded at
+    MAX_DICTIONARY_MEMBERS, as every port bounds them.
+    """
     try:
         encoded = raw.encode("utf-8")
     except UnicodeEncodeError as ex:
@@ -863,7 +870,11 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
             f"The {name} header is {len(encoded)} bytes, and fiki reads one of at most "
             f"{MAX_FIELD_BYTES}."
         )
-    parsed = http_sfv.Dictionary()
+    parsed = structure()
+    # RFC 8941 section 4.2.1 parses a list of no members from an empty field; http_sfv refuses it.
+    # An empty dictionary stays refused, which the shared vectors pin (review B7).
+    if structure is http_sfv.List and not encoded.strip(b" "):
+        return parsed
     try:
         parsed.parse(encoded)
     except Exception as ex:
@@ -871,6 +882,7 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
             f"I could not parse the {name} header; RFC 9421 spells it as an RFC 8941 dictionary."
         ) from ex
     _check_counts(parsed, name, error)
+    _check_rfc_8941(parsed, name, error)
     # http_sfv decodes with Python's lenient base64, which reads data after the padding
     # differently before and after Python 3.13, so fiki checks the spelling itself (@2g4xxev9).
     # It also reads "1." as a decimal, which RFC 8941 section 4.2.4 refuses (@5zrf8gjk).
@@ -889,14 +901,43 @@ def _parse(raw: str, name: str, error: type[Exception]) -> http_sfv.Dictionary:
     return parsed
 
 
-def _check_counts(parsed: http_sfv.Dictionary, name: str, error: type[Exception]) -> None:
+def _members(parsed) -> list:
+    """The top-level members of a parsed dictionary, list or item."""
+    if isinstance(parsed, http_sfv.Dictionary):
+        return list(parsed.values())
+    if isinstance(parsed, http_sfv.List):
+        return list(parsed)
+    return [parsed]
+
+
+def _check_rfc_8941(parsed, name: str, error: type[Exception]) -> None:
+    """Refuse the two bare types RFC 9651 added, which http_sfv parses (@7vdhfv3q).
+
+    RFC 9421 references RFC 8941, which has neither a Date nor a Display String, so either one is
+    text the grammar does not allow, and gets the header's malformed class as any other does.
+    """
+    for member in _members(parsed):
+        items = list(member) if isinstance(member, http_sfv.InnerList) else []
+        for item in [member, *items]:
+            for value in [getattr(item, "value", None), *item.params.values()]:
+                kind = ("Date" if isinstance(value, datetime) else
+                        "Display String" if isinstance(value, http_sfv.DisplayString) else None)
+                if kind is not None:
+                    raise error(
+                        f"The {name} header carries a {kind}, which RFC 9651 added to structured "
+                        "fields and RFC 8941, the version RFC 9421 references, does not have."
+                    )
+
+
+def _check_counts(parsed, name: str, error: type[Exception]) -> None:
     def refuse(what: str, limit: int):
         raise error(f"The {name} header has more than {limit} {what}, which is more than fiki "
                     "reads from any honest signer.")
 
-    if len(parsed) > MAX_DICTIONARY_MEMBERS:
+    members = _members(parsed)
+    if len(members) > MAX_DICTIONARY_MEMBERS:
         refuse("members", MAX_DICTIONARY_MEMBERS)
-    for member in parsed.values():
+    for member in members:
         items = list(member) if isinstance(member, http_sfv.InnerList) else []
         if len(items) > MAX_INNER_LIST_ITEMS:
             refuse("items in one inner list", MAX_INNER_LIST_ITEMS)

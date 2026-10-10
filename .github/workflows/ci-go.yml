@@ -3,13 +3,14 @@ name: Go
 # One workflow per language, so the badge on the README says WHICH port is red rather than that
 # something is (`this.i` @4fhrre0m: the ports version and release independently, so they should
 # report independently too). A change under vectors/ triggers every one of them, because the
-# vectors are the shared contract and a change there is a change to all five.
+# vectors are the shared contract and a change there is a change to all five. So does a change
+# under docs/, whose user guide every port tests its samples against (tick 7xbw, review T6).
 on:
   push:
     branches: [main]
-    paths: ["go/**", "vectors/**", ".github/workflows/ci-go.yml"]
+    paths: ["go/**", "vectors/**", "docs/**", ".github/workflows/ci-go.yml"]
   pull_request:
-    paths: ["go/**", "vectors/**", ".github/workflows/ci-go.yml"]
+    paths: ["go/**", "vectors/**", "docs/**", ".github/workflows/ci-go.yml"]
   # A push whose webhook is lost leaves main with no run at all, and a run is bound to the commit
   # that made it, so there is no way to ask for one after the fact without a fresh commit.
   workflow_dispatch:

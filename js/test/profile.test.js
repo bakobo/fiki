@@ -28,6 +28,7 @@ import {
   verifyResponse,
   verifyingKey,
 } from '../src/index.js';
+import { callerError } from './caller.js';
 
 // Format 3 made the verifier's default minimum fiki's own signing default and authorities a
 // required decision (@524c8qgv). These tests predate both and are about other things, so they
@@ -115,12 +116,12 @@ describe('a method is required (PR #5 hostile review, finding 3)', () => {
   for (const method of [undefined, null, '', 42]) {
     it(`refuses ${JSON.stringify(method) ?? 'undefined'} as a method rather than signing "undefined"`, async () => {
       const base = { url: URL_, headers: {}, covered: ['@method'], created: AT, keyid: 'k' };
-      assert.throws(() => signatureBase({ ...base, method }), TypeError);
-      await assert.rejects(() => sign({ method }), TypeError);
+      assert.throws(() => signatureBase({ ...base, method }), callerError('is not an HTTP method'));
+      await assert.rejects(() => sign({ method }), callerError('is not an HTTP method'));
       const signed = await sign();
-      await assert.rejects(() => verify(signed, { method }), TypeError);
-      await assert.rejects(() => respond({ request: { ...REQUEST, method } }), TypeError);
-      await assert.rejects(async () => check(await respond(), { request: { ...REQUEST, method } }), TypeError);
+      await assert.rejects(() => verify(signed, { method }), callerError('is not an HTTP method'));
+      await assert.rejects(() => respond({ request: { ...REQUEST, method } }), callerError('is not an HTTP method'));
+      await assert.rejects(async () => check(await respond(), { request: { ...REQUEST, method } }), callerError('is not an HTTP method'));
     });
   }
 });
@@ -235,7 +236,7 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
 
   it('treats expectedAid and a resolver together as a programming error', async () => {
     const signed = await sign();
-    await assert.rejects(() => verify(signed, { resolve: table({}), expectedAid: KEY.aid }), TypeError);
+    await assert.rejects(() => verify(signed, { resolve: table({}), expectedAid: KEY.aid }), callerError('Pass expectedAid or resolve, not both'));
   });
 
   it('lets a resolver refuse a key state with no single signer', async () => {
@@ -463,7 +464,7 @@ describe('responses (RFC 9421 section 2.4)', () => {
   });
 
   it('requires a maxAge decision', async () => {
-    await assert.rejects(async () => verifyResponse({ status: 200, headers: await respond(), request: REQUEST, expectedKeyid: null, minimum: null }), TypeError);
+    await assert.rejects(async () => verifyResponse({ status: 200, headers: await respond(), request: REQUEST, expectedKeyid: null, minimum: null }), callerError('verifyResponse requires maxAge'));
   });
 
   it('keeps a Content-Digest the caller supplied, and returns none of its own', async () => {
@@ -743,16 +744,16 @@ describe('the minimum covered set (profile section 3)', () => {
   for (const minimum of [[], ['@method', '@path'], [req('@method')]]) {
     it(`refuses a request minimum of ${JSON.stringify(minimum)} as a caller error`, async () => {
       const signed = await sign();
-      await assert.rejects(() => verify(signed, { minimum }), TypeError);
-      await assert.rejects(() => sign({ minimum }), TypeError);
+      await assert.rejects(() => verify(signed, { minimum }), callerError('A minimum covered set must include the profile\'s own'));
+      await assert.rejects(() => sign({ minimum }), callerError('A minimum covered set must include the profile\'s own'));
     });
   }
 
   for (const minimum of [[], [...REQUEST_MINIMUM], ['@status', req('@method')]]) {
     it(`refuses a response minimum of ${JSON.stringify(minimum)} as a caller error`, async () => {
       const headers = await respond();
-      await assert.rejects(() => check(headers, { minimum }), TypeError);
-      await assert.rejects(() => respond({ minimum }), TypeError);
+      await assert.rejects(() => check(headers, { minimum }), callerError('A minimum covered set must include the profile\'s own'));
+      await assert.rejects(() => respond({ minimum }), callerError('A minimum covered set must include the profile\'s own'));
     });
   }
 });
@@ -947,6 +948,6 @@ describe('a covered "content-digest";req is recomputed over the request body', (
 
   it('is a caller error to verify without the request body it binds', async () => {
     const bodiless = { method: REQUEST.method, url: REQUEST.url, headers: REQUEST.headers };
-    await assert.rejects(async () => check(await respond(), { request: bodiless }), TypeError);
+    await assert.rejects(async () => check(await respond(), { request: bodiless }), callerError('so the request body it binds must be supplied in request.body'));
   });
 });

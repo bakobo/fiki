@@ -49,7 +49,7 @@ def test_authorities_that_are_not_a_collection_of_hosts_are_a_caller_error(autho
 
 def test_a_substring_of_a_served_host_is_never_served():
     # The fail-open this replaces: "api.example.com" as a string admitted "example.com".
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="authorities is a collection of the hosts"):
         verify_request(**_signed(), authorities="xapi.example.comx")
 
 

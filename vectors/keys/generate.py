@@ -347,8 +347,15 @@ def armor(blob: bytes, *, width: int = 70, eol: str = "\n", final_eol: bool = Tr
     return text + eol if final_eol else text
 
 
-def ssh_keygen_reads(text: str) -> bool:
-    """Whether ``ssh-keygen -y`` derives a public key from ``text``, with no passphrase."""
+def ssh_keygen_reads(text: str) -> bool | None:
+    """Whether ``ssh-keygen -y`` derives a public key from ``text``, with no passphrase.
+
+    None when FIKI_KEYS_SKIP_SSH_KEYGEN is set: the answer depends on the installed OpenSSH, so
+    CI's drift check (.github/workflows/ci-vectors.yml) regenerates without asking it and restores
+    the committed ssh_keygen_refuses values instead. Regenerate without the variable.
+    """
+    if os.environ.get("FIKI_KEYS_SKIP_SSH_KEYGEN"):
+        return None
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "key"
         path.write_text(text, "ascii", newline="")
@@ -372,7 +379,8 @@ def private_accepts() -> list[dict]:
         assert loaded.private_bytes_raw() == seed, case_id
         # Only a case marked lenient may be one ssh-keygen refuses, so that every place fiki is
         # more permissive than OpenSSH is named in the file rather than discovered.
-        assert ssh_keygen_reads(text) != lenient, f"{case_id}: ssh-keygen disagrees unexpectedly"
+        reads = ssh_keygen_reads(text)
+        assert reads is None or reads != lenient, f"{case_id}: ssh-keygen disagrees unexpectedly"
         cases.append({
             "id": case_id, "input": text, "aid": to_aid(raw_of(seed)),
             "signature": signature(seed), "source": source, "ssh_keygen_refuses": lenient,
@@ -411,7 +419,7 @@ def private_refusals() -> list[dict]:
     def refuse(case_id, text, why):
         cases.append({
             "id": case_id, "input": text, "error": "MalformedKey", "why": why,
-            "ssh_keygen_refuses": not ssh_keygen_reads(text),
+            "ssh_keygen_refuses": None if (reads := ssh_keygen_reads(text)) is None else not reads,
         })
 
     good = armor(openssh_key(SEED_A))
