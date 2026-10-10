@@ -43,7 +43,7 @@ class FuzzTest {
     static void load() throws Exception {
         File corpus = new File("../vectors/third_party/structured-field-tests");
         File[] files = corpus.listFiles((dir, name) -> name.endsWith(".json"));
-        assertTrue(files != null && files.length == 20, "the httpwg corpus's twenty parsing files");
+        assertTrue(files != null && files.length == 15, "the httpwg corpus's fifteen vendored parsing files");
         for (File file : files) {
             for (JsonNode c : MAPPER.readTree(file)) {
                 List<String> lines = new ArrayList<>();
@@ -62,7 +62,8 @@ class FuzzTest {
                 });
             }
         }
-        assertEquals(1593 + 43 + 43 + 142 + 143 + 2, SEEDS.size(), "every seed loaded");
+        // 237 corpus values: the generated files are not vendored (see the corpus README).
+        assertEquals(237 + 43 + 43 + 142 + 143 + 2, SEEDS.size(), "every seed loaded");
     }
 
     /* ------------------------------------------------------------------ the generator */

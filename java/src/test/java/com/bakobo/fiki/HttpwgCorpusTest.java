@@ -47,7 +47,8 @@ class HttpwgCorpusTest {
     /*
      * The number of cases in each parsing file at the pinned commit, read from the files once when
      * this test was written. Every case runs and none is skipped, so a corpus refresh that shrinks a
-     * file, or an emptied one, fails here rather than passing on less.
+     * file, or an emptied one, fails here rather than passing on less. The generated files are not
+     * vendored (see the corpus README), so only the hand-written ones are counted.
      */
     private static final Map<String, Integer> PARSE_CASES = Map.ofEntries(
         Map.entry("binary.json", 17),
@@ -57,18 +58,13 @@ class HttpwgCorpusTest {
         Map.entry("display-string.json", 22),
         Map.entry("examples.json", 21),
         Map.entry("item.json", 5),
-        Map.entry("key-generated.json", 640),
-        Map.entry("large-generated.json", 11),
         Map.entry("list.json", 11),
         Map.entry("listlist.json", 12),
-        Map.entry("number-generated.json", 193),
         Map.entry("number.json", 37),
         Map.entry("param-dict.json", 14),
         Map.entry("param-list.json", 20),
         Map.entry("param-listlist.json", 3),
-        Map.entry("string-generated.json", 256),
         Map.entry("string.json", 14),
-        Map.entry("token-generated.json", 256),
         Map.entry("token.json", 6));
 
     /*
@@ -76,10 +72,11 @@ class HttpwgCorpusTest {
      * change moving a case from one outcome to another shows up as a count rather than hiding in a
      * total that did not move.
      */
-    private static final int ACCEPTED = 702;
-    private static final int REFUSED_AS_THE_CORPUS_SAYS = 864;
+    private static final int ACCEPTED = 113;
+    private static final int REFUSED_AS_THE_CORPUS_SAYS = 103;
     private static final int REFUSED_DATE_OR_DISPLAY_STRING = 17;
-    private static final int REFUSED_OVER_A_BOUND = 6;
+    // None: the six cases over a bound were in large-generated.json, which is not vendored.
+    private static final int REFUSED_OVER_A_BOUND = 0;
     private static final int REFUSED_PADDING = 3;
     private static final int REFUSED_EMPTY_DICTIONARY = 1;
 
@@ -418,60 +415,8 @@ class HttpwgCorpusTest {
 
     private static final Key KEY = Key.fromSeed(new byte[32]);
 
-    private static Map<String, String> sign(Fiki.SignOptions opts) {
-        return Fiki.signRequest(KEY, "GET", "https://example.com/p", Map.of(), opts.withCreated(1));
-    }
-
     private static void callerError(String fragment, Runnable body, String label) {
         Caller.refused(fragment, body::run, label);
-    }
-
-    // serialisation-tests/key-generated.json: 378 cases, all must_fail.
-    private static final int SERIALISED_KEYS = 378;
-
-    @Test
-    void everyKeyTheCorpusCannotSerializeIsRefusedAsALabelAndAsAComponentParameter() throws Exception {
-        JsonNode cases = load("serialisation-tests/key-generated.json");
-        assertEquals(SERIALISED_KEYS, cases.size());
-        int ran = 0;
-        for (JsonNode c : cases) {
-            String label = c.get("name").asText();
-            assertTrue(c.path("must_fail").asBoolean(), label);
-            JsonNode expected = c.get("expected");
-            String key = c.get("header_type").asText().equals("dictionary")
-                ? expected.get(0).get(0).asText()
-                : expected.get(0).get(1).get(0).get(0).asText();
-            callerError("is not an RFC 8941 key", () -> sign(Fiki.SignOptions.none().withLabel(key)), label);
-            // As a covered component's parameter key the refusal is fiki's UnsupportedComponent, in
-            // every port: a spec with a key that is not one does not parse, and one that parses names
-            // a parameter other than "req", which fiki refuses (@3e7wnyvg, @5zrf8gjk).
-            FikiException e = assertThrows(FikiException.class, () -> sign(Fiki.SignOptions.none()
-                .withCovered(List.of("\"@method\";" + key))), label);
-            assertEquals(FikiException.Kind.UnsupportedComponent, e.kind(), label);
-            ran++;
-        }
-        assertEquals(SERIALISED_KEYS, ran);
-    }
-
-    // serialisation-tests/string-generated.json: 33 cases, all must_fail.
-    private static final int SERIALISED_STRINGS = 33;
-
-    @Test
-    void everyStringTheCorpusCannotSerializeIsRefusedAsAKeyidNonceAndTag() throws Exception {
-        JsonNode cases = load("serialisation-tests/string-generated.json");
-        assertEquals(SERIALISED_STRINGS, cases.size());
-        int ran = 0;
-        for (JsonNode c : cases) {
-            String label = c.get("name").asText();
-            assertTrue(c.path("must_fail").asBoolean(), label);
-            String text = c.get("expected").get(0).asText();
-            String fragment = "outside visible ASCII";
-            callerError(fragment, () -> sign(Fiki.SignOptions.none().withKeyid(text)), label);
-            callerError(fragment, () -> sign(Fiki.SignOptions.none().withNonce(text)), label);
-            callerError(fragment, () -> sign(Fiki.SignOptions.none().withTag(text)), label);
-            ran++;
-        }
-        assertEquals(SERIALISED_STRINGS, ran);
     }
 
     // serialisation-tests/number.json: 9 cases. The two too-big integers run as created; the two
@@ -502,14 +447,5 @@ class HttpwgCorpusTest {
         }
         assertEquals(SERIALISED_NUMBERS_RUN, ran);
         assertEquals(SERIALISED_NUMBERS - SERIALISED_NUMBERS_RUN, skipped);
-    }
-
-    // serialisation-tests/token-generated.json: 124 cases, none run: fiki serializes no token a
-    // caller chooses, so this file is outside the subset.
-    private static final int SERIALISED_TOKENS = 124;
-
-    @Test
-    void theTokenSerialisationFileIsSkippedWhole() throws Exception {
-        assertEquals(SERIALISED_TOKENS, load("serialisation-tests/token-generated.json").size());
     }
 }
