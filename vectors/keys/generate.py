@@ -502,7 +502,7 @@ def private_refusals() -> list[dict]:
 
 
 def main() -> None:
-    if shutil.which("ssh-keygen") is None:
+    if not os.environ.get("FIKI_KEYS_SKIP_SSH_KEYGEN") and shutil.which("ssh-keygen") is None:
         sys.exit("ssh-keygen is required: it is the oracle for every private-key case.")
     data = {
         "about": "Key-spelling vectors for fiki (this.i @0mvgkwnl). Every implementation runs these.",
