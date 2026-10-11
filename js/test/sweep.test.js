@@ -12,7 +12,6 @@ import { describe, it } from 'node:test';
 
 import * as fiki from '../src/index.js';
 import {
-  FikiError,
   Key,
   REQUEST_MINIMUM,
   contentDigest,
@@ -26,6 +25,7 @@ import {
   verifyResponse,
 } from '../src/index.js';
 import { parseDictionary } from '../src/sfv.js';
+import { callerError } from './caller.js';
 
 // Format 3 made the verifier's default minimum fiki's own signing default and authorities a
 // required decision (@524c8qgv). These tests predate both and are about other things, so they
@@ -77,8 +77,6 @@ const cesr = (code, bytes) => code + Buffer.concat([Buffer.alloc(1), Buffer.from
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const flipPadBit = (aid) => aid[0] + ALPHABET[ALPHABET.indexOf(aid[1]) ^ 16] + aid.slice(2);
 
-/** A caller error: a TypeError, never a FikiError. */
-const callerError = (err) => err instanceof TypeError && !(err instanceof FikiError);
 
 describe('A3: an IP-literal keeps its brackets, and only :port may follow "]"', () => {
   for (const [url, expected] of [
@@ -90,7 +88,7 @@ describe('A3: an IP-literal keeps its brackets, and only :port may follow "]"', 
   }
 
   for (const url of ['https://[::1]x/things', 'https://[::1]:443x/things', 'https://[::1/things', 'https://::1]/things', 'https://a]b/x']) {
-    it(`${url} is a caller error when signing`, () => assert.throws(() => authority(url), callerError));
+    it(`${url} is a caller error when signing`, () => assert.throws(() => authority(url), callerError('cannot be read:')));
   }
 
   for (const url of ['https://[::1]x/things', 'https://[::1/things']) {
@@ -107,7 +105,7 @@ describe('A3: what sits between an IP-literal\'s brackets is an IPv6 address or 
     '1:2:3:4:5:6:7:8:9', '::01.2.3.4', '::256.1.1.1', '12345::', '', '1::2::3'];
   for (const inside of notAddresses) {
     it(`[${inside}] is a caller error when signing`, () =>
-      assert.throws(() => authority(`https://[${inside}]/x`), callerError));
+      assert.throws(() => authority(`https://[${inside}]/x`), callerError('its IP-literal is not an IPv6 address or IPvFuture')));
     it(`[${inside}] is a signature mismatch when verifying`, async () => {
       const [request, headers] = await sign({ url: 'https://[::1]/x' });
       await assert.rejects(verify({ ...request, url: `https://[${inside}]/x` }, headers), errors.SignatureMismatch);
@@ -129,7 +127,7 @@ describe('B14: a port of thousands of digits is read without converting them', (
   });
   for (const port of [`${zeros}65536`, `1${zeros}`, '9'.repeat(5000)]) {
     it(`a port of ${port.length} digits is out of range`, async () => {
-      assert.throws(() => authority(`https://a.example:${port}/x`), callerError);
+      assert.throws(() => authority(`https://a.example:${port}/x`), callerError('is not a number from 0 to 65535'));
       const [request, headers] = await sign({ url: 'https://a.example/x' });
       await assert.rejects(verify({ ...request, url: `https://a.example:${port}/x` }, headers), errors.SignatureMismatch);
     });
@@ -139,45 +137,87 @@ describe('B14: a port of thousands of digits is read without converting them', (
 describe('A4: header values are strings, and a field is named once', () => {
   for (const headers of [{ 'x-a': null }, { 'x-a': undefined }, { 'x-a': 1 }, { 'x-a': ['1'] }]) {
     it(`${JSON.stringify(headers)} is a caller error on sign and verify`, async () => {
-      await assert.rejects(sign({ headers }), callerError);
-      await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null }), callerError);
+      await assert.rejects(sign({ headers }), callerError('A header is a name and a string value'));
+      await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null }), callerError('A header is a name and a string value'));
     });
   }
 
   it('two names equal case-insensitively are a caller error, whatever the first value', async () => {
-    await assert.rejects(sign({ headers: { 'X-A': '', 'x-a': '1' } }), callerError);
-    await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: { 'X-A': '1', 'x-a': '1' }, maxAge: null }), callerError);
+    await assert.rejects(sign({ headers: { 'X-A': '', 'x-a': '1' } }), callerError('twice in different case, so it holds two values for one field'));
+    await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: { 'X-A': '1', 'x-a': '1' }, maxAge: null }), callerError('twice in different case, so it holds two values for one field'));
   });
 });
 
+/** The least time over several interleaved trials of each shape, so a slow or loaded runner, which
+ * slows every trial alike, changes no ratio, and one descheduled trial changes no minimum. */
+function fastest(shapes, parse, { trials = 9, reps = 40 } = {}) {
+  const best = shapes.map(() => Infinity);
+  for (let trial = 0; trial < trials; trial += 1) {
+    shapes.forEach((text, i) => {
+      const start = performance.now();
+      for (let rep = 0; rep < reps; rep += 1) parse(text);
+      best[i] = Math.min(best[i], performance.now() - start);
+    });
+  }
+  return best;
+}
+
 describe('A6: parsing the signature headers is linear', () => {
-  it('reads the largest header the bounds admit quickly', async () => {
-    // Sixty-four components of the longest names that fit, each with sixteen parameters: a
-    // pairwise scan anywhere would make this visibly slow, and a linear parse is well under the
-    // limit even on a loaded machine.
-    const item = `"${'a'.repeat(8)}"${';p'.repeat(16)}`;
-    const text = `sig=(${Array(64).fill(item).join(' ')})`;
-    assert.ok(new TextEncoder().encode(text).length < fiki.MAX_FIELD_BYTES);
-    const start = performance.now();
-    for (let i = 0; i < 100; i += 1) parseDictionary(text);
-    assert.ok(performance.now() - start < 2000);
+  // Compared by ratio rather than against a clock (tick 7xbw): the time at four times the size must
+  // stay well under the sixteen times a quadratic parse would take. Absolute time failed on a
+  // loaded machine and passed a quadratic parse on a fast one.
+  const QUADRATIC = 16;
+  const shapes = (n) => [
+    // One component whose name is most of the field.
+    `sig=("${'a'.repeat(n * 118)}")`,
+    // n components, each with sixteen distinct parameters.
+    `sig=(${Array.from({ length: n }, (_, i) => `"c${i}"${Array.from({ length: 16 }, (_, j) => `;k${j}`).join('')}`).join(' ')})`,
+  ];
+
+  it('takes well under four times as long again at four times the size', () => {
+    const small = shapes(16);
+    const large = shapes(64);
+    for (const text of large) assert.ok(new TextEncoder().encode(text).length <= fiki.MAX_FIELD_BYTES, text.length);
+    for (const [i, text] of large.entries()) assert.ok(text.length > 3 * small[i].length, `${text.length} vs ${small[i].length}`);
+    const times = fastest([...small, ...large], parseDictionary);
+    for (let i = 0; i < small.length; i += 1) {
+      const ratio = times[small.length + i] / times[i];
+      assert.ok(ratio < QUADRATIC / 2, `shape ${i}: ${times[small.length + i].toFixed(2)} ms at 4N against ${times[i].toFixed(2)} ms at N, a ratio of ${ratio.toFixed(1)}`);
+    }
+  });
+
+  it('refuses an over-long inner list without reading it to its end (@5zrf8gjk)', () => {
+    // The item bound is enforced as the parse reaches it, so the work stops at the 65th item and
+    // does not grow with what follows: four times the input takes about the same time, where
+    // reading to the end would take four times as long.
+    const list = (n) => `sig=(${Array(n).fill('"a"').join(' ')})`;
+    const [short, long] = [list(20_000), list(80_000)];
+    for (const text of [short, long]) assert.throws(() => parseDictionary(text), /more than 64 items/);
+    const [n, n4] = fastest([short, long], (text) => {
+      try {
+        parseDictionary(text);
+      } catch {
+        // the refusal is the point
+      }
+    }, { reps: 200 });
+    assert.ok(n4 / n < 2, `${n4.toFixed(2)} ms at 4N against ${n.toFixed(2)} ms at N, a ratio of ${(n4 / n).toFixed(1)}`);
   });
 });
 
 describe('A7: a supplied Content-Digest must match the body it is signed with', () => {
   for (const digest of ['sha-256=:AAAA:', 'x-unknown=:AAAA:', 'not a dictionary (((']) {
     it(`${digest} is a caller error on sign`, async () => {
-      await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': digest } }), callerError);
+      await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': digest } }), callerError('The Content-Digest supplied with this body is not one a verifier would accept'));
       await assert.rejects(
         signResponse({ key: KEY, status: 200, body: BODY, headers: { 'content-digest': digest }, created: AT }),
-        callerError,
+        callerError('The Content-Digest supplied with this body is not one a verifier would accept'),
       );
     });
   }
 
   it('a digest of another body is a caller error on sign', async () => {
     const digest = await contentDigest(new TextEncoder().encode('another body'));
-    await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': digest } }), callerError);
+    await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': digest } }), callerError('The Content-Digest supplied with this body is not one a verifier would accept'));
   });
 
   it('a supplied digest that matches is signed as given', async () => {
@@ -319,24 +359,24 @@ describe('A12: RFC 8941 parsing is strict', () => {
 describe('B13: the method is a token, wherever a request message is built', () => {
   for (const method of ['', ' ', 'G T', 'GET\r\n', 'GET\n', 'G(T', 'café']) {
     it(`${JSON.stringify(method)} is a caller error`, async () => {
-      await assert.rejects(sign({ method, covered: ['@path'] }), callerError);
-      assert.throws(() => signatureBase({ method, url: URL_, headers: {}, covered: ['@path'], ...BASE_ARGS }), callerError);
+      await assert.rejects(sign({ method, covered: ['@path'] }), callerError('is not an HTTP method'));
+      assert.throws(() => signatureBase({ method, url: URL_, headers: {}, covered: ['@path'], ...BASE_ARGS }), callerError('is not an HTTP method'));
       const [request, headers] = await sign();
-      await assert.rejects(verify({ ...request, method }, headers), callerError);
+      await assert.rejects(verify({ ...request, method }, headers), callerError('is not an HTTP method'));
       assert.throws(
         () => responseSignatureBase({ status: 200, headers: {}, covered: ['@status'], request: { method, url: URL_ }, ...BASE_ARGS }),
-        callerError,
+        callerError('is not an HTTP method'),
       );
       await assert.rejects(
         verifyResponse({ status: 200, headers: {}, maxAge: null, expectedKeyid: null, minimum: null, request: { method, url: URL_ } }),
-        callerError,
+        callerError('is not an HTTP method'),
       );
     });
   }
 
   it('a method that is not a string is a caller error', async () => {
-    await assert.rejects(sign({ method: null, covered: ['@path'] }), callerError);
-    await assert.rejects(sign({ method: new TextEncoder().encode('GET'), covered: ['@path'] }), callerError);
+    await assert.rejects(sign({ method: null, covered: ['@path'] }), callerError('is not an HTTP method'));
+    await assert.rejects(sign({ method: new TextEncoder().encode('GET'), covered: ['@path'] }), callerError('is not an HTTP method'));
   });
 
   for (const method of ['M-SEARCH', 'get', 'PROPFIND', "x!#$%&'*+.^_`|~1"]) {
@@ -366,8 +406,8 @@ describe('B14: a port is a run of ASCII digits, read as a number, in 0..65535', 
   const BAD_PORTS = ['65536', '99999', '8x', '+80', ' 80', '-1', '٨٠', '80 ', '0x50', '1e3'];
   for (const port of BAD_PORTS) {
     it(`${JSON.stringify(port)} is a caller error when signing`, async () => {
-      assert.throws(() => authority(`https://a.example:${port}/x`), callerError);
-      await assert.rejects(sign({ url: `https://a.example:${port}/x` }), callerError);
+      assert.throws(() => authority(`https://a.example:${port}/x`), callerError('cannot be read:'));
+      await assert.rejects(sign({ url: `https://a.example:${port}/x` }), callerError('cannot be read:'));
     });
 
     it(`${JSON.stringify(port)} is a signature mismatch when verifying`, async () => {
@@ -397,14 +437,14 @@ describe('B14: a port is a run of ASCII digits, read as a number, in 0..65535', 
 describe('B15: what the signer serializes must be serializable', () => {
   for (const label of ['a\r\nb', 'Sig', '1sig', '', 'si g', 'sigé', '-a']) {
     it(`the label ${JSON.stringify(label)} is a caller error`, async () => {
-      await assert.rejects(sign({ label }), callerError);
-      await assert.rejects(signResponse({ key: KEY, status: 200, created: AT, label }), callerError);
+      await assert.rejects(sign({ label }), callerError('is not an RFC 8941 key'));
+      await assert.rejects(signResponse({ key: KEY, status: 200, created: AT, label }), callerError('is not an RFC 8941 key'));
     });
   }
 
   it('a label that is not a string is a caller error', async () => {
-    await assert.rejects(sign({ label: null }), callerError);
-    await assert.rejects(sign({ label: 7 }), callerError);
+    await assert.rejects(sign({ label: null }), callerError('is not an RFC 8941 key'));
+    await assert.rejects(sign({ label: 7 }), callerError('is not an RFC 8941 key'));
   });
 
   for (const label of ['sig', '*', 'a1_.-*', 'signify']) {
@@ -418,19 +458,19 @@ describe('B15: what the signer serializes must be serializable', () => {
   for (const field of ['keyid', 'nonce', 'tag', 'alg']) {
     for (const value of ['a\r\nb', 'a\nb', 'café', 'a\x7f', 'a\tb', '\x00']) {
       it(`the ${field} ${JSON.stringify(value)} is a caller error`, async () => {
-        if (field !== 'alg') await assert.rejects(sign({ [field]: value }), callerError);
+        if (field !== 'alg') await assert.rejects(sign({ [field]: value }), callerError('is not a string of printable ASCII'));
         assert.throws(
           () => signatureBase({ method: 'GET', url: URL_, headers: {}, covered: ['@path'], ...BASE_ARGS, [field]: value }),
-          callerError,
+          callerError('is not a string of printable ASCII'),
         );
       });
     }
 
     it(`a ${field} that is not a string is a caller error`, async () => {
-      if (field !== 'alg') await assert.rejects(sign({ [field]: 7 }), callerError);
+      if (field !== 'alg') await assert.rejects(sign({ [field]: 7 }), callerError('is not a string of printable ASCII'));
       assert.throws(
         () => responseSignatureBase({ status: 200, headers: {}, covered: ['@status'], ...BASE_ARGS, [field]: 7 }),
-        callerError,
+        callerError('is not a string of printable ASCII'),
       );
     });
   }
@@ -445,15 +485,15 @@ describe('B15: what the signer serializes must be serializable', () => {
 
   for (const name of ['x\r\ny', 'a b', '', 'x:y', 'café', 'x\t']) {
     it(`the component name ${JSON.stringify(name)} is a caller error`, async () => {
-      await assert.rejects(sign({ covered: ['@method', name], headers: name ? { [name]: '1' } : {} }), callerError);
+      await assert.rejects(sign({ covered: ['@method', name], headers: name ? { [name]: '1' } : {} }), callerError('is not a component fiki can name'));
     });
   }
 
   it('a serialized component whose name is not a field name is a caller error', async () => {
-    await assert.rejects(sign({ covered: ['"a b"'] }), callerError);
+    await assert.rejects(sign({ covered: ['"a b"'] }), callerError('is not a component fiki can name'));
     await assert.rejects(
       signResponse({ key: KEY, status: 200, created: AT, covered: ['@status', '"a b";req'], request: { method: 'GET', url: URL_ } }),
-      callerError,
+      callerError('is not a component fiki can name'),
     );
   });
 
@@ -472,10 +512,10 @@ describe("B16: created and expires fit RFC 8941's integer range", () => {
   for (const field of ['created', 'expires']) {
     for (const value of [1e15, -1, 2 ** 64, 1.5, Number.NaN, Infinity, '1700000000', true, 1700000000n]) {
       it(`${field}=${String(value)} is a caller error`, async () => {
-        await assert.rejects(sign({ [field]: value }), callerError);
+        await assert.rejects(sign({ [field]: value }), callerError('RFC 8941 carries an integer of at most fifteen digits'));
         assert.throws(
           () => signatureBase({ method: 'GET', url: URL_, headers: {}, covered: ['@path'], ...BASE_ARGS, [field]: value }),
-          callerError,
+          callerError('RFC 8941 carries an integer of at most fifteen digits'),
         );
       });
     }
@@ -493,15 +533,15 @@ describe('B17: maxAge and skew are positive integers when given', () => {
     for (const value of [0, -1, -1e30, 1.5, '300', true, Number.NaN, 300n]) {
       it(`${field}=${String(value)} is a caller error`, async () => {
         const [request, headers] = await sign();
-        await assert.rejects(verify(request, headers, { [field]: value }), callerError);
-        await assert.rejects(verifyResponse({ status: 200, headers: {}, maxAge: null, expectedKeyid: null, minimum: null, [field]: value }), callerError);
+        await assert.rejects(verify(request, headers, { [field]: value }), callerError('a freshness window is a positive whole number of seconds'));
+        await assert.rejects(verifyResponse({ status: 200, headers: {}, maxAge: null, expectedKeyid: null, minimum: null, [field]: value }), callerError('a freshness window is a positive whole number of seconds'));
       });
     }
   }
 
   it('skew null is not a way to decline the check', async () => {
     const [request, headers] = await sign();
-    await assert.rejects(verify(request, headers, { skew: null }), callerError);
+    await assert.rejects(verify(request, headers, { skew: null }), callerError('a freshness window is a positive whole number of seconds'));
   });
 
   it('maxAge null still declines the age check', async () => {
@@ -605,7 +645,7 @@ describe('B20: input bounds, size before shape', () => {
       for (const covered of [['@status', req('content-digest')], undefined]) {
         await assert.rejects(signResponse({ key: KEY, status: 200, request: asked, created: AT, covered }), errors.MalformedDigest);
       }
-      await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': value } }), callerError);
+      await assert.rejects(sign({ method: 'POST', body: BODY, headers: { 'Content-Digest': value } }), callerError('The Content-Digest supplied with this body is not one a verifier would accept'));
     });
   }
 
@@ -680,7 +720,7 @@ describe('E, superseded by @524c8qgv: a target holding a space or a control is r
     '/p\nx',
   ]) {
     it(`${JSON.stringify(url)} is a caller error on sign and a mismatch on verify`, async () => {
-      assert.throws(() => linesOf(url), TypeError);
+      assert.throws(() => linesOf(url), callerError('it contains a space or a control character'));
       const [request, headers] = await sign({ url: 'https://a.example/p' });
       await assert.rejects(verify({ ...request, url }, headers), errors.SignatureMismatch);
     });
@@ -760,11 +800,10 @@ describe('format 3 part two', () => {
     it(`refuses an expectedKeyid of ${Object.prototype.toString.call(value)} ${String(value)} as a mistake in the call`, async () => {
       // "" names no AID, and reading it as the decline would turn a missing value into "any signer".
       const [request, headers] = await sign();
-      const callerError = (err) => err instanceof TypeError && !(err instanceof FikiError);
-      await assert.rejects(verify(request, headers, { expectedKeyid: value }), callerError);
+      await assert.rejects(verify(request, headers, { expectedKeyid: value }), callerError('verifyRequest\'s expectedKeyid is'));
       await assert.rejects(
         verifyResponse({ status: 200, headers: {}, maxAge: null, minimum: null, expectedKeyid: value }),
-        callerError,
+        callerError('verifyResponse\'s expectedKeyid is'),
       );
     });
   }
@@ -773,7 +812,7 @@ describe('format 3 part two', () => {
     const asked = { method: 'GET', url: URL_, headers: {} };
     const headers = await signResponse({ key: KEY, status: 200, request: asked, created: AT, covered: ['@status'] });
     const args = { status: 200, headers, request: asked, maxAge: null };
-    await assert.rejects(verifyResponse(args), (err) => err instanceof TypeError && !(err instanceof FikiError));
+    await assert.rejects(verifyResponse(args), callerError('verifyResponse requires expectedKeyid'));
     await assert.rejects(verifyResponse({ ...args, expectedKeyid: null }), errors.InsufficientCoverage);
     assert.deepEqual((await verifyResponse({ ...args, expectedKeyid: KEY.keyid, minimum: null })).covered, ['@status']);
   });

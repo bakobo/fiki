@@ -22,6 +22,7 @@ import {
   verifyingKey,
 } from '../src/index.js';
 import { parseDictionary, serializeInnerList } from '../src/sfv.js';
+import { callerError } from './caller.js';
 
 // Format 3 made the verifier's default minimum fiki's own signing default and authorities a
 // required decision (@524c8qgv). These tests predate both and are about other things, so they
@@ -158,12 +159,12 @@ describe('the signature base', () => {
   });
 
   it('refuses a URL whose port is not a port as a caller error', () => {
-    assert.throws(() => line('@authority', { url: 'https://example.com:http/f' }), TypeError);
-    assert.throws(() => line('@authority', { url: 'https://example.com:65536/f' }), TypeError);
-    assert.throws(() => line('@authority', { url: 'https://example.com:00000000000000000000065536/f' }), TypeError);
-    assert.throws(() => line('@authority', { url: 'https://example.com:99999999999999999999999/f' }), TypeError);
-    assert.throws(() => line('@authority', { url: 'https://example.com:-1/f' }), TypeError);
-    assert.throws(() => line('@authority', { url: 'https://example.com:\u0661/f' }), TypeError);
+    assert.throws(() => line('@authority', { url: 'https://example.com:http/f' }), callerError('is not a number from 0 to 65535'));
+    assert.throws(() => line('@authority', { url: 'https://example.com:65536/f' }), callerError('is not a number from 0 to 65535'));
+    assert.throws(() => line('@authority', { url: 'https://example.com:00000000000000000000065536/f' }), callerError('is not a number from 0 to 65535'));
+    assert.throws(() => line('@authority', { url: 'https://example.com:99999999999999999999999/f' }), callerError('is not a number from 0 to 65535'));
+    assert.throws(() => line('@authority', { url: 'https://example.com:-1/f' }), callerError('is not a number from 0 to 65535'));
+    assert.throws(() => line('@authority', { url: 'https://example.com:\u0661/f' }), callerError('its host is not ASCII'));
   });
 
   it('takes the path and query exactly as sent, unnormalized', () => {
@@ -172,8 +173,8 @@ describe('the signature base', () => {
     assert.equal(line('@path', { url: 'https://example.com/a/../b/%7euser' }), '"@path": /a/../b/%7euser');
     assert.equal(line('@query', { url: 'https://example.com/f?q=a%20b/../c' }), '"@query": ?q=a%20b/../c');
     // A space or a fragment is refused rather than kept or stripped (@524c8qgv), a caller error here.
-    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a b' }), TypeError);
-    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a#frag' }), TypeError);
+    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a b' }), callerError('it contains a space or a control character'));
+    assert.throws(() => line('@query', { url: 'https://example.com/f?q=a#frag' }), callerError('it carries a fragment, which no request target has'));
   });
 
   it('treats an empty path as the slash the origin server sees', () => {
@@ -284,13 +285,13 @@ describe('signing and verifying', () => {
 
   it('refuses a request with no freshness policy stated at all', async () => {
     const { request, headers } = await signed();
-    await assert.rejects(() => verifyRequest({ ...POLICY, ...request, headers }), TypeError);
+    await assert.rejects(() => verifyRequest({ ...POLICY, ...request, headers }), callerError('verifyRequest requires maxAge'));
   });
 
   it('refuses to sign a digest naming only algorithms it cannot compute, as the caller\'s mistake', async () => {
     // The verifier's refusal of the same header, MalformedDigest, is the shared vector
     // content-digest-fiki-cannot-compute; signing one is a caller error (@5zrf8gjk, E5).
-    await assert.rejects(() => signed({ headers: { 'Content-Digest': 'sha-1=:AAAA:' } }), TypeError);
+    await assert.rejects(() => signed({ headers: { 'Content-Digest': 'sha-1=:AAAA:' } }), callerError('The Content-Digest supplied with this body is not one a verifier would accept'));
   });
 
   it('accepts a digest naming an unknown algorithm alongside one it knows', async () => {
@@ -476,17 +477,17 @@ describe("the verifier's stated policy (@524c8qgv)", () => {
     assert.equal(verdict.aid, AID);
   });
 
-  for (const [id, authorities] of [
-    ['a number', 443],
-    ['a plain object', { 'api.example.com': true }],
-    ['a String object', Object('api.example.com')],
-    ['an empty Set', new Set()],
-    ['a Set holding a number', new Set(['api.example.com', 443])],
+  for (const [id, authorities, fragment] of [
+    ['a number', 443, 'authorities is a collection of the hosts'],
+    ['a plain object', { 'api.example.com': true }, 'authorities is a collection of the hosts'],
+    ['a String object', Object('api.example.com'), 'authorities is a collection of the hosts'],
+    ['an empty Set', new Set(), 'authorities is empty, which serves no host at all'],
+    ['a Set holding a number', new Set(['api.example.com', 443]), 'Every authority is a string'],
   ]) {
     it(`refuses ${id} as authorities with a TypeError before reading the message`, async () => {
       await assert.rejects(
         () => verifyRequest({ method: 'GET', url: '/', headers: {}, maxAge: null, authorities }),
-        (e) => e instanceof TypeError && !(e instanceof errors.FikiError),
+        callerError(fragment),
       );
     });
   }

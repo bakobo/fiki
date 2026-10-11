@@ -803,9 +803,19 @@ function checkInput(member, { requireKeyid, requireCreated }) {
 /** Parse one signature-related header, bounded before it is read (@5zrf8gjk).
  *
  * Size before shape: the raw field value is measured in UTF-8 bytes before any parsing or
- * trimming, and the parser enforces the member, item and parameter counts as it goes.
+ * trimming, and the parser enforces the member, item and parameter counts as it goes. Exported to
+ * the tests, which run the httpwg corpus through it (@7fexwu3s), and not from the package.
  */
-function parse(raw, name, ErrorClass) {
+export function parse(raw, name, ErrorClass) {
+  // A lone surrogate has no UTF-8 spelling, so no peer sent it and nothing can read it. Refused
+  // before the count, as fiki-py refuses it, so the two ports give one message for one input
+  // (tick 7us4): TextEncoder would otherwise count it as the three bytes of U+FFFD.
+  if (!raw.isWellFormed()) {
+    throw new ErrorClass(
+      `The ${name} header holds a character that has no UTF-8 encoding, so it cannot be read as an ` +
+        'RFC 8941 dictionary.',
+    );
+  }
   const size = utf8(raw).length;
   if (size > MAX_FIELD_BYTES) {
     throw new ErrorClass(`The ${name} header is ${size} bytes, and fiki reads one of at most ${MAX_FIELD_BYTES}.`);

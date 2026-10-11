@@ -23,6 +23,7 @@ import {
   verifyResponse,
   verifyingKey,
 } from '../src/index.js';
+import { callerError } from './caller.js';
 
 const VECTORS = new URL('../../vectors/', import.meta.url);
 
@@ -80,6 +81,11 @@ const cases = (name) =>
     const unknown = Object.keys(c).filter((field) => !FIELDS[name].has(field));
     return { ...c, unknown };
   });
+
+// How many cases of each file this driver ran, against the number pinned in CASES at the end of
+// the file (tick 7xbw, T8): an emptied cases array passed every driver before.
+const ran = new Map();
+const tally = (name) => ran.set(name, (ran.get(name) ?? 0) + 1);
 
 const known = (c) => assert.deepEqual(c.unknown, [], `unknown fields ${c.unknown.join(', ')}`);
 
@@ -161,6 +167,23 @@ function responseArgs(c) {
   return args;
 }
 
+// The fragment of fiki's own message each caller-error case must carry, so that a TypeError from a
+// bug inside fiki cannot pass for the refusal (tick 7xbw, T3). Keyed by case id, across misuse.json
+// and signs.json, whose ids are distinct.
+const CALLER = {
+  'authorities-holds-a-non-string': 'Every authority is a string',
+  'authorities-is-a-string': 'authorities is a collection of the hosts',
+  'authorities-is-a-string-containing-the-host': 'authorities is a collection of the hosts',
+  'authorities-is-empty': 'authorities is empty, which serves no host at all',
+  'authorities-omitted': 'verifyRequest requires authorities',
+  'minimum-below-the-profiles': "A minimum covered set must include the profile's own",
+  'minimum-empty': "A minimum covered set must include the profile's own",
+  'response-expected-keyid-empty': "verifyResponse's expectedKeyid is empty",
+  'response-expected-keyid-omitted': 'verifyResponse requires expectedKeyid',
+  'response-minimum-below-the-profiles': "A minimum covered set must include the profile's own",
+  'url-over-8192-bytes': 'cannot be read: it is over 8192 bytes',
+};
+
 /** Assert a FikiError of the named class, with a well-formed message. */
 const refusedAs = (name) => (err) => {
   assert.ok(err instanceof FikiError, `expected a FikiError, got ${err}`);
@@ -172,6 +195,7 @@ const refusedAs = (name) => (err) => {
 describe('responses every implementation must verify or refuse', () => {
   for (const c of cases('responses.json')) {
     it(c.id, async () => {
+      tally('responses.json');
       // verifyResponse fails closed by default (format 3): RESPONSE_MINIMUM, expectedKeyid stated.
       const args = responseArgs(c);
       if (c.error !== undefined) {
@@ -188,6 +212,7 @@ describe('responses every implementation must verify or refuse', () => {
 describe('what every signer emits, byte for byte', () => {
   for (const c of cases('signs.json')) {
     it(c.id, async () => {
+      tally('signs.json');
       // No shared vector called a signer before format 3, and a port whose default dropped @query
       // passed everything (review V-C4).
       known(c);
@@ -210,11 +235,7 @@ describe('what every signer emits, byte for byte', () => {
           ? signRequest({ method: c.method, url: c.url, ...args })
           : signResponse({ status: c.status, request: requestOf(c.request), ...args });
       if (c.error === 'caller') {
-        await assert.rejects(sign, (err) => {
-          assert.ok(err instanceof TypeError, `expected a TypeError, got ${err}`);
-          assert.ok(!(err instanceof FikiError), `expected no FikiError, got ${err}`);
-          return true;
-        });
+        await assert.rejects(sign, callerError(CALLER[c.id]));
       } else if (c.error !== undefined) {
         await assert.rejects(sign, refusedAs(c.error));
       } else {
@@ -235,6 +256,7 @@ describe('the vectors are reachable', () => {
 describe('the AID lens', () => {
   for (const c of cases('aid-lens.json')) {
     it(c.id, async () => {
+      tally('aid-lens.json');
       known(c);
       const key = await Key.fromSeed(fromHex(c.seed_hex));
       assert.equal(await key.aid, c.aid);
@@ -247,6 +269,7 @@ describe('the AID lens', () => {
 describe('signature bases and the signatures over them', () => {
   for (const c of cases('signature-base.json')) {
     it(`${c.id} — base`, () => {
+      tally('signature-base.json');
       known(c);
       const base = signatureBase({
         method: c.method,
@@ -280,6 +303,7 @@ describe('signature bases and the signatures over them', () => {
 describe('requests every implementation must refuse', () => {
   for (const c of cases('refusals.json')) {
     it(c.id, async () => {
+      tally('refusals.json');
       // Every entry names the class fiki raises, so this port maps its own onto the same
       // condition rather than inventing a taxonomy of its own.
       const args = verifyArgs(c);
@@ -291,6 +315,7 @@ describe('requests every implementation must refuse', () => {
 describe('requests every implementation must accept', () => {
   for (const c of cases('accepts.json')) {
     it(c.id, async () => {
+      tally('accepts.json');
       // The positive half. signature-base.json pins what a signer produces and refusals.json what
       // a verifier rejects; without these, a port could pass every vector while returning the
       // wrong AID or the wrong covered set.
@@ -307,17 +332,31 @@ describe('requests every implementation must accept', () => {
 describe('calls every implementation must refuse as a mistake in the call', () => {
   for (const c of cases('misuse.json')) {
     it(c.id, async () => {
+      tally('misuse.json');
       // A mistake in the call is a TypeError, never a FikiError (@5zrf8gjk).
       assert.equal(c.error, 'caller');
       const call = c.kind === 'response' ? () => verifyResponse(responseArgs(c)) : () => verifyRequest(verifyArgs(c));
-      await assert.rejects(
-        call,
-        (err) => {
-          assert.ok(err instanceof TypeError, `expected a TypeError, got ${err}`);
-          assert.ok(!(err instanceof FikiError), `expected no FikiError, got ${err}`);
-          return true;
-        },
-      );
+      await assert.rejects(call, callerError(CALLER[c.id]));
+    });
+  }
+});
+
+// Read once from the files at hardening-a, never at test time, so a file that loses cases fails.
+const CASES = {
+  'accepts.json': 44,
+  'aid-lens.json': 3,
+  'misuse.json': 10,
+  'refusals.json': 144,
+  'responses.json': 13,
+  'signature-base.json': 14,
+  'signs.json': 16,
+};
+
+describe('the driver ran every case', () => {
+  for (const [name, count] of Object.entries(CASES)) {
+    it(`${name} holds ${count} cases and all of them ran`, () => {
+      assert.equal(load(name).cases.length, count);
+      assert.equal(ran.get(name), count);
     });
   }
 });

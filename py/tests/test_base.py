@@ -181,23 +181,23 @@ def test_only_spaces_and_tabs_are_trimmed_from_the_edges_of_a_value():
 def test_an_empty_method_is_a_caller_error_rather_than_an_empty_line():
     """A request has a method; an empty string is a caller who lost it, and signing "@method: "
     would bind nothing a verifier could check."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         line_for("@method", method="")
 
 
 def test_a_missing_method_is_a_caller_error():
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="method is a string"):
         line_for("@method", method=None)
 
 
 def test_an_empty_method_is_refused_even_when_nothing_covers_it():
     """The 0.8.0 sweep (@5zrf8gjk): a request message has a token for a method, covered or not."""
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         line_for("@path", method="")
 
 
 def test_an_empty_method_in_the_request_a_response_answers_is_a_caller_error():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not an HTTP method"):
         response_signature_base(status=200, headers={}, covered=['"@method";req'],
                                 request=Request(method="", url="https://example.com/"),
                                 **BASE_ARGS)

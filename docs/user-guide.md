@@ -167,10 +167,17 @@ const verdict = await verifyRequest({
 ### Go
 
 ```go
+// net/http moves Host out of r.Header into r.Host, so put it back: it is the authority.
+headers := map[string]string{"host": r.Host}
+for name, values := range r.Header {
+    headers[name] = strings.Join(values, ", ")
+}
 maxAge := int64(300)
-verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
+verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
     fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
+
+Pass `r.RequestURI`, the request target exactly as it arrived, rather than `r.URL.String()`, which Go has already parsed and may have re-encoded.
 
 ### Rust
 

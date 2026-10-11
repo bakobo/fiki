@@ -240,9 +240,9 @@ def test_the_guides_error_sample_names_each_new_refusal():
     assert refusal(verify(headers={})) == "MissingSignature"
 
     # A mistake in the call is not a refusal of the message, so it is never a FikiError.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="must include the profile's own"):
         verify(minimum=["@method"])()
-    with pytest.raises(TypeError):
+    with pytest.raises(TypeError, match="Pass expected_aid or resolve, not both"):
         verify_request(authorities=None, method="POST", url=url, headers=headers,
                        body=body, max_age=300,
                        expected_aid=CONTROLLER_AID, resolve=key_state.get)
