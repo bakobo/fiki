@@ -243,19 +243,23 @@ func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
 		err     error
 	}
 	outcomes := make(chan outcome, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		// The sample, as written in README.md and docs/user-guide.md:
-		// net/http moves Host out of r.Header into r.Host, so put it back: it is the authority.
+		// net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
+		// HTTP/2 a Host field sent beside :authority stays there, so skip it rather than name it twice.
 		headers := map[string]string{"host": r.Host}
 		for name, values := range r.Header {
-			headers[name] = strings.Join(values, ", ")
+			if !strings.EqualFold(name, "host") {
+				headers[name] = strings.Join(values, ", ")
+			}
 		}
 		maxAge := int64(300)
 		verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
 			fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 		outcomes <- outcome{verdict, err}
-	}))
+	})
+	server := httptest.NewServer(handler)
 	defer server.Close()
 
 	key := fiki.Generate()
@@ -284,5 +288,25 @@ func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
 	}
 	if got.verdict.AID != key.AID() {
 		t.Errorf("AID = %q, want %q", got.verdict.AID, key.AID())
+	}
+
+	// Over HTTP/2, RFC 9113 section 8.3.1 lets a client send a Host field equal to :authority, and
+	// net/http's server leaves it in r.Header (it only falls back to it when :authority is absent).
+	// The request below has the shape that server hands a handler; a sample that copied r.Header
+	// whole would name the authority twice and be refused as ErrInvalidOptions.
+	h2 := httptest.NewRequest("POST", "/things?limit=1", bytes.NewReader(body))
+	h2.Proto, h2.ProtoMajor, h2.ProtoMinor = "HTTP/2.0", 2, 0
+	h2.Host = "api.example.com"
+	h2.Header.Set("Host", "api.example.com")
+	for name, value := range signed {
+		h2.Header.Set(name, value)
+	}
+	handler.ServeHTTP(httptest.NewRecorder(), h2)
+	got = <-outcomes
+	if got.err != nil {
+		t.Fatalf("the sample refused an HTTP/2 request carrying a Host field: %v", got.err)
+	}
+	if got.verdict.AID != key.AID() {
+		t.Errorf("HTTP/2: AID = %q, want %q", got.verdict.AID, key.AID())
 	}
 }
