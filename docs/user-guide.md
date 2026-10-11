@@ -168,12 +168,18 @@ const verdict = await verifyRequest({
 
 ```go
 // net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
-// HTTP/2 a Host field sent beside :authority stays there, so skip it rather than name it twice.
+// HTTP/2 a Host field may arrive beside :authority and stays there. RFC 9113 section 8.3.1
+// makes a differing one malformed, so refuse it, and skip an equal one rather than name it twice.
 headers := map[string]string{"host": r.Host}
 for name, values := range r.Header {
-    if !strings.EqualFold(name, "host") {
-        headers[name] = strings.Join(values, ", ")
+    if strings.EqualFold(name, "host") {
+        if len(values) != 1 || !strings.EqualFold(values[0], r.Host) {
+            http.Error(w, "Host differs from the request's authority", http.StatusBadRequest)
+            return
+        }
+        continue
     }
+    headers[name] = strings.Join(values, ", ")
 }
 maxAge := int64(300)
 verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,

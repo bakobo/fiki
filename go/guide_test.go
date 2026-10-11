@@ -247,12 +247,18 @@ func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		// The sample, as written in README.md and docs/user-guide.md:
 		// net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
-		// HTTP/2 a Host field sent beside :authority stays there, so skip it rather than name it twice.
+		// HTTP/2 a Host field may arrive beside :authority and stays there. RFC 9113 section 8.3.1
+		// makes a differing one malformed, so refuse it, and skip an equal one rather than name it twice.
 		headers := map[string]string{"host": r.Host}
 		for name, values := range r.Header {
-			if !strings.EqualFold(name, "host") {
-				headers[name] = strings.Join(values, ", ")
+			if strings.EqualFold(name, "host") {
+				if len(values) != 1 || !strings.EqualFold(values[0], r.Host) {
+					http.Error(w, "Host differs from the request's authority", http.StatusBadRequest)
+					return
+				}
+				continue
 			}
+			headers[name] = strings.Join(values, ", ")
 		}
 		maxAge := int64(300)
 		verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
@@ -308,5 +314,20 @@ func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
 	}
 	if got.verdict.AID != key.AID() {
 		t.Errorf("HTTP/2: AID = %q, want %q", got.verdict.AID, key.AID())
+	}
+
+	// A Host field that differs from :authority is malformed (RFC 9113 section 8.3.1). The sample
+	// refuses it before verifying, so a request signed for one host cannot carry another in Host.
+	h2.Header.Set("Host", "evil.example.com")
+	h2.Body = io.NopCloser(bytes.NewReader(body))
+	refused := httptest.NewRecorder()
+	handler.ServeHTTP(refused, h2)
+	if refused.Code != http.StatusBadRequest {
+		t.Errorf("a Host field differing from :authority got %d, want %d", refused.Code, http.StatusBadRequest)
+	}
+	select {
+	case got = <-outcomes:
+		t.Errorf("the sample verified a request whose Host differs from :authority: %+v", got)
+	default:
 	}
 }
