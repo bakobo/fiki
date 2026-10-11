@@ -167,9 +167,18 @@ const verdict = await verifyRequest({
 ### Go
 
 ```go
-// net/http moves Host out of r.Header into r.Host, so put it back: it is the authority.
+// net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
+// HTTP/2 a Host field may arrive beside :authority and stays there. RFC 9113 section 8.3.1
+// makes a differing one malformed, so refuse any but an exact copy, and skip that one.
 headers := map[string]string{"host": r.Host}
 for name, values := range r.Header {
+    if strings.EqualFold(name, "host") {
+        if len(values) != 1 || values[0] != r.Host {
+            http.Error(w, "Host differs from the request's authority", http.StatusBadRequest)
+            return
+        }
+        continue
+    }
     headers[name] = strings.Join(values, ", ")
 }
 maxAge := int64(300)

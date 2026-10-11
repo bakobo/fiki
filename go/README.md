@@ -26,10 +26,26 @@ By default the signature binds the method, the host, the path, the query string,
 ## Verifying a request
 
 ```go
+// net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
+// HTTP/2 a Host field may arrive beside :authority and stays there. RFC 9113 section 8.3.1
+// makes a differing one malformed, so refuse any but an exact copy, and skip that one.
+headers := map[string]string{"host": r.Host}
+for name, values := range r.Header {
+    if strings.EqualFold(name, "host") {
+        if len(values) != 1 || values[0] != r.Host {
+            http.Error(w, "Host differs from the request's authority", http.StatusBadRequest)
+            return
+        }
+        continue
+    }
+    headers[name] = strings.Join(values, ", ")
+}
 maxAge := int64(300)
-verdict, err := fiki.VerifyRequest(r.Method, r.URL.String(), headers,
+verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
     fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
 ```
+
+Pass `r.RequestURI`, the request target exactly as it arrived, rather than `r.URL.String()`, which Go has already parsed and may have re-encoded.
 
 `Authorities` is a decision you must state, as the age is: the hosts this verifier serves, compared exactly with the `@authority` the request derives, or `AnyAuthority: true` to check none. Go cannot make a field mandatory at compile time, so stating neither, both, or an empty list is `ErrInvalidOptions` when `VerifyRequest` runs. With no `Minimum` given, `VerifyRequest` requires `DefaultMinimum` (`@method @authority @path @query`, plus `content-digest` when there is a body), which is what fiki signs by default; `NoMinimum: true` opts out explicitly.
 

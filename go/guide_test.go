@@ -7,7 +7,14 @@ package fiki_test
 // what a consumer sees.
 
 import (
+	"bytes"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	fiki "github.com/bakobo/fiki/go"
@@ -191,5 +198,136 @@ func TestTheGuidesKeriProfileSamplesRun(t *testing.T) {
 	}
 	if got := describe(errors.New("not fiki's")); got != "not fiki's" {
 		t.Errorf("other errors: %s", got)
+	}
+}
+
+// verifySample is the Go block under "Verifying a request" in a markdown file.
+func verifySample(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	at := strings.Index(text, "## Verifying a request")
+	if at < 0 {
+		t.Fatalf("%s has no section on verifying a request", path)
+	}
+	block := regexp.MustCompile("(?s)```go\n(.*?)```").FindStringSubmatch(text[at:])
+	if block == nil {
+		t.Fatalf("%s has no Go sample for verifying a request", path)
+	}
+	return block[1]
+}
+
+// Review A10: net/http moves Host out of r.Header into r.Host, so a sample that copied r.Header
+// alone never carried the authority, and a default-covered request failed as MissingComponent.
+// The README's sample is the guide's, and the handler below runs it as written, inside a real
+// net/http server, against a request sent by net/http.
+func TestTheVerifySampleWorksInsideANetHTTPServer(t *testing.T) {
+	sample := verifySample(t, "README.md")
+	if guide := verifySample(t, "../docs/user-guide.md"); sample != guide {
+		t.Fatalf("README.md's verify sample is not the guide's:\n%s\nthe guide's:\n%s", sample, guide)
+	}
+	source, err := os.ReadFile("guide_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dedent := regexp.MustCompile(`(?m)^[ \t]+`)
+	if !strings.Contains(dedent.ReplaceAllString(string(source), ""), dedent.ReplaceAllString(sample, "")) {
+		t.Fatalf("the handler in this test does not run the sample as written:\n%s", sample)
+	}
+
+	type outcome struct {
+		verdict *fiki.Verdict
+		err     error
+	}
+	outcomes := make(chan outcome, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// The sample, as written in README.md and docs/user-guide.md:
+		// net/http puts the authority in r.Host. Over HTTP/1.1 it moves Host out of r.Header; over
+		// HTTP/2 a Host field may arrive beside :authority and stays there. RFC 9113 section 8.3.1
+		// makes a differing one malformed, so refuse any but an exact copy, and skip that one.
+		headers := map[string]string{"host": r.Host}
+		for name, values := range r.Header {
+			if strings.EqualFold(name, "host") {
+				if len(values) != 1 || values[0] != r.Host {
+					http.Error(w, "Host differs from the request's authority", http.StatusBadRequest)
+					return
+				}
+				continue
+			}
+			headers[name] = strings.Join(values, ", ")
+		}
+		maxAge := int64(300)
+		verdict, err := fiki.VerifyRequest(r.Method, r.RequestURI, headers,
+			fiki.VerifyOptions{Body: body, MaxAge: &maxAge, Authorities: []string{"api.example.com"}})
+		outcomes <- outcome{verdict, err}
+	})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	key := fiki.Generate()
+	body := []byte(`{"hello": "world"}`)
+	signed, err := fiki.SignRequest(key, "POST", "http://api.example.com/things?limit=1", nil,
+		fiki.SignOptions{Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest("POST", server.URL+"/things?limit=1", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = "api.example.com" // the authority it was signed for, sent to the test server
+	for name, value := range signed {
+		request.Header.Set(name, value)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	got := <-outcomes
+	if got.err != nil {
+		t.Fatalf("the sample refused a request fiki signed: %v", got.err)
+	}
+	if got.verdict.AID != key.AID() {
+		t.Errorf("AID = %q, want %q", got.verdict.AID, key.AID())
+	}
+
+	// Over HTTP/2, RFC 9113 section 8.3.1 lets a client send a Host field equal to :authority, and
+	// net/http's server leaves it in r.Header (it only falls back to it when :authority is absent).
+	// The request below has the shape that server hands a handler; a sample that copied r.Header
+	// whole would name the authority twice and be refused as ErrInvalidOptions.
+	h2 := httptest.NewRequest("POST", "/things?limit=1", bytes.NewReader(body))
+	h2.Proto, h2.ProtoMajor, h2.ProtoMinor = "HTTP/2.0", 2, 0
+	h2.Host = "api.example.com"
+	h2.Header.Set("Host", "api.example.com")
+	for name, value := range signed {
+		h2.Header.Set(name, value)
+	}
+	handler.ServeHTTP(httptest.NewRecorder(), h2)
+	got = <-outcomes
+	if got.err != nil {
+		t.Fatalf("the sample refused an HTTP/2 request carrying a Host field: %v", got.err)
+	}
+	if got.verdict.AID != key.AID() {
+		t.Errorf("HTTP/2: AID = %q, want %q", got.verdict.AID, key.AID())
+	}
+
+	// A Host field that differs from :authority is malformed (RFC 9113 section 8.3.1). The sample
+	// refuses it before verifying, so a request signed for one host cannot carry another in Host.
+	h2.Header.Set("Host", "evil.example.com")
+	h2.Body = io.NopCloser(bytes.NewReader(body))
+	refused := httptest.NewRecorder()
+	handler.ServeHTTP(refused, h2)
+	if refused.Code != http.StatusBadRequest {
+		t.Errorf("a Host field differing from :authority got %d, want %d", refused.Code, http.StatusBadRequest)
+	}
+	select {
+	case got = <-outcomes:
+		t.Errorf("the sample verified a request whose Host differs from :authority: %+v", got)
+	default:
 	}
 }

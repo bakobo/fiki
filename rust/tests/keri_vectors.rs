@@ -129,14 +129,38 @@ fn typed<T: for<'de> Deserialize<'de>>(value: &Value) -> T {
     serde_json::from_value(value.clone()).unwrap()
 }
 
-/// Runs every case and reports all the failures together, so one red run names every case that
-/// is wrong rather than only the first.
-fn each(cases: &Value, mut check: impl FnMut(&Value) -> Result<(), String>) {
+/// How many cases each KERI vector file holds, read from the files once at hardening-a (tick 7xbw,
+/// T8) and never at test time: an emptied or shortened cases array fails here rather than passing
+/// a driver that loops over nothing.
+const CASE_COUNTS: [(&str, usize); 5] = [
+    ("rfc9421.json", 1),
+    ("requests.json", 21),
+    ("responses.json", 4),
+    ("refusals.json", 64),
+    ("legacy.json", 4),
+];
+
+/// Runs every case of `name` and reports all the failures together, so one red run names every
+/// case that is wrong rather than only the first. The file must hold exactly its pinned number of
+/// cases, and every one of them must run.
+fn each(name: &str, data: &Value, mut check: impl FnMut(&Value) -> Result<(), String>) {
+    let pinned = CASE_COUNTS
+        .iter()
+        .find(|(file, _)| *file == name)
+        .unwrap_or_else(|| panic!("{name} has no pinned case count"))
+        .1;
+    let cases = data["cases"].as_array().unwrap();
+    assert_eq!(
+        cases.len(),
+        pinned,
+        "{name} holds {} cases, and {pinned} are pinned",
+        cases.len()
+    );
+    let mut ran = 0;
     let failures: Vec<String> = cases
-        .as_array()
-        .unwrap()
         .iter()
         .filter_map(|case| {
+            ran += 1;
             check(case)
                 .err()
                 .map(|why| format!("{}: {why}", case["id"].as_str().unwrap()))
@@ -148,6 +172,7 @@ fn each(cases: &Value, mut check: impl FnMut(&Value) -> Result<(), String>) {
         failures.len(),
         failures.join("\n")
     );
+    assert_eq!(ran, pinned, "{name}: {ran} of its {pinned} cases ran");
 }
 
 // --- base64, three alphabets' worth, written out as the port's own tests already do ---
@@ -629,7 +654,7 @@ fn the_refusal_codes_are_neutral_rather_than_fiki_kind_names() {
 
 #[test]
 fn rfc_9421_b_2_6_is_reproduced() {
-    each(&load("rfc9421.json")["cases"], |case| {
+    each("rfc9421.json", &load("rfc9421.json"), |case| {
         let request = &case["request"];
         let base = signature_base(
             request["method"].as_str().unwrap(),
@@ -679,13 +704,13 @@ fn accepted(case: &Value, data: &Value) -> Result<(), String> {
 #[test]
 fn request_accept_vectors() {
     let data = load("requests.json");
-    each(&data["cases"], |case| accepted(case, &data));
+    each("requests.json", &data, |case| accepted(case, &data));
 }
 
 #[test]
 fn response_accept_vectors() {
     let data = load("responses.json");
-    each(&data["cases"], |case| {
+    each("responses.json", &data, |case| {
         // The request each response answers must itself be one a verifier accepts.
         verify(
             &case["request"],
@@ -726,7 +751,7 @@ fn the_sha_512_cases_are_marked_verify_only() {
 fn refusal_vectors() {
     // Each case has one defect and so one correct code under the profile's section 9 order.
     let data = load("refusals.json");
-    each(&data["cases"], |case| {
+    each("refusals.json", &data, |case| {
         let expected = case["error"].as_str().unwrap();
         if case["verified_by_fiki"] == false {
             // Carried as data (@4tkkp50h): fiki has no legacy mode to detect it with.
@@ -770,7 +795,7 @@ fn refusal_vectors() {
 
 #[test]
 fn legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance() {
-    each(&load("legacy.json")["cases"], |case| {
+    each("legacy.json", &load("legacy.json"), |case| {
         let source = &case["source"];
         let repo = source["repo"].as_str().unwrap_or("");
         if !["WebOfTrust/keria", "WebOfTrust/signify-ts"].contains(&repo) {
@@ -805,7 +830,7 @@ fn legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance() {
 #[test]
 fn each_legacy_signature_verifies_over_its_stated_base() {
     // Transcription check only: pure Ed25519 over the base the file states, no legacy logic.
-    each(&load("legacy.json")["cases"], |case| {
+    each("legacy.json", &load("legacy.json"), |case| {
         let header = case["headers"]["Signature"].as_str().unwrap();
         let signature = header
             .split_once("signify=\"")
