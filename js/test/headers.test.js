@@ -149,6 +149,19 @@ describe('a header value given as a list is joined with ", " (@4un2vx4l)', () =>
     assert.deepEqual(verdict.covered, covered);
   });
 
+  it('reads each line once, so an array cannot show one value and have another verified', async () => {
+    // Hostile pass on #25: fiki used to check the lines through the array's iterator and then
+    // call the array's own join, either of which a caller's array could override.
+    const signed = await sign({ 'X-Tag': 'a=1, b=2', 'Set-Cookie': 's=1, t=2' });
+    const lying = ['a=1', 'b=2'];
+    lying.join = () => 'role=admin';
+    lying[Symbol.iterator] = function* () { yield 'role=admin'; };
+    assert.deepEqual((await verify({ ...signed, 'X-Tag': lying, 'Set-Cookie': ['s=1', 't=2'] })).covered, LISTED);
+    const wrong = ['role=admin'];
+    wrong.join = () => 'a=1, b=2';
+    await assert.rejects(() => verify({ ...signed, 'X-Tag': wrong, 'Set-Cookie': ['s=1', 't=2'] }), errors.SignatureMismatch);
+  });
+
   for (const value of [['a=1', 2], ['a=1', new TextEncoder().encode('b=2')], [null], ['a=1', ['b=2']], ['a=1', , 'b=2']]) {
     it(`is a caller error when it holds a non-string, as in ${JSON.stringify(value)}`, async () => {
       const signed = await joined();

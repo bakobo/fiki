@@ -185,6 +185,7 @@ const CALLER = {
   'request-announces-a-body-it-does-not-carry': 'announces a body in its headers',
   'request-announces-a-body-and-the-response-signature-is-malformed': 'announces a body in its headers',
   'request-announces-a-chunked-body-it-does-not-carry': 'announces a body in its headers',
+  'request-announces-a-length-and-carries-an-empty-body': 'announces a body in its headers',
   'sign-response-to-a-request-announcing-a-body-it-does-not-carry': 'announces a body in its headers',
 };
 
@@ -355,9 +356,9 @@ describe('calls every implementation must refuse as a mistake in the call', () =
 const CASES = {
   'accepts.json': 45,
   'aid-lens.json': 7,
-  'misuse.json': 13,
+  'misuse.json': 14,
   'refusals.json': 157,
-  'responses.json': 15,
+  'responses.json': 16,
   'signature-base.json': 14,
   'signs.json': 18,
 };

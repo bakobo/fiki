@@ -130,15 +130,21 @@ const normalRequest = (request) =>
  * Whether the request had a body is judged by its content, since both sides hold the whole request
  * by the time a response is signed or verified (@7p9s3g9k). A request announcing a body (a
  * Content-Length above zero, or any Transfer-Encoding) whose body is null breaks that assumption:
- * the caller threw the body away. Decided before any header of the response is read, so no defect
- * in the message can outrank it, and no resolver is asked.
+ * the caller threw the body away. So does an empty body beside a Content-Length that is not a plain
+ * zero, since a length is exact and no request of zero bytes announces one; an empty body beside a
+ * Transfer-Encoding does not, because a chunked request may carry nothing (hostile pass on #25).
+ * Decided before any header of the response is read, so no defect in the message can outrank it,
+ * and no resolver is asked.
  */
 function checkAnnouncedBody(request) {
-  if (request !== null && request.body === null && requestHasBody(lowered(request.headers), null)) {
+  if (request === null || hasContent(request.body)) return;
+  const announced = lowered(request.headers);
+  if (request.body !== null) announced.delete('transfer-encoding'); // empty: only a length can contradict it
+  if (requestHasBody(announced, null)) {
     throw new TypeError(
       'The request this response answers announces a body in its headers, by its Content-Length or ' +
-        'Transfer-Encoding, and request.body is null, so whether the response must bind that body ' +
-        'cannot be decided. Pass the request body, or a request without those headers.',
+        'Transfer-Encoding, and request.body does not carry it, so whether the response must bind ' +
+        'that body cannot be decided. Pass the request body, or a request without those headers.',
     );
   }
 }
