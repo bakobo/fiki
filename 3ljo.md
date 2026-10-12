@@ -3,3 +3,4 @@ kind: todo
 created: 2026-10-09T04:12Z
 
 - 2026-10-09T20:40Z Ruled 2026-10-09: each library checks AID shape itself before calling the resolver; no new public API unless a port needs it. Format 4.
+- 2026-10-12T02:55Z Done in bakobo/fiki#25 (merge e676c7d), vectors_format 4 / keri_vectors_format 6, this.i @646un6k8 and children; all six ports, differential 0 disagreements. Unreleased until the next release.
