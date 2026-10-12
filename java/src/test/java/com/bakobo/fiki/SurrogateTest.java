@@ -304,4 +304,28 @@ class SurrogateTest {
             }
         }
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\uD800", "\uDC00"})
+    void aSurrogateAnywhereInAnOpensshKeyIsMalformedKey(String lone) throws Exception {
+        // py: in the armor lines, or in place of the final newline, it is not one BEGIN block; in
+        // the body, the body is not lines of standard base64.
+        String key = keyFile("ed25519.key");
+        Key.fromOpenssh(key);
+        Map<Integer, String> where = Map.of(
+            0, "it is not one \"-----BEGIN OPENSSH PRIVATE KEY-----\" block",
+            40, "its body is not lines of standard base64",
+            100, "its body is not lines of standard base64",
+            key.length() - 2, "it is not one \"-----BEGIN OPENSSH PRIVATE KEY-----\" block",
+            key.length() - 1, "it is not one \"-----BEGIN OPENSSH PRIVATE KEY-----\" block",
+            key.length(), "it is not one \"-----BEGIN OPENSSH PRIVATE KEY-----\" block");
+        for (Map.Entry<Integer, String> at : where.entrySet()) {
+            for (String text : spliced(key, lone, at.getKey())) {
+                FikiException e = assertThrows(FikiException.class, () -> Key.fromOpenssh(text));
+                assertEquals(FikiException.Kind.MalformedKey, e.kind(), e.getMessage());
+                assertEquals("", e.detail());
+                assertTrue(e.getMessage().contains(at.getValue()), at.getKey() + ": " + e.getMessage());
+            }
+        }
+    }
 }

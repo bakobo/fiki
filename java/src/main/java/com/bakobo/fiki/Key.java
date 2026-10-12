@@ -129,6 +129,10 @@ public final class Key {
         return URL.encodeToString(publicRaw);
     }
 
+    byte[] publicRaw() {
+        return publicRaw.clone();
+    }
+
     /** The 32-byte seed, for a caller that has to persist the key somewhere. */
     public byte[] seed() {
         return seed.clone();
@@ -180,6 +184,28 @@ public final class Key {
      */
     public static String aidFrom(String text) {
         return Formats.aidFrom(text);
+    }
+
+    /**
+     * Load an unencrypted openssh-key-v1 Ed25519 private key, as ssh-keygen writes it (this.i
+     * @0mvgkwnl): the armored text with LF line endings, with or without the final newline.
+     *
+     * <p>The key must be the only one in the file, its check integers must agree, its padding must
+     * be 1, 2, 3, ..., and its public key must match in both places it is stored and must be the
+     * one its seed derives. Anything else, an encrypted key included, is a {@code MalformedKey}
+     * refusal whose message carries no part of the key and whose detail is empty. A null is the
+     * caller's mistake, an {@link IllegalArgumentException}.
+     *
+     * <p>Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross
+     * between protocols -- every base signRequest and signResponse build begins with a double
+     * quote, SSH user authentication signs data beginning with a length-prefixed session
+     * identifier (RFC 4252 section 7), and SSHSIG signs data beginning "SSHSIG" -- but an agent
+     * signs whatever bytes it is asked to, so anyone able to use a forwarded agent could sign fiki
+     * requests with a login key. The separation is a property of signRequest, not of the key:
+     * {@link #sign} signs any bytes.
+     */
+    public static Key fromOpenssh(String text) {
+        return OpenSsh.read(text);
     }
 
     /** Recover the Ed25519 public key from a non-transferable AID. */
