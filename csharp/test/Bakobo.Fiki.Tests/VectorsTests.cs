@@ -344,6 +344,7 @@ namespace Bakobo.Fiki.Tests
                 {
                     var mistake = Assert.ThrowsAny<ArgumentException>(Sign);
                     Assert.IsNotType<FikiException>(mistake);
+                    CallerMessage(id, mistake);
                     return;
                 }
                 var caught = Assert.Throws<FikiException>(Sign);
@@ -355,6 +356,25 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(expected.OrderBy(p => p.Key, StringComparer.Ordinal), Sign().OrderBy(p => p.Key, StringComparer.Ordinal));
         }
 
+        // A caller error whose message this driver pins, where the class alone would let a case pass
+        // on an earlier, unrelated mistake: each 7kle case also covers "content-digest";req over a
+        // request with no body, which was a caller error before vectors_format 4 (this.i @6v00d3tu).
+        private static readonly Dictionary<string, string> CallerMessages = new Dictionary<string, string>
+        {
+            { "request-announces-a-body-it-does-not-carry", "announces a body in its headers" },
+            { "request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers" },
+            { "request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers" },
+            { "sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers" },
+        };
+
+        private static void CallerMessage(string id, Exception caught)
+        {
+            if (CallerMessages.TryGetValue(id, out var expected))
+            {
+                Assert.Contains(expected, caught.Message, StringComparison.Ordinal);
+            }
+        }
+
         [Theory]
         [MemberData(nameof(Misuses))]
         public void MisuseVectors(string id)
@@ -364,6 +384,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal("caller", c.GetProperty("error").GetString());
             var caught = Assert.ThrowsAny<ArgumentException>(() => Verify(c));
             Assert.IsNotType<FikiException>(caught);
+            CallerMessage(id, caught);
         }
 
         [Theory]

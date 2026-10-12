@@ -228,8 +228,10 @@ namespace Bakobo.Fiki
             var floor = Floored(minimum, ResponseMinimum);
             var sending = new List<KeyValuePair<string, string>>(HeaderSnapshot.Take(headers ?? new KeyValuePair<string, string>[0]));
             HeaderSnapshot.Check(request);
+            CheckAnnouncedBody(request);
             var chosen = covered != null;
-            // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+            // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+            // and a Request announcing a body it lacks was refused above (@6v00d3tu).
             var hadBody = HasContent(request?.BodyRef);
             if (covered == null)
             {
@@ -311,6 +313,7 @@ namespace Bakobo.Fiki
             }
             // Unstated, a response is held to the profile's own minimum; WithoutMinimum opts out.
             var floor = Floored(options.MinimumStated ? options.Minimum : ResponseMinimum, ResponseMinimum);
+            CheckAnnouncedBody(options.Request);
             // A server that refuses before it knows the agent cannot sign the refusal, so an
             // unsigned 401 is an authentication failure whose body is not to be trusted (@2f227n4r).
             // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -438,6 +441,26 @@ namespace Bakobo.Fiki
                 covered.Add(Components.SpecOf(item));
             }
             return new Verdict(aid, covered.AsReadOnly(), keyId);
+        }
+
+        /// <summary>
+        /// A Request whose headers announce a body it does not carry is a mistake in the call
+        /// (@6v00d3tu, revising @7p9s3g9k's second half). Whether the request had a body is judged
+        /// by its content, since both sides hold the whole request by the time a response is signed
+        /// or verified; a Request announcing a body (a Content-Length above zero, or any
+        /// Transfer-Encoding) with none passed breaks that assumption, because the caller threw the
+        /// body away. Decided before any header of the response is read, so no defect in the message
+        /// can outrank it, and no resolver is asked.
+        /// </summary>
+        private static void CheckAnnouncedBody(Request? request)
+        {
+            if (request != null && request.BodyRef == null && RequestHasBody(Lowered(request.Headers), null))
+            {
+                throw new ArgumentException(
+                    "The request this response answers announces a body in its headers, by its Content-Length or " +
+                    "Transfer-Encoding, and Request.Body is null, so whether the response must bind that body cannot be " +
+                    "decided. Pass the request body, or a Request without those headers.");
+            }
         }
 
         /// <summary>
