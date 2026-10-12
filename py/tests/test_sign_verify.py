@@ -557,3 +557,54 @@ def test_colons_inside_strings_and_tokens_are_not_byte_sequences():
     request, headers = signed()
     headers["Signature"] += ';note="a:b==c:d";t=a:b'
     assert verify_request(authorities=None, headers=headers, max_age=None, **request).aid == KEY.aid
+
+
+# --- a header value given as a list is joined with ", " (@4un2vx4l, tick 7r4c) ---
+
+LISTED = ["@method", "@authority", "@path", "@query", "x-tag", "set-cookie"]
+
+
+def _signed_over_joined():
+    """Signed over the joined strings, as RFC 9421 section 2.1 combines several field lines."""
+    return signed(method="GET", body=None, covered=LISTED,
+                  headers={"X-Tag": "a=1, b=2", "Set-Cookie": "s=1, t=2"})
+
+
+def _verify_get(headers):
+    return verify_request(method="GET", url=URL, headers=headers, max_age=None, authorities=None)
+
+
+@pytest.mark.parametrize("shape", [list, tuple])
+def test_a_header_given_as_a_list_verifies_against_its_joined_value(shape):
+    _, headers = _signed_over_joined()
+    listed = {**headers, "X-Tag": shape(["a=1", "b=2"]), "Set-Cookie": shape(["s=1", "t=2"])}
+    assert _verify_get(listed).covered == tuple(LISTED)
+
+
+def test_a_header_given_as_a_list_is_signed_as_its_joined_value():
+    _, joined = _signed_over_joined()
+    _, listed = signed(method="GET", body=None, covered=LISTED,
+                       headers={"X-Tag": ["a=1", "b=2"], "Set-Cookie": ["s=1", "t=2"]})
+    assert listed["Signature"] == joined["Signature"]
+
+
+def test_a_one_element_list_is_the_string_itself():
+    _, headers = signed(method="GET", body=None, covered=LISTED,
+                        headers={"X-Tag": "a=1", "Set-Cookie": "s=1"})
+    assert _verify_get({**headers, "X-Tag": ["a=1"], "Set-Cookie": ("s=1",)}).covered == tuple(LISTED)
+
+
+def test_a_list_joined_with_a_bare_comma_does_not_verify():
+    """The joined form is RFC 9421's, comma and one space, not a framework's own."""
+    _, headers = _signed_over_joined()
+    with pytest.raises(SignatureMismatch):
+        _verify_get({**headers, "X-Tag": "a=1,b=2", "Set-Cookie": ["s=1", "t=2"]})
+
+
+@pytest.mark.parametrize("value", [["a=1", 2], ["a=1", b"b=2"], [None]])
+def test_a_list_holding_a_non_string_is_a_caller_error(value):
+    _, headers = _signed_over_joined()
+    with pytest.raises(TypeError, match="each a string"):
+        _verify_get({**headers, "X-Tag": value})
+    with pytest.raises(TypeError, match="each a string"):
+        signed(method="GET", body=None, headers={"X-Tag": value})

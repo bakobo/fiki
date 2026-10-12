@@ -63,13 +63,18 @@ _PORT_MAX = 65535
 _IPVFUTURE = re.compile(r"v[0-9A-Fa-f]+\..+")
 
 
+# A header map as a caller hands it over: each value a string, or a list or tuple of the field's
+# lines, which fiki joins with ", " (@4un2vx4l).
+Headers = Mapping[str, "str | Sequence[str]"]
+
+
 @dataclass(frozen=True)
 class Request:
     """The request a response answers, which a response's ``req`` components are read from."""
 
     method: str
     url: str
-    headers: Mapping[str, str] = field(default_factory=dict)
+    headers: Headers = field(default_factory=dict)
     body: bytes | None = None
 
 
@@ -201,7 +206,7 @@ def ascii_lower(text: str) -> str:
     return text.translate(_ASCII_UPPER)
 
 
-def canonical(headers: Mapping[str, str]) -> dict[str, str]:
+def canonical(headers: Headers) -> dict[str, str]:
     """The headers with lowercased names, refusing two names equal case-insensitively.
 
     Field names are case-insensitive and appear lowercased in the base (section 2.1), so
@@ -209,9 +214,21 @@ def canonical(headers: Mapping[str, str]) -> dict[str, str]:
     value be signed or digested and the other reach the application, so it is a ValueError, a
     mistake in the call (@235933km). Values are kept as received: value_of checks them raw and
     only then trims _OWS. Idempotent, so a mapping canonicalized once reads the same everywhere.
+
+    A value given as a list or tuple of strings, as Node gives set-cookie and Starlette can give a
+    repeated field, is joined with a comma and one space before anything reads it, which is the
+    value RFC 9421 section 2.1 defines for a field sent in several lines (@4un2vx4l). An element
+    that is not a string is a mistake in the call.
     """
     out: dict[str, str] = {}
     for name, value in headers.items():
+        if isinstance(value, (list, tuple)):
+            if not all(type(line) is str for line in value):
+                raise TypeError(
+                    f"The header {shown(name)} is given as a list, whose field lines must be each "
+                    "a string; this one holds something else."
+                )
+            value = ", ".join(value)
         if type(name) is not str or type(value) is not str:
             raise TypeError(
                 f"A header is a name and a value, both strings; this one is {shown(name)}: "
@@ -245,13 +262,13 @@ def check_method(method) -> None:
         )
 
 
-def request_message(method: str, url: str, headers: Mapping[str, str], *,
+def request_message(method: str, url: str, headers: Headers, *,
                     received: bool = False) -> _Message:
     check_method(method)
     return _Message(headers=_lowered(headers), method=method, url=url, received=received)
 
 
-def response_message(status: int, headers: Mapping[str, str], request: Request | None, *,
+def response_message(status: int, headers: Headers, request: Request | None, *,
                      received: bool = False) -> _Message:
     return _Message(
         headers=_lowered(headers),
@@ -494,7 +511,7 @@ def component_lines(
     *,
     method: str,
     url: str,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
 ) -> list[str]:
     """Every line of a request's signature base except the trailing ``@signature-params``.
@@ -562,7 +579,7 @@ def signature_base(
     *,
     method: str,
     url: str,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
     created: int,
     keyid: str,
@@ -594,7 +611,7 @@ def signature_base(
 def response_signature_base(
     *,
     status: int,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
     created: int,
     keyid: str,
