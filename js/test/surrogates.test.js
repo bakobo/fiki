@@ -12,9 +12,10 @@
 // len(value.encode("utf-8", "surrogatepass")) does; TextEncoder writes one as U+FFFD, also three.
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { Key, errors, signRequest, verifyRequest } from '../src/index.js';
+import { Key, aidFrom, errors, signRequest, verifyRequest } from '../src/index.js';
 import { callerError } from './caller.js';
 
 const KEY = await Key.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i));
@@ -170,4 +171,43 @@ describe('a well-formed surrogate pair', () => {
       return true;
     });
   });
+});
+
+// The key spellings (`this.i` @0mvgkwnl). py refuses every one of these as MalformedKey: no
+// spelling admits a character outside ASCII, so each fails a shape check, and none is quoted.
+const KEYS = JSON.parse(readFileSync(new URL('../../vectors/keys/keys.json', import.meta.url), 'utf8'));
+const accepted = (section, id) => KEYS[section].accepts.find((c) => c.id === id);
+const PUBLIC = ['aid', 'raw-b64url', 'did-key-z', 'did-peer-0-z', 'ssh-comment'].map((id) => accepted('public', id));
+const PRIVATE = accepted('private', 'ssh-keygen');
+
+/** A MalformedKey that quotes none of the input, and never a runtime exception from outside fiki. */
+const refusedQuietly = (input) => (err) => {
+  assert.ok(err instanceof errors.MalformedKey, `expected MalformedKey, got ${err?.name}: ${err?.message}`);
+  assert.equal(err.keyid, '');
+  assert.ok(!/[\ud800-\udfff]/.test(err.message), 'the message carries the surrogate');
+  for (const run of input.match(/[A-Za-z0-9+/=_-]{16,}/g)) assert.ok(!err.message.includes(run), `the message quotes ${run}`);
+  return true;
+};
+
+/** `text` with `s` put at each position from the start to the end, and in place of each character. */
+function* placed(text, s) {
+  for (let i = 0; i <= text.length; i += 1) yield text.slice(0, i) + s + text.slice(i);
+  for (let i = 0; i < text.length; i += 1) yield text.slice(0, i) + s + text.slice(i + 1);
+}
+
+describe('a lone surrogate in a key', () => {
+  it('the unaltered inputs are accepted, so each refusal below is the surrogate\'s', async () => {
+    for (const c of PUBLIC) assert.equal(aidFrom(c.input), c.aid);
+    assert.equal((await Key.fromOpenssh(PRIVATE.input)).aid, PRIVATE.aid);
+  });
+
+  for (const [which, s] of [['high', '\ud800'], ['low', '\udc00']]) {
+    it(`given to aidFrom anywhere in any spelling is MalformedKey (${which})`, () => {
+      for (const c of PUBLIC) for (const input of placed(c.input, s)) assert.throws(() => aidFrom(input), refusedQuietly(input));
+    });
+
+    it(`given to Key.fromOpenssh anywhere is MalformedKey (${which})`, async () => {
+      for (const input of placed(PRIVATE.input, s)) await assert.rejects(Key.fromOpenssh(input), refusedQuietly(input));
+    });
+  }
 });

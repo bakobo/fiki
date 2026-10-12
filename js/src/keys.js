@@ -10,9 +10,10 @@
 // `generate({extractable: true})` is the opt-in for a caller who needs a portable identity, and
 // `seed()` throws rather than returning nothing when the key cannot produce one.
 
-import { fromBase64Url, toBase64Url } from './bytes.js';
+import { equal, fromBase64Url, toBase64Url } from './bytes.js';
 import { MalformedKey } from './errors.js';
 import { quoted } from './base.js';
+import { DOES_NOT_DERIVE, readOpenssh, refusePrivate } from './openssh.js';
 
 // CESR's Ed25519N (non-transferable Ed25519 verification key). fiki decodes this code and no
 // other: a parser that handles one fixed-length code can only ever be narrower than a full CESR
@@ -82,16 +83,18 @@ function canonicalPoint(raw) {
 
 /** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo). */
 export function checkKey(raw, keyid) {
+  // An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
+  const subject = keyid ? `The key for ${quoted(keyid)}` : 'The key given';
   if (!canonicalPoint(raw)) {
     throw new MalformedKey(
-      `The key for ${quoted(keyid)} is not the canonical encoding of a point on the Ed25519 curve, so ` +
+      `${subject} is not the canonical encoding of a point on the Ed25519 curve, so ` +
         'it is not a key fiki will verify with.',
       { keyid },
     );
   }
   if (smallOrder(raw)) {
     throw new MalformedKey(
-      `The key for ${quoted(keyid)} is a small-order Ed25519 point, under which a signature can be ` +
+      `${subject} is a small-order Ed25519 point, under which a signature can be ` +
         'forged for any message, so it is not a key fiki will verify with.',
       { keyid },
     );
@@ -186,6 +189,28 @@ export class Key {
     const { x } = await crypto.subtle.exportKey('jwk', forExport);
     const privateKey = await crypto.subtle.importKey('pkcs8', pkcs8, ALGORITHM, extractable, ['sign']);
     return new Key(privateKey, fromBase64Url(x), extractable ? seed : null);
+  }
+
+  /** Load an unencrypted OpenSSH Ed25519 private key, as ssh-keygen writes it (@0mvgkwnl).
+   *
+   * Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross between
+   * protocols — every base signRequest and signResponse build begins with a double quote, SSH user
+   * authentication signs data beginning with a length-prefixed session identifier (RFC 4252
+   * section 7), and SSHSIG signs data beginning "SSHSIG" — but an agent signs whatever bytes it is
+   * asked to, so anyone able to use a forwarded agent could sign fiki requests with a login key.
+   * The separation is a property of signRequest, not of the key: Key.sign signs any bytes.
+   *
+   * Non-extractable unless `extractable` is passed, like every other constructor here. Anything
+   * but a string is a TypeError; anything malformed is MalformedKey, never quoting the key.
+   */
+  static async fromOpenssh(text, { extractable = false } = {}) {
+    const { seed, raw } = readOpenssh(text);
+    const key = await Key.fromSeed(seed, { extractable });
+    // The one check readOpenssh cannot make, since deriving a public key takes WebCrypto. It runs
+    // last, where fiki-py runs it before the comment and padding checks, so a key wrong in both
+    // ways is refused here for its comment or padding and there for its seed: MalformedKey either way.
+    if (!equal(key._publicRaw, raw)) throw refusePrivate(DOES_NOT_DERIVE);
+    return key;
   }
 
   /** The non-transferable AID — 44 characters, `B` prefixed, also the verifying key. */
