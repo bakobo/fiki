@@ -15,7 +15,7 @@ Five of the six publish with no long-lived credential: PyPI, npm, crates.io and 
 
 ## Cutting a release of one port
 
-1. Bump the version in the port's manifest in a pull request: `py/pyproject.toml` (and `py/uv.lock`, by running `uv lock` in `py/`), `js/package.json`, `rust/Cargo.toml` (and `rust/Cargo.lock`, by running `cargo update -p fiki` in `rust/`), `java/pom.xml`, or `csharp/src/Bakobo.Fiki/Bakobo.Fiki.csproj`. Go has no manifest version, since its version is its tag.
+1. Bump the version in the port's manifest in a pull request: `py/pyproject.toml` (and `py/uv.lock`, by running `uv lock` in `py/`), `js/package.json`, `rust/Cargo.toml` (and `rust/Cargo.lock` and `differential/rust/Cargo.lock`, by running `cargo update -p fiki` in `rust/` and in `differential/rust/`, whose CI job builds with `--locked`), `java/pom.xml`, or `csharp/src/Bakobo.Fiki/Bakobo.Fiki.csproj`. Go has no manifest version, since its version is its tag.
 2. If the change alters what the vectors require, it is also a vectors-format bump (`this.i` @4fhrre0m), and the port's exported constant must move with the vector files.
 3. Merge the pull request.
 4. Tag the merge commit on `main` and push the tag:

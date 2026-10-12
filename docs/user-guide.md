@@ -37,14 +37,14 @@ Three consequences worth knowing before you wire it in.
 
 | Language | Install |
 |---|---|
-| Python 3.11+ | `pip install fiki==0.9.0` |
-| JavaScript, Node 20+ or a browser | `npm install @bakobo/fiki@0.9.0` |
-| Go 1.22+ | `go get github.com/bakobo/fiki/go@v0.9.0` |
-| Rust 1.75+ | `cargo add fiki@0.9.0` |
-| C#, .NET 10 or .NET Framework 4.8.1 | `dotnet add package Bakobo.Fiki --version 0.9.0` |
+| Python 3.11+ | `pip install fiki==0.10.0` |
+| JavaScript, Node 20+ or a browser | `npm install @bakobo/fiki@0.10.0` |
+| Go 1.22+ | `go get github.com/bakobo/fiki/go@v0.10.0` |
+| Rust 1.75+ | `cargo add fiki@0.10.0` |
+| C#, .NET 10 or .NET Framework 4.8.1 | `dotnet add package Bakobo.Fiki --version 0.10.0` |
 | Java 17+ | not on Maven Central yet; build it from a clone as [java/README.md](../java/README.md#using-it-from-your-own-project) describes |
 
-This guide describes the default branch, at vectors format 4, which no release satisfies yet; 0.9.0 satisfies vectors format 3, and differs as the [README](../README.md#status) says. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
+This guide describes the default branch, which 0.10.0 matches: vectors format 4, keri vectors format 6 and key vectors format 1. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
 
 ## Signing a request
 
