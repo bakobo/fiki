@@ -153,7 +153,7 @@ describe('the KERI vectors format', () => {
       // The same guard @4fhrre0m gives the shared set, against its own number.
       const data = load(name);
       assert.equal(data.keri_vectors_format, KERI_VECTORS_FORMAT);
-      assert.equal(KERI_VECTORS_FORMAT, 5);
+      assert.equal(KERI_VECTORS_FORMAT, 6);
       assert.ok(!('vectors_format' in data));
       assert.ok(data.cases.length > 0);
     });
@@ -367,10 +367,10 @@ describe('the legacy material', () => {
   }
 });
 
-// Read once from the files at hardening-a, never at test time, so a file that loses cases fails.
+// Read once from the files at format 4 (keri_vectors_format 6), never at test time, so a file that loses cases fails.
 const CASES = {
   'legacy.json': 4,
-  'refusals.json': 64,
+  'refusals.json': 65,
   'requests.json': 21,
   'responses.json': 4,
   'rfc9421.json': 1,

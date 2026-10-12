@@ -64,7 +64,7 @@ const SIGN_FIELDS = new Set([
   'minimum', 'status', 'request', 'expected_headers', 'error', 'note', 'keyid', 'label',
 ]);
 const FIELDS = {
-  'aid-lens.json': new Set(['id', 'note', 'seed_hex', 'public_key_hex', 'aid', 'keyid']),
+  'aid-lens.json': new Set(['id', 'note', 'seed_hex', 'public_key_hex', 'aid', 'keyid', 'error']),
   'signature-base.json': new Set([
     'id', 'note', 'method', 'url', 'headers', 'covered', 'created', 'keyid', 'alg', 'seed_hex', 'base', 'signature',
   ]),
@@ -258,6 +258,12 @@ describe('the AID lens', () => {
     it(c.id, async () => {
       tally('aid-lens.json');
       known(c);
+      if (c.error !== undefined) {
+        // Format 4 (@7w7nv94j): an AID that is not well formed, handed straight to the decoder.
+        assert.deepEqual(Object.keys(c).filter((k) => k !== 'unknown').sort(), ['aid', 'error', 'id', 'note']);
+        assert.throws(() => verifyingKey(c.aid), refusedAs(c.error));
+        return;
+      }
       const key = await Key.fromSeed(fromHex(c.seed_hex));
       assert.equal(await key.aid, c.aid);
       assert.equal(toBase64Url(fromHex(c.public_key_hex)), c.keyid);
@@ -341,15 +347,15 @@ describe('calls every implementation must refuse as a mistake in the call', () =
   }
 });
 
-// Read once from the files at hardening-a, never at test time, so a file that loses cases fails.
+// Read once from the files at format 4, never at test time, so a file that loses cases fails.
 const CASES = {
-  'accepts.json': 44,
-  'aid-lens.json': 3,
-  'misuse.json': 10,
-  'refusals.json': 144,
-  'responses.json': 13,
+  'accepts.json': 45,
+  'aid-lens.json': 7,
+  'misuse.json': 13,
+  'refusals.json': 157,
+  'responses.json': 15,
   'signature-base.json': 14,
-  'signs.json': 16,
+  'signs.json': 18,
 };
 
 describe('the driver ran every case', () => {
