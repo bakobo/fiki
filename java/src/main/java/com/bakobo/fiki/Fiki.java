@@ -1378,8 +1378,14 @@ public final class Fiki {
         // The check verifyResponse will make, made first: a signer does not vouch for a request
         // digest that the request body it was handed contradicts (bakobo/fiki#4).
         if (request != null && request.body() != null && bindsRequestDigest(items)) {
-            // Through the base-value path, so an absent digest is MissingComponent (@3e7wnyvg).
-            compareDigest(readDigest(valueOf(component(req(CONTENT_DIGEST)), message)), request.body());
+            String digest = message.request().headers().get(CONTENT_DIGEST);
+            if (digest == null) {
+                // Through the base-value path, so an absent digest is MissingComponent (@3e7wnyvg).
+                valueOf(component(req(CONTENT_DIGEST)), message);
+            }
+            // Read as the verifier reads it, not through the base-value check, so a digest that
+            // does not parse, a non-ASCII one included, is MalformedDigest (@4efl0354).
+            compareDigest(readDigest(digest), request.body());
         }
         checkCovered(items, true);
         byte[] base = finish(linesFor(items, message), items, params(key, opts));
