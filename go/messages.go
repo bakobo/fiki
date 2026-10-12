@@ -175,7 +175,9 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 // was non-empty, each marked req. That binds the response to what was asked. A request whose body
 // was non-empty and which carries no Content-Digest to bind is refused as UncoveredBody rather than
 // signed into a response every profile client refuses, and a request digest its Body contradicts
-// is refused as the verifier would refuse it. The caller's mistakes are SignRequest's.
+// is refused as the verifier would refuse it. The caller's mistakes are SignRequest's, plus a
+// request whose headers announce a body (a Content-Length above zero, or any Transfer-Encoding)
+// and whose Body is nil (this.i @6v00d3tu): pass the body, or a Request without those headers.
 func SignResponse(key *Key, status int, request *Request, headers map[string]string, opts SignOptions) (map[string]string, error) {
 	if err := checkLabel(opts.Label); err != nil {
 		return nil, err
@@ -193,8 +195,14 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 			return nil, err
 		}
 	}
+	if request != nil {
+		if err := checkAnnouncedBody(request.Body, requestHeaders); err != nil {
+			return nil, err
+		}
+	}
 	chosen := opts.Covered != nil
-	// By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+	// By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+	// and a Request announcing a body it lacks was refused above (@6v00d3tu).
 	hadBody := request != nil && len(request.Body) > 0
 	source := opts.Covered
 	if !chosen {
@@ -385,6 +393,22 @@ func floored(minimum, floor []string) error {
 	return nil
 }
 
+// checkAnnouncedBody refuses a Request whose headers announce a body (a Content-Length above zero,
+// or any Transfer-Encoding) and whose Body is nil, as the caller's mistake (this.i @6v00d3tu,
+// revising @7p9s3g9k's second half). Whether the request had a body is judged by its content,
+// because both sides hold the whole request by the time a response is signed or verified; a
+// Request announcing a body nobody passed breaks that assumption, since the caller threw the body
+// away. Decided before any header of the response is read, so no defect in the message outranks
+// it and no resolver is asked.
+func checkAnnouncedBody(body []byte, headers map[string]string) error {
+	if body != nil || !requestHasBody(headers, nil) {
+		return nil
+	}
+	return invalidOptions("The request this response answers announces a body in its headers, by " +
+		"its Content-Length or Transfer-Encoding, and Request.Body is nil, so whether the response " +
+		"must bind that body cannot be decided. Pass the request body, or a Request without those headers.")
+}
+
 // requestHasBody is the profile's request body test: a length above zero, any transfer coding, or
 // content. Requests only: a response's body is its content, since a HEAD or 304 response carries
 // the length of a representation it does not send (@2f227n4r).
@@ -549,7 +573,9 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // default with no request is MissingComponent; NoMinimum opts out. ExpectedKeyid or AnyKeyid is
 // a required decision, as is MaxAge or AnyAge. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
 // "content-digest";req, and that digest is recomputed over request.Body, so verifying such a
-// response against a Request with no Body is ErrInvalidOptions. A response's own body is its
+// response against a Request with no Body is ErrInvalidOptions, and so is a Request whose headers
+// announce a body its nil Body does not carry, decided before anything in the response is read
+// (this.i @6v00d3tu). A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
 // else in the message, because a server that refuses before it knows the agent cannot sign the
 // refusal (@2f227n4r). The policy's limits and the input bounds are VerifyRequest's.
@@ -579,6 +605,11 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	m, err := responseMessage(status, headers, request, true)
 	if err != nil {
 		return nil, err
+	}
+	if request != nil {
+		if err := checkAnnouncedBody(request.Body, m.request.headers); err != nil {
+			return nil, err
+		}
 	}
 	// Empty counts as absent, as read treats it: an empty Signature header signs nothing. One of
 	// only whitespace is present, and malformed, in every port (review B7).
