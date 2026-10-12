@@ -110,5 +110,28 @@ namespace Bakobo.Fiki
         /// </exception>
         public static string AidFrom(string text) =>
             Formats.AidFrom(text ?? throw new ArgumentNullException(nameof(text), "A public key is text, not null."));
+
+        /// <summary>
+        /// Load an unencrypted OpenSSH Ed25519 private key, the armored openssh-key-v1 text ssh-keygen
+        /// writes, LF line endings, with or without the final newline (this.i @0mvgkwnl).
+        /// </summary>
+        /// <remarks>
+        /// Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross between
+        /// protocols: every base SignRequest and SignResponse build begins with a double quote, SSH
+        /// user authentication signs data beginning with a length-prefixed session identifier (RFC
+        /// 4252 section 7), and SSHSIG signs data beginning "SSHSIG". But an agent signs whatever bytes
+        /// it is asked to, so anyone able to use a forwarded agent could sign fiki requests with a
+        /// login key. The separation is a property of SignRequest, not of the key: <see cref="Sign"/>
+        /// signs any bytes.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">The text is null.</exception>
+        /// <exception cref="FikiException">
+        /// MalformedKey, for an encrypted key, a key that is not Ed25519, more or fewer than one key,
+        /// check integers that differ, padding that is not 1, 2, 3, ..., or a public key that is not
+        /// the same in both places it is stored or not the one the seed derives. The error never
+        /// carries any part of the key, and its <see cref="FikiException.KeyId"/> is empty.
+        /// </exception>
+        public static Key FromOpenSsh(string text) =>
+            new Key(OpenSsh.Read(text ?? throw new ArgumentNullException(nameof(text), "An OpenSSH private key is text, not null.")));
     }
 }
