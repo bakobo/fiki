@@ -214,10 +214,10 @@ public final class Fiki {
      * it names, or null when it names no key the caller knows, which is {@code UnknownKey}.
      *
      * <p>Authoritative: fiki never falls back to decoding the keyid, because a transferable prefix
-     * that embeds a key embeds its INCEPTION key. A resolver may itself throw a
-     * {@link FikiException} of kind {@code MalformedKey} for a keyid that is not a well-formed
-     * identifier, or {@code UnsupportedSigner} for a key state with no single effective signer;
-     * fiki carries either out unchanged.
+     * that embeds a key embeds its INCEPTION key. fiki hands it only a well-formed AID
+     * (@7w7nv94j), so it answers about key state alone; it may throw a {@link FikiException} of
+     * kind {@code UnsupportedSigner} for a key state with no single effective signer, which fiki
+     * carries out unchanged.
      */
     @FunctionalInterface
     public interface Resolver {
@@ -1887,11 +1887,13 @@ public final class Fiki {
                     + "key to verify it against.");
         }
         if (resolver != null) {
-            if (Key.misspelledAid(keyid)) {
+            // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+            // well-formed AID, whatever its shape, is refused here and never handed to it.
+            if (!Key.wellFormedAid(keyid)) {
                 throw new FikiException(
                     FikiException.Kind.MalformedKey,
-                    "The keyid " + shown(keyid) + " is shaped like an AID and is not its canonical spelling, "
-                        + "so it is not an AID at all.",
+                    "The keyid " + shown(keyid) + " is not a well-formed AID: 44 characters, B, D or E, then the "
+                        + "canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                     keyid);
             }
             return null;

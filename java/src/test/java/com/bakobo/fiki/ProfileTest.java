@@ -343,6 +343,58 @@ class ProfileTest {
             verify(sign(opts -> opts.withKeyid("E" + "!".repeat(43))), opts -> opts.withResolver(k -> raw(KEY)))));
     }
 
+    /* ---------- a keyid that is not a well-formed AID never reaches a resolver (@7w7nv94j) */
+
+    /** The keyids V16 refuses as AIDs, plus a plain non-AID and fiki's own raw keyid. */
+    private static List<String> notAnAid() {
+        String b = cesr("B", raw(KEY));
+        return List.of(b.substring(0, 43), "A" + b.substring(1), paddingBitAlias(b), "not-an-aid", KEY.keyid(),
+            "E" + "!".repeat(43), b + "A");
+    }
+
+    @Test
+    void aResolverIsNeverAskedAboutAKeyidThatIsNotAWellFormedAid() {
+        List<String> calls = new ArrayList<>();
+        Fiki.Resolver recording = keyid -> {
+            calls.add(keyid);
+            return raw(KEY);
+        };
+        for (String keyid : notAnAid()) {
+            Signed s = sign(opts -> opts.withKeyid(keyid));
+            FikiException e = thrown(() -> verify(s, opts -> opts.withResolver(recording)));
+            assertEquals(FikiException.Kind.MalformedKey, e.kind(), keyid);
+            assertEquals(keyid, e.detail());
+            Map<String, String> headers = respond(opts -> opts.withKeyid(keyid));
+            assertEquals(FikiException.Kind.MalformedKey,
+                kindOf(() -> check(headers, opts -> opts.withResolver(recording))), keyid);
+        }
+        assertEquals(List.of(), calls);
+    }
+
+    @Test
+    void aResolverIsAskedOnceAboutAWellFormedUnknownAid() {
+        List<String> calls = new ArrayList<>();
+        Signed s = sign(opts -> opts.withKeyid(AID));
+        assertEquals(FikiException.Kind.UnknownKey, kindOf(() -> verify(s, opts -> opts.withResolver(keyid -> {
+            calls.add(keyid);
+            return null;
+        }))));
+        assertEquals(List.of(AID), calls);
+    }
+
+    @Test
+    void aSmallOrderBAidIsWellFormedSoTheResolverIsAskedAndItsKeyRefused() {
+        String identity = cesr("B", HexFormat.of().parseHex(SMALL_ORDER.get(0)));
+        List<String> calls = new ArrayList<>();
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> verify(forgedUnder(identity),
+            opts -> opts.withResolver(keyid -> {
+                calls.add(keyid);
+                return HexFormat.of().parseHex(SMALL_ORDER.get(0));
+            }))));
+        assertEquals(List.of(identity), calls);
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Key.verifyingKeyBytes(identity)));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",    // padded
@@ -833,10 +885,14 @@ class ProfileTest {
             Map.of(), List.of("@path"), Fiki.Params.of(AT, "k"))));
     }
 
+    /** Until format 4 this reached the resolver; A is not B, D or E, so it is not an AID (@7w7nv94j). */
     @Test
-    void anAidShapedKeyidUnderAnotherCodeReachesTheResolver() {
+    void anAidShapedKeyidUnderAnotherCodeIsRefusedBeforeTheResolver() {
         String other = "A" + AID.substring(1);
-        assertEquals(other, verify(sign(opts -> opts.withKeyid(other)), opts -> opts.withResolver(only(other, raw(KEY)))).aid());
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() ->
+            verify(sign(opts -> opts.withKeyid(other)), opts -> opts.withResolver(k -> {
+                throw new AssertionError("the resolver was asked about " + k);
+            }))));
         assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Key.verifyingKeyBytes(null)));
     }
 

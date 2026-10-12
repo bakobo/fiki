@@ -204,6 +204,16 @@ class VectorsTest {
     @TestFactory
     Stream<DynamicTest> aidLens() throws Exception {
         return Counted.each("aid-lens.json", load("aid-lens.json").get("cases"), AID_LENS_CASES, c -> {
+            if (c.has("error")) {
+                // A string that is not an AID, straight through the AID-to-key decoder (@7w7nv94j).
+                String aid = c.get("aid").asText();
+                FikiException thrown = assertThrows(FikiException.class, () -> Key.verifyingKeyBytes(aid));
+                assertEquals(c.get("error").asText(), thrown.kind().name());
+                wellFormed(thrown);
+                assertEquals(c.get("error").asText(),
+                    assertThrows(FikiException.class, () -> Key.verifyingKey(aid)).kind().name());
+                return;
+            }
             Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
             assertEquals(c.get("aid").asText(), key.aid());
             assertEquals(c.get("keyid").asText(), key.keyid());
