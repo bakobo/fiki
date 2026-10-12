@@ -37,9 +37,9 @@ var vectorCounts = map[string]int{
 	"signature-base.json": 14,
 	"accepts.json":        45,
 	"refusals.json":       157,
-	"misuse.json":         13,
+	"misuse.json":         14,
 	"signs.json":          18,
-	"responses.json":      15,
+	"responses.json":      16,
 }
 
 // pinned asserts that a file holds exactly its pinned number of cases, and returns what each case

@@ -29,8 +29,8 @@ const KeriVectorsFormat = 6
 // with no decision about MaxAge, a stated but empty ExpectedKeyid, a request verified with no
 // decision about Authorities, a response verified with no decision about ExpectedKeyid, Authorities
 // on a response, a response binding "content-digest";req verified against a Request with no Body,
-// or a response signed or verified against a Request whose headers announce a body its nil Body
-// does not carry (this.i @6v00d3tu). Such an error wraps this one and is never an *Error, so a
+// or a response signed or verified against a Request whose headers announce a body its Body, nil
+// or empty beside a Content-Length, does not carry (this.i @6v00d3tu). Such an error wraps this one and is never an *Error, so a
 // caller matching on Kind cannot take its own bug for a bad message (this.i @9z57sejw).
 var ErrInvalidOptions = errors.New("fiki: invalid options")
 

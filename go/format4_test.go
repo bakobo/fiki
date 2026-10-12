@@ -50,6 +50,33 @@ func TestARequestAnnouncingABodyItLacksIsACallerError(t *testing.T) {
 	}
 }
 
+func TestARequestAnnouncingALengthAndCarryingAnEmptyBodyIsACallerError(t *testing.T) {
+	// A length is exact, so an empty Body beside one that is not a plain zero is a body thrown
+	// away, a Transfer-Encoding beside it or not (@6v00d3tu's empty-body clause).
+	key := testKey(t)
+	for _, extra := range []map[string]string{
+		{"Content-Length": "18"},
+		{"content-length": "abc"},
+		{"Content-Length": "18", "Transfer-Encoding": "chunked"},
+	} {
+		given, stripped := announcing(t, key, extra)
+		stripped.Body = []byte{}
+		headers, err := SignResponse(key, 200, given, nil, SignOptions{Created: signedAt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = verifyResponseOptedOut(200, stripped, headers, VerifyOptions{Minimum: ResponseMinimum})
+		isAnnouncedBody(t, err)
+		_, err = SignResponse(key, 200, stripped, nil, SignOptions{Created: signedAt})
+		isAnnouncedBody(t, err)
+	}
+	// A plain zero beside an empty Body announces nothing.
+	zero := &Request{Method: "POST", URL: urlQuery, Headers: map[string]string{"Content-Length": "00"}, Body: []byte{}}
+	if _, err := SignResponse(key, 200, zero, nil, SignOptions{Created: signedAt}); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestTheAnnouncedBodyIsDecidedBeforeAnySignatureHeaderIsRead(t *testing.T) {
 	// V1b and N4: a malformed Signature, or none at all, never outranks the call's own mistake,
 	// an unsigned 401 included, and the resolver is never asked.

@@ -179,7 +179,8 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 // signed into a response every profile client refuses, and a request digest its Body contradicts
 // is refused as the verifier would refuse it. The caller's mistakes are SignRequest's, plus a
 // request whose headers announce a body (a Content-Length above zero, or any Transfer-Encoding)
-// and whose Body is nil (this.i @6v00d3tu): pass the body, or a Request without those headers.
+// and whose Body is nil, or empty beside a Content-Length (this.i @6v00d3tu): pass the body, or a
+// Request without those headers.
 func SignResponse(key *Key, status int, request *Request, headers map[string]string, opts SignOptions) (map[string]string, error) {
 	if err := checkLabel(opts.Label); err != nil {
 		return nil, err
@@ -400,15 +401,28 @@ func floored(minimum, floor []string) error {
 // revising @7p9s3g9k's second half). Whether the request had a body is judged by its content,
 // because both sides hold the whole request by the time a response is signed or verified; a
 // Request announcing a body nobody passed breaks that assumption, since the caller threw the body
-// away. Decided before any header of the response is read, so no defect in the message outranks
-// it and no resolver is asked.
+// away. So does an empty Body beside a Content-Length that is not a plain zero, since a length is
+// exact and no request of zero bytes announces one; an empty Body beside a Transfer-Encoding is
+// not, because a chunked request may carry nothing. Decided before any header of the response is
+// read, so no defect in the message outranks it and no resolver is asked. headers are canonical,
+// their names lowercase.
 func checkAnnouncedBody(body []byte, headers map[string]string) error {
-	if body != nil || !requestHasBody(headers, nil) {
+	if len(body) > 0 {
+		return nil
+	}
+	announced := headers
+	if body != nil { // empty: only a length can contradict it
+		announced = map[string]string{}
+		if length, ok := headers["content-length"]; ok {
+			announced["content-length"] = length
+		}
+	}
+	if !requestHasBody(announced, nil) {
 		return nil
 	}
 	return invalidOptions("The request this response answers announces a body in its headers, by " +
-		"its Content-Length or Transfer-Encoding, and Request.Body is nil, so whether the response " +
-		"must bind that body cannot be decided. Pass the request body, or a Request without those headers.")
+		"its Content-Length or Transfer-Encoding, and Request.Body does not carry it, so whether the " +
+		"response must bind that body cannot be decided. Pass the request body, or a Request without those headers.")
 }
 
 // requestHasBody is the profile's request body test: a length above zero, any transfer coding, or
@@ -578,7 +592,8 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // a required decision, as is MaxAge or AnyAge. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
 // "content-digest";req, and that digest is recomputed over request.Body, so verifying such a
 // response against a Request with no Body is ErrInvalidOptions, and so is a Request whose headers
-// announce a body its nil Body does not carry, decided before anything in the response is read
+// announce a body its Body does not carry, nil or empty beside a Content-Length, decided before
+// anything in the response is read
 // (this.i @6v00d3tu). A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
 // else in the message, because a server that refuses before it knows the agent cannot sign the
