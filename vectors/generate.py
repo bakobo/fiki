@@ -621,7 +621,9 @@ def refusals():
 
     not_bytes = signed()
     not_bytes["Signature"] = 'sig="a string, not a byte sequence"'
-    add("signature-that-is-not-a-byte-sequence", "MalformedSignatureValue", headers=not_bytes)
+    add("signature-that-is-not-a-byte-sequence", "MalformedSignature", headers=not_bytes,
+        note="A member that is not a byte sequence is MalformedSignature, as the KERI profile "
+             "says (format 4, @0zq820dl); before format 4 it was MalformedSignatureValue.")
 
     no_keyid = signed()
     no_keyid["Signature-Input"] = (
@@ -1207,6 +1209,27 @@ def refusals():
         headers={**honest, "Signature": f"sig=:{non_canonical_r_signature(url)}:"},
         note="R encoded as y = p + 1, the identity's non-canonical spelling. RFC 8032 decoding "
              "refuses it; a ZIP-215-mode verifier would not.")
+
+    # --- format 4 (@646un6k8) ---
+
+    # A Signature member that is not a byte sequence is MalformedSignature (@0zq820dl), the class
+    # a header that does not parse gets; MalformedSignatureValue stays for bytes that cannot be
+    # an Ed25519 signature.
+    shaped = signed(method="GET", body=None)
+    for case_id, value, error in [
+        ("signature-member-is-an-integer", "123", "MalformedSignature"),
+        ("signature-member-is-a-token", "abc", "MalformedSignature"),
+        ("signature-member-is-a-string", '"abc"', "MalformedSignature"),
+        ("signature-member-is-a-boolean", "?1", "MalformedSignature"),
+        ("signature-member-is-a-decimal", "1.5", "MalformedSignature"),
+        ("signature-member-is-an-inner-list", "(:AAAA:)", "MalformedSignature"),
+        ("signature-member-is-a-short-byte-sequence", ":AAAA:", "MalformedSignatureValue"),
+    ]:
+        add(case_id, error, method="GET", body_text=None, headers={**shaped, "Signature": f"sig={value}"},
+            note="A byte sequence of the wrong length is MalformedSignatureValue; any other shape "
+                 "is MalformedSignature (@0zq820dl)." if error == "MalformedSignatureValue" else
+                 "The member's value is not a byte sequence, so the field is malformed, not the "
+                 "signature in it (@0zq820dl, docs/keri-profile.md).")
 
     return {
         **HEADER,

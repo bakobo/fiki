@@ -804,7 +804,8 @@ def test_a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labe
     value = headers["Signature-Input"].split("=", 1)[1]
     headers["Signature-Input"] += f", other={value}"
     headers["Signature"] = 'sig="not bytes"'
-    with pytest.raises(MalformedSignatureValue):
+    # MalformedSignature since format 4 (@0zq820dl), and still ahead of the label count.
+    with pytest.raises(MalformedSignature):
         verify(request, headers)
 
 

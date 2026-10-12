@@ -267,7 +267,7 @@ def test_a_signature_labelled_differently_from_its_input_is_refused():
 def test_a_signature_that_is_not_a_byte_sequence_is_refused():
     request, headers = signed()
     headers["Signature"] = 'sig="this is a string, not a byte sequence"'
-    with pytest.raises(MalformedSignatureValue):
+    with pytest.raises(MalformedSignature):
         verify_request(authorities=None, headers=headers, max_age=None, **request)
 
 

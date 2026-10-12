@@ -251,7 +251,8 @@
       "minimum": "default",
       "authorities": null,
       "expected_aid": null,
-      "error": "MalformedSignatureValue"
+      "error": "MalformedSignature",
+      "note": "A member that is not a byte sequence is MalformedSignature, as the KERI profile says (format 4, @0zq820dl); before format 4 it was MalformedSignatureValue."
     },
     {
       "id": "no-keyid-and-no-preregistered-aid",
@@ -2590,6 +2591,125 @@
       "expected_aid": null,
       "error": "SignatureMismatch",
       "note": "R encoded as y = p + 1, the identity's non-canonical spelling. RFC 8032 decoding refuses it; a ZIP-215-mode verifier would not."
+    },
+    {
+      "id": "signature-member-is-an-integer",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=123"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-token",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=abc"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-string",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=\"abc\""
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-boolean",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=?1"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-decimal",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=1.5"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-an-inner-list",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=(:AAAA:)"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-short-byte-sequence",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AAAA:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignatureValue",
+      "note": "A byte sequence of the wrong length is MalformedSignatureValue; any other shape is MalformedSignature (@0zq820dl)."
     }
   ]
 }

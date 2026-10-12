@@ -58,7 +58,7 @@ COUNTS = {
     "rfc9421.json": 1,
     "requests.json": 21,
     "responses.json": 4,
-    "refusals.json": 64,
+    "refusals.json": 65,
     "legacy.json": 4,
 }
 

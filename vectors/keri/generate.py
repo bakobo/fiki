@@ -697,6 +697,10 @@ def refusals():
     add("signature-not-64-bytes", "malformed-signature-value", {**post, "headers": {
         **post["headers"], "Signature": f"{LABEL}=:{base64.b64encode(bytes(32)).decode()}:"}},
         note="A 32-byte byte sequence where the 64-byte Ed25519 signature belongs.")
+    add("signature-member-not-a-byte-sequence", "malformed-signature", {**post, "headers": {
+        **post["headers"], "Signature": f'{LABEL}="not a byte sequence"'}},
+        note="Section 9: a Signature member that is not a byte sequence is malformed-signature, "
+             "not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).")
 
     # The covered list.
     add("duplicate-component", "duplicate-component",

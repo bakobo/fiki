@@ -327,6 +327,23 @@
       "error": "malformed-signature-value"
     },
     {
+      "id": "signature-member-not-a-byte-sequence",
+      "kind": "request",
+      "note": "Section 9: a Signature member that is not a byte sequence is malformed-signature, not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).",
+      "request": {
+        "method": "POST",
+        "url": "https://keria.example.com/identifiers",
+        "headers": {
+          "Signature-Input": "signify=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;nonce=\"4BepnZl-i9K6GamuRtpRPA\";alg=\"ed25519\";keyid=\"ELLKuZrOw7_eNOyM2TXu5j2YHnEyHnpM1iTUKf4Dxgtx\"",
+          "Signature": "signify=\"not a byte sequence\"",
+          "Content-Digest": "sha-256=:3VcGxkKDopHfemF5ycL6Dulrq/cfyzj8j7Cmpinje2E=:"
+        },
+        "body": "{\"name\": \"alice\", \"salt\": \"0ACDEyMzQ1Njc4OWFiY2RlZg\"}"
+      },
+      "now": 1700000030,
+      "error": "malformed-signature"
+    },
+    {
       "id": "duplicate-component",
       "kind": "request",
       "note": "The same component twice.",
