@@ -56,6 +56,13 @@ public final class Fiki {
      */
     public static final int KERI_VECTORS_FORMAT = 6;
 
+    /**
+     * The key-spelling vector set this port satisfies, vectors/keys/ (this.i @0mvgkwnl), which
+     * {@link Key#aidFrom} and {@link Key#fromOpenssh} answer to. Its own number, so that the
+     * converters ship on their own schedule without moving {@link #VECTORS_FORMAT}.
+     */
+    public static final int KEY_VECTORS_FORMAT = 1;
+
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";
 
