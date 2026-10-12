@@ -343,6 +343,58 @@ class ProfileTest {
             verify(sign(opts -> opts.withKeyid("E" + "!".repeat(43))), opts -> opts.withResolver(k -> raw(KEY)))));
     }
 
+    /* ---------- a keyid that is not a well-formed AID never reaches a resolver (@7w7nv94j) */
+
+    /** The keyids V16 refuses as AIDs, plus a plain non-AID and fiki's own raw keyid. */
+    private static List<String> notAnAid() {
+        String b = cesr("B", raw(KEY));
+        return List.of(b.substring(0, 43), "A" + b.substring(1), paddingBitAlias(b), "not-an-aid", KEY.keyid(),
+            "E" + "!".repeat(43), b + "A");
+    }
+
+    @Test
+    void aResolverIsNeverAskedAboutAKeyidThatIsNotAWellFormedAid() {
+        List<String> calls = new ArrayList<>();
+        Fiki.Resolver recording = keyid -> {
+            calls.add(keyid);
+            return raw(KEY);
+        };
+        for (String keyid : notAnAid()) {
+            Signed s = sign(opts -> opts.withKeyid(keyid));
+            FikiException e = thrown(() -> verify(s, opts -> opts.withResolver(recording)));
+            assertEquals(FikiException.Kind.MalformedKey, e.kind(), keyid);
+            assertEquals(keyid, e.detail());
+            Map<String, String> headers = respond(opts -> opts.withKeyid(keyid));
+            assertEquals(FikiException.Kind.MalformedKey,
+                kindOf(() -> check(headers, opts -> opts.withResolver(recording))), keyid);
+        }
+        assertEquals(List.of(), calls);
+    }
+
+    @Test
+    void aResolverIsAskedOnceAboutAWellFormedUnknownAid() {
+        List<String> calls = new ArrayList<>();
+        Signed s = sign(opts -> opts.withKeyid(AID));
+        assertEquals(FikiException.Kind.UnknownKey, kindOf(() -> verify(s, opts -> opts.withResolver(keyid -> {
+            calls.add(keyid);
+            return null;
+        }))));
+        assertEquals(List.of(AID), calls);
+    }
+
+    @Test
+    void aSmallOrderBAidIsWellFormedSoTheResolverIsAskedAndItsKeyRefused() {
+        String identity = cesr("B", HexFormat.of().parseHex(SMALL_ORDER.get(0)));
+        List<String> calls = new ArrayList<>();
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> verify(forgedUnder(identity),
+            opts -> opts.withResolver(keyid -> {
+                calls.add(keyid);
+                return HexFormat.of().parseHex(SMALL_ORDER.get(0));
+            }))));
+        assertEquals(List.of(identity), calls);
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Key.verifyingKeyBytes(identity)));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",    // padded
@@ -833,10 +885,14 @@ class ProfileTest {
             Map.of(), List.of("@path"), Fiki.Params.of(AT, "k"))));
     }
 
+    /** Until format 4 this reached the resolver; A is not B, D or E, so it is not an AID (@7w7nv94j). */
     @Test
-    void anAidShapedKeyidUnderAnotherCodeReachesTheResolver() {
+    void anAidShapedKeyidUnderAnotherCodeIsRefusedBeforeTheResolver() {
         String other = "A" + AID.substring(1);
-        assertEquals(other, verify(sign(opts -> opts.withKeyid(other)), opts -> opts.withResolver(only(other, raw(KEY)))).aid());
+        assertEquals(FikiException.Kind.MalformedKey, kindOf(() ->
+            verify(sign(opts -> opts.withKeyid(other)), opts -> opts.withResolver(k -> {
+                throw new AssertionError("the resolver was asked about " + k);
+            }))));
         assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Key.verifyingKeyBytes(null)));
     }
 
@@ -950,13 +1006,15 @@ class ProfileTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"sig=\"not bytes\"", "sig=token", "sig=(:AAAA:)", "sig=1.5"})
+    @ValueSource(strings = {"sig=\"not bytes\"", "sig=token", "sig=(:AAAA:)", "sig=1.5", "sig=7", "sig=?1"})
     void aSignatureMemberThatIsNotAByteSequenceIsFoundBeforeTheLabels(String signature) {
         Signed s = sign();
         String value = s.headers().get("Signature-Input").split("=", 2)[1];
         s.headers().put("Signature-Input", s.headers().get("Signature-Input") + ", other=" + value);
         s.headers().put("Signature", signature);
-        assertEquals(FikiException.Kind.MalformedSignatureValue, kindOf(() -> verify(s)));
+        // MalformedSignature since format 4, as the KERI profile names it (@0zq820dl), and still
+        // ahead of the label count.
+        assertEquals(FikiException.Kind.MalformedSignature, kindOf(() -> verify(s)));
     }
 
     /* ---------------------------------------------------------------- the section 9 order */
@@ -1091,13 +1149,84 @@ class ProfileTest {
         assertEquals("\"content-digest\";req", e.detail());
     }
 
+    /**
+     * Both sides hold the whole request by the time a response is signed or verified (@7p9s3g9k).
+     * A request whose headers announce a body it carries is judged by that content; one carrying
+     * an empty body binds none.
+     */
     @Test
     void aResponseJudgesItsRequestsBodyByContentNotHeaders() {
-        Fiki.Request chunked = new Fiki.Request("POST", URL,
-            Map.of("Transfer-Encoding", "chunked", "Content-Digest", Fiki.contentDigest(BODY)), null);
+        Fiki.Request chunked = new Fiki.Request("POST", URL, Map.of("Transfer-Encoding", "chunked"), new byte[0]);
         Map<String, String> headers = respond(opts -> opts.withCovered(plus(Fiki.RESPONSE_MINIMUM, "content-digest")),
             200, chunked, Map.of());
         assertEquals(KEY.aid(), check(headers, 200, RESPONSE_BODY, chunked,
+            opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)).aid());
+    }
+
+    /* ----------- a Request announcing a body it does not carry is a caller error (@6v00d3tu) */
+
+    private static final String ANNOUNCED = "announces a body in its headers";
+
+    /** A request signed for with its body: the first is as given, the second handed over without it. */
+    private static Fiki.Request[] announcing(Map<String, String> extra) {
+        Map<String, String> headers = new LinkedHashMap<>(extra);
+        headers.put("Content-Digest", Fiki.contentDigest(BODY));
+        return new Fiki.Request[] {
+            new Fiki.Request("POST", URL, headers, BODY), new Fiki.Request("POST", URL, headers, null)};
+    }
+
+    private static Map<String, String> field(String spec) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String pair : spec.split(";")) {
+            String[] parts = pair.split(":", 2);
+            out.put(parts[0], parts[1]);
+        }
+        return out;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Content-Length:18", "Transfer-Encoding:chunked", "Content-Length:18;Transfer-Encoding:chunked",
+        "content-length:abc"})
+    void verifyingAResponseToARequestAnnouncingABodyItLacksIsACallerError(String extra) {
+        Fiki.Request[] pair = announcing(field(extra));
+        Map<String, String> headers = respond(opts -> opts, 200, pair[0], Map.of());
+        Caller.refused(ANNOUNCED, () -> check(headers, 200, RESPONSE_BODY, pair[1],
+            opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Content-Length:18", "Transfer-Encoding:gzip"})
+    void signingAResponseToARequestAnnouncingABodyItLacksIsACallerError(String extra) {
+        Fiki.Request stripped = announcing(field(extra))[1];
+        Caller.refused(ANNOUNCED, () -> respond(opts -> opts, 200, stripped, Map.of()));
+    }
+
+    /** V1b and N4: a malformed Signature, or none, never outranks the call's own mistake. */
+    @Test
+    void theCallerErrorIsDecidedBeforeAnySignatureHeaderIsRead() {
+        Fiki.Request[] pair = announcing(Map.of("Content-Length", "18"));
+        Map<String, String> malformed = respond(opts -> opts.withKeyid(AID), 200, pair[0], Map.of());
+        malformed.put("Signature", "sig=123");
+        List<String> calls = new ArrayList<>();
+        Fiki.Resolver resolver = keyid -> {
+            calls.add(keyid);
+            return raw(KEY);
+        };
+        for (Map<String, String> headers : List.of(malformed, Map.<String, String>of(), Map.of("Signature", ""))) {
+            for (int status : new int[] {200, 401}) {
+                Caller.refused(ANNOUNCED, () -> check(headers, status, RESPONSE_BODY, pair[1],
+                    opts -> opts.withResolver(resolver)));
+            }
+        }
+        assertEquals(List.of(), calls);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "000", " 0 "})
+    void aRequestAnnouncingNoBodyAndCarryingNoneIsJudgedAsBefore(String length) {
+        Fiki.Request asked = new Fiki.Request("GET", URL, Map.of("Content-Length", length), null);
+        Map<String, String> headers = respond(opts -> opts, 200, asked, Map.of());
+        assertEquals(KEY.aid(), check(headers, 200, RESPONSE_BODY, asked,
             opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)).aid());
     }
 
@@ -1111,10 +1240,11 @@ class ProfileTest {
 
     /* ------------------------------------------- the first review and draft 6 (@2f227n4r) */
 
+    /** By content alone (@7p9s3g9k): a Request whose body is empty binds no digest. */
     @Test
-    void aDefaultResponseDoesNotBindARequestBodyOnlyItsHeadersAnnounce() {
-        Fiki.Request asked = new Fiki.Request("POST", URL,
-            Map.of("Content-Length", "18", "Content-Digest", Fiki.contentDigest(BODY)), null);
+    void aDefaultResponseToARequestWithAnEmptyBodyBindsNoDigest() {
+        Fiki.Request asked = new Fiki.Request("POST", URL, Map.of("Content-Digest", Fiki.contentDigest(new byte[0])),
+            new byte[0]);
         Map<String, String> headers = respond(opts -> opts, 200, asked, Map.of());
         assertFalse(check(headers, 200, RESPONSE_BODY, asked, opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM))
             .covered().contains(Fiki.req("content-digest")));

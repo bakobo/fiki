@@ -35,18 +35,18 @@ import org.junit.jupiter.api.TestFactory;
  * The KERI profile's vector set, vectors/keri/, run in place (this.i @8vwrexxc, @24tvlxgd).
  *
  * <p>A separate contract from the shared vectors/: its own format number, and refusals named by
- * the profile's neutral section 9 codes rather than fiki's class names. fiki-py's driver imports
- * the resolver, the well-formedness rule and the policy-applying verifier from
- * vectors/keri/generate.py (@4tkkp50h). This one cannot import Python, so it reads the
- * class-to-code table out of that file's text rather than copying it, and reimplements only what
- * each file's keys_rule and policy prose state normatively: the resolver, the AID rule, and the
- * policy wiring.
+ * the profile's neutral section 9 codes rather than fiki's class names. This driver cannot import
+ * Python, so it reads the class-to-code table out of vectors/keri/generate.py's text rather than
+ * copying it, and reimplements only what each file's keys_rule and policy prose state
+ * normatively: the resolver, the AID rule, and the policy wiring.
  *
- * <p>The resolver is authoritative (@6g9zjsv9). It derives a non-transferable B keyid's key from
- * the prefix, looks every other well-formed keyid up in the file's keys table, answers null for
- * one it has no key state for, throws UnsupportedSigner for a key state with no single effective
- * signer, and refuses a keyid that is not an AID at all. It never decodes a D keyid as a key,
- * which is exactly what one of the vectors is there to catch.
+ * <p>The resolver is authoritative (@6g9zjsv9) and knows only key state (@7w7nv94j). It hands
+ * back a non-transferable B keyid's prefix bytes unexamined, looks every other keyid up in the
+ * file's keys table, answers null for one it has no key state for, and throws UnsupportedSigner
+ * for a key state with no single effective signer. It applies no well-formedness rule: refusing a
+ * keyid that is not an AID is the library's job, which two of the refusals check. It never decodes
+ * a D keyid as a key, which is exactly what one of the vectors is there to catch. The AID rule
+ * below is kept to check the keys table itself.
  */
 class KeriVectorsTest {
 
@@ -59,13 +59,13 @@ class KeriVectorsTest {
     private static final Map<String, String> CODES = codes();
 
     /*
-     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * The number of cases in each file at keri_vectors_format 6, read from the files once when these constants
      * were written and never at test time (tick 7xbw, T8); rfc9421.json's one case is asserted where
      * it is read.
      */
     private static final int REQUESTS_CASES = 21;
     private static final int RESPONSES_CASES = 4;
-    private static final int REFUSALS_CASES = 64;
+    private static final int REFUSALS_CASES = 65;
     private static final int LEGACY_CASES = 4;
 
     private static JsonNode load(String name) throws Exception {
@@ -143,11 +143,12 @@ class KeriVectorsTest {
             }
         });
         return keyid -> {
-            if (!wellFormedAid(keyid)) {
-                throw new FikiException(FikiException.Kind.MalformedKey, "\"" + keyid + "\" is not a well-formed AID.", keyid);
-            }
+            // Key state and nothing else (keri_vectors_format 6, @7w7nv94j): a keyid that is not a
+            // well-formed AID never reaches here, because the library refuses it first, and the
+            // keyid-not-an-aid and padding-bit-alias cases check that it does. A B keyid's key is its
+            // prefix's 32 bytes, handed back unexamined, so a weak key is the library's to refuse.
             if (keyid.startsWith("B")) {
-                return Key.verifyingKeyBytes(keyid);
+                return Arrays.copyOfRange(URL_DECODER.decode("A" + keyid.substring(1)), 1, 33);
             }
             JsonNode entry = table.get(keyid);
             if (entry == null) {

@@ -152,17 +152,17 @@ class VectorsTest {
     }
 
     /*
-     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * The number of cases in each file at vectors_format 4, read from the files once when these constants
      * were written and never at test time: a driver looping over an emptied cases array asserted
      * nothing and passed (tick 7xbw, T8). Counted.each holds each file to its number.
      */
-    private static final int AID_LENS_CASES = 3;
+    private static final int AID_LENS_CASES = 7;
     private static final int SIGNATURE_BASE_CASES = 14;
-    private static final int ACCEPTS_CASES = 44;
-    private static final int REFUSALS_CASES = 144;
-    private static final int RESPONSES_CASES = 13;
-    private static final int SIGNS_CASES = 16;
-    private static final int MISUSE_CASES = 10;
+    private static final int ACCEPTS_CASES = 45;
+    private static final int REFUSALS_CASES = 157;
+    private static final int RESPONSES_CASES = 15;
+    private static final int SIGNS_CASES = 18;
+    private static final int MISUSE_CASES = 13;
 
     /*
      * The message fragment each caller-error vector must carry (tick 7xbw, T3), since a vector names
@@ -181,7 +181,11 @@ class VectorsTest {
         Map.entry("response-expected-keyid-omitted", "State the AID this client expects the response to be signed by"),
         Map.entry("response-minimum-below-the-profiles", "A minimum covered set must include the profile's own"),
         Map.entry("response-expected-keyid-empty", "expected keyid is empty, which names no AID"),
-        Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"));
+        Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"),
+        Map.entry("request-announces-a-body-it-does-not-carry", "announces a body in its headers"),
+        Map.entry("request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers"),
+        Map.entry("request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers"),
+        Map.entry("sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers"));
 
     @TestFactory
     Stream<DynamicTest> vectorsFormat() {
@@ -200,6 +204,16 @@ class VectorsTest {
     @TestFactory
     Stream<DynamicTest> aidLens() throws Exception {
         return Counted.each("aid-lens.json", load("aid-lens.json").get("cases"), AID_LENS_CASES, c -> {
+            if (c.has("error")) {
+                // A string that is not an AID, straight through the AID-to-key decoder (@7w7nv94j).
+                String aid = c.get("aid").asText();
+                FikiException thrown = assertThrows(FikiException.class, () -> Key.verifyingKeyBytes(aid));
+                assertEquals(c.get("error").asText(), thrown.kind().name());
+                wellFormed(thrown);
+                assertEquals(c.get("error").asText(),
+                    assertThrows(FikiException.class, () -> Key.verifyingKey(aid)).kind().name());
+                return;
+            }
             Key key = Key.fromSeed(HexFormat.of().parseHex(c.get("seed_hex").asText()));
             assertEquals(c.get("aid").asText(), key.aid());
             assertEquals(c.get("keyid").asText(), key.keyid());
