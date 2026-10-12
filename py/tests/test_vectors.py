@@ -36,7 +36,7 @@ COUNTS = {
     "aid-lens.json": 7,
     "signature-base.json": 14,
     "accepts.json": 44,
-    "refusals.json": 151,
+    "refusals.json": 152,
     "misuse.json": 13,
     "signs.json": 17,
     "responses.json": 15,

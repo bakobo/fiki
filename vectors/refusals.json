@@ -2710,6 +2710,23 @@
       "expected_aid": null,
       "error": "MalformedSignatureValue",
       "note": "A byte sequence of the wrong length is MalformedSignatureValue; any other shape is MalformedSignature (@0zq820dl)."
+    },
+    {
+      "id": "expected-aid-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": "",
+      "error": "MalformedKey",
+      "note": "The 3,000 generated differential cases never set expected_aid to the empty string, which is how Go's ErrInvalidOptions went unnoticed (@7j58rwu2)."
     }
   ]
 }

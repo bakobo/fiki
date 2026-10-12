@@ -1249,6 +1249,13 @@ def refusals():
                  "The member's value is not a byte sequence, so the field is malformed, not the "
                  "signature in it (@0zq820dl, docs/keri-profile.md).")
 
+    # An explicitly empty expected AID names no key, and is refused as any other string that is
+    # not an AID is (@7j58rwu2): the AID decoder's MalformedKey, never a silently skipped check.
+    add("expected-aid-is-empty", "MalformedKey", method="GET", body_text=None,
+        headers=signed(method="GET", body=None), expected_aid="",
+        note="The 3,000 generated differential cases never set expected_aid to the empty "
+             "string, which is how Go's ErrInvalidOptions went unnoticed (@7j58rwu2).")
+
     return {
         **HEADER,
         "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
