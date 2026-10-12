@@ -996,23 +996,34 @@ func resolvedKey(keyid string, resolve Resolver) (ed25519.PublicKey, string, err
 // usable refuses a key that is not a canonical on-curve point, or is of small order, whichever way
 // it arrived (@8krqtpsu). named is how the refusal names it.
 func usable(public ed25519.PublicKey, aid, named string) (ed25519.PublicKey, string, error) {
+	if err := keyDefect(public, "The key for "+shown(named), named); err != nil {
+		return nil, "", err
+	}
+	return public, aid, nil
+}
+
+// keyDefect is the refusal of a key that is not a canonical on-curve point or is of small order,
+// or nil. subject names the key at the head of the message, and keyid is the field the refusal
+// carries; AIDFrom passes "The key given" and an empty keyid, since it must not echo its input
+// (@0mvgkwnl).
+func keyDefect(public []byte, subject, keyid string) error {
 	if !canonicalPoint(public) {
-		return nil, "", &Error{
+		return &Error{
 			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The key for %s is not the canonical encoding of a point on the "+
-				"Ed25519 curve, so no signature could verify under it.", shown(named)),
-			Keyid: named,
+			Message: subject + " is not the canonical encoding of a point on the Ed25519 curve, so " +
+				"no signature could verify under it.",
+			Keyid: keyid,
 		}
 	}
 	if smallOrder(public) {
-		return nil, "", &Error{
+		return &Error{
 			Kind: KindMalformedKey,
-			Message: fmt.Sprintf("The key for %s is a point of small order, under which a signature "+
-				"can be forged without any private key, so it is not a key fiki will verify with.", shown(named)),
-			Keyid: named,
+			Message: subject + " is a point of small order, under which a signature can be forged " +
+				"without any private key, so it is not a key fiki will verify with.",
+			Keyid: keyid,
 		}
 	}
-	return public, aid, nil
+	return nil
 }
 
 // checkAuthorities requires the caller's decision about the hosts it serves (@524c8qgv): Go cannot
