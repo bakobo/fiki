@@ -7,13 +7,13 @@
 [![Java](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-java.yml)
 [![C#](https://github.com/bakobo/fiki/actions/workflows/ci-csharp.yml/badge.svg)](https://github.com/bakobo/fiki/actions/workflows/ci-csharp.yml)
 
-Sign and verify HTTP requests with a bare Ed25519 key as the identifier. Standard [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), no KERI dependencies. Python, JavaScript, Go, Rust, Java, and C#.
+Sign and verify HTTP requests with a bare Ed25519 key (encoded as raw bytes, an SSH key, a KERI AID, a JWK, a did:key, a did:peer) as the identifier. Standard [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), no dependencies on KERI, JSON-LD, or similar frameworks. Python, JavaScript, Go, Rust, Java, and C#.
 
-The public half of an Ed25519 key is rendered as a non-transferable AID — a 44-character `B…` string in CESR's `Ed25519N` encoding — and that string is both the identifier and the verifying key. A verifier needs no key event log, no directory lookup, and no network call to recover it. A client registers its AID once with whoever it calls, and signs from then on. There is nothing to rotate and nothing to fetch.
+Over the wire, the public half of an Ed25519 key is rendered as a non-transferable AID — a 44-character `B…` string in CESR's `Ed25519N` encoding — and that string is both the identifier and the verifying key. A verifier needs no key event log, no directory lookup, and no network call to recover it. A client registers its AID once with whoever it calls, and signs from then on. There is nothing to rotate and nothing to fetch.
 
-The AID is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has a DID, or is willing to make a dedicated SSH key, needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
+The AID wire format is only one spelling of that key. A client can register it as the raw key in base64url (a JWK's `x`), a `did:key`, a `did:peer:0`, or an `ssh-ed25519` public line, and sign with an unencrypted OpenSSH private key, so a party that already has a DID, or is willing to make a dedicated SSH key, needs nothing new. The wire format does not change: whatever spelling a key was registered in, a request carries it the same way.
 
-fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a KERI stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want a full KERI stack such as [keripy](https://github.com/WebOfTrust/keripy) instead; fiki is deliberately the floor.
+fiki exists for the party that needs to prove who it is and nothing else: an ESB client, a cron job, a container that calls one API. That party should not have to install a complex stack to say its own name. If you need key rotation, delegation, credentials, or anything anchored to a key event log, you want a full KERI stack such as [keripy](https://github.com/WebOfTrust/keripy) instead; fiki is deliberately the floor.
 
 **To use fiki in your own project, read the [user guide](docs/user-guide.md).** What follows is about the repository.
 
