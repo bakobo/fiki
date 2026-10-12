@@ -136,7 +136,7 @@ const CASE_COUNTS: [(&str, usize); 5] = [
     ("rfc9421.json", 1),
     ("requests.json", 21),
     ("responses.json", 4),
-    ("refusals.json", 64),
+    ("refusals.json", 65),
     ("legacy.json", 4),
 ];
 
@@ -475,7 +475,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 5);
+    assert_eq!(KERI_VECTORS_FORMAT, 6);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");

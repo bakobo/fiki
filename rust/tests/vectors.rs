@@ -124,13 +124,13 @@ fn max_age(seconds: Option<i64>) -> MaxAge {
 /// 7xbw, T8) and never at test time: an emptied or shortened cases array fails here rather than
 /// passing a driver that loops over nothing.
 const CASE_COUNTS: [(&str, usize); 7] = [
-    ("aid-lens.json", 3),
+    ("aid-lens.json", 7),
     ("signature-base.json", 14),
-    ("accepts.json", 44),
-    ("refusals.json", 144),
-    ("misuse.json", 10),
-    ("signs.json", 16),
-    ("responses.json", 13),
+    ("accepts.json", 45),
+    ("refusals.json", 157),
+    ("misuse.json", 13),
+    ("signs.json", 18),
+    ("responses.json", 15),
 ];
 
 fn pinned(name: &str) -> usize {
