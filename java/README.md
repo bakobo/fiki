@@ -25,11 +25,11 @@ Then depend on it as you would on any other artifact. With Maven:
 <dependency>
   <groupId>com.bakobo</groupId>
   <artifactId>fiki</artifactId>
-  <version>0.9.0</version>
+  <version>0.10.0</version>
 </dependency>
 ```
 
-With Gradle, add `mavenLocal()` to `repositories` and `implementation("com.bakobo:fiki:0.9.0")` to `dependencies`. The artifact has no runtime dependencies, so nothing else comes with it.
+With Gradle, add `mavenLocal()` to `repositories` and `implementation("com.bakobo:fiki:0.10.0")` to `dependencies`. The artifact has no runtime dependencies, so nothing else comes with it.
 
 ## Signing a request
 

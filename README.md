@@ -53,18 +53,18 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations at 0.9.0, conforming to vectors format 3 and to the KERI profile's keri vectors format 5. Format 3 broke every caller of 0.8.0: request and response verifiers fail closed by default, a server states the hosts it serves and a client the AID it expects, and every untrusted value is bounded (`this.i` @524c8qgv). The default branch is at vectors format 4 and keri vectors format 6, unreleased: a response's request that announces a body it does not carry is a caller error, a Signature member that is not a byte sequence is `MalformedSignature` as the KERI profile says, fiki refuses a keyid that is not a well-formed AID before any resolver sees it, and a list-valued header is joined with `", "` (`this.i` @646un6k8). The [user guide](docs/user-guide.md) describes the default branch.
+Six implementations at 0.10.0, conforming to vectors format 4, to the KERI profile's keri vectors format 6, and to key vectors format 1. Format 4 breaks some callers of 0.9.0: a response's request that announces a body it does not carry is a caller error, a Signature member that is not a byte sequence is `MalformedSignature` as the KERI profile says, fiki refuses a keyid that is not a well-formed AID before any resolver sees it, an empty expected AID is `MalformedKey`, and a list-valued header is joined with `", "` (`this.i` @646un6k8). Every port now also converts a key in its other common spellings to an AID and signs with an unencrypted OpenSSH Ed25519 key (`this.i` @0mvgkwnl). Format 3, in 0.9.0, broke every caller of 0.8.0: verifiers fail closed by default, a server states the hosts it serves and a client the AID it expects, and every untrusted value is bounded (`this.i` @524c8qgv). The [user guide](docs/user-guide.md) describes the default branch.
 
 The APIs are not frozen; this is 0.x. Each port is published to the registry its ecosystem expects, by a tag-triggered workflow that needs no long-lived credential ([docs/releasing.md](docs/releasing.md)), except the Java port, which is not yet on Maven Central and is built from source:
 
 [![PyPI](https://img.shields.io/pypi/v/fiki)](https://pypi.org/project/fiki/) [![npm](https://img.shields.io/npm/v/@bakobo/fiki)](https://www.npmjs.com/package/@bakobo/fiki) [![crates.io](https://img.shields.io/crates/v/fiki)](https://crates.io/crates/fiki) [![NuGet](https://img.shields.io/nuget/v/Bakobo.Fiki)](https://www.nuget.org/packages/Bakobo.Fiki) [![Go Reference](https://pkg.go.dev/badge/github.com/bakobo/fiki/go.svg)](https://pkg.go.dev/github.com/bakobo/fiki/go)
 
 ```sh
-pip install fiki==0.9.0
-npm install @bakobo/fiki@0.9.0
-go get github.com/bakobo/fiki/go@v0.9.0
-cargo add fiki@0.9.0
-dotnet add package Bakobo.Fiki --version 0.9.0
+pip install fiki==0.10.0
+npm install @bakobo/fiki@0.10.0
+go get github.com/bakobo/fiki/go@v0.10.0
+cargo add fiki@0.10.0
+dotnet add package Bakobo.Fiki --version 0.10.0
 ```
 
 For Java, build the port from a clone and install it into your local Maven repository, as [java/README.md](java/README.md#using-it-from-your-own-project) describes.
@@ -103,19 +103,17 @@ A new port adds a directory here rather than a repository, so the vectors cannot
 Each implementation versions independently — a fix in the Go port does not force an empty release of the other five. What tells you whether two artifacts interoperate is the **vectors format** each one declares, not its version number:
 
 ```
-fiki (Python)      0.9.0    vectors format 3    keri vectors format 5    key vectors format 1
-fiki (JavaScript)  0.9.0    vectors format 3    keri vectors format 5
-fiki (Go)          0.9.0    vectors format 3    keri vectors format 5
-fiki (Rust)        0.9.0    vectors format 3    keri vectors format 5
-fiki (Java)        0.9.0    vectors format 3    keri vectors format 5    (not published; built from source)
-fiki (C#)          0.9.0    vectors format 3    keri vectors format 5
+fiki (Python)      0.10.0    vectors format 4    keri vectors format 6    key vectors format 1
+fiki (JavaScript)  0.10.0    vectors format 4    keri vectors format 6    key vectors format 1
+fiki (Go)          0.10.0    vectors format 4    keri vectors format 6    key vectors format 1
+fiki (Rust)        0.10.0    vectors format 4    keri vectors format 6    key vectors format 1
+fiki (Java)        0.10.0    vectors format 4    keri vectors format 6    key vectors format 1    (not published; built from source)
+fiki (C#)          0.10.0    vectors format 4    keri vectors format 6    key vectors format 1
 ```
-
-At 0.9.0 only the Python port satisfies key vectors format 1 (`vectors/keys/`), the alternate spellings of a key. On the default branch all six do, unreleased.
 
 Same format, interchangeable; the columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 
-Releases are tagged per port: `py/v0.9.0`, `js/v0.9.0`, `go/v0.9.0`, `rust/v0.9.0`, `csharp/v0.9.0`. The Java port has no release tag, because nothing publishes it yet. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other ports follow it for consistency.
+Releases are tagged per port: `py/v0.10.0`, `js/v0.10.0`, `go/v0.10.0`, `rust/v0.10.0`, `csharp/v0.10.0`. The Java port has no release tag, because nothing publishes it yet. The prefix is not cosmetic — Go's module path is `github.com/bakobo/fiki/go`, so that is the tag form its tooling requires, and the other ports follow it for consistency.
 
 ## Conformance
 
