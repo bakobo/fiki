@@ -24,6 +24,11 @@ const VectorsFormat = 4
 // VectorsFormat, because the two sets answer to different authorities and move independently.
 const KeriVectorsFormat = 6
 
+// KeyVectorsFormat is the key-spelling contract this port satisfies, the key_vectors_format of
+// vectors/keys/ (this.i @0mvgkwnl): AIDFrom and FromOpenSSH. A number of its own, so that the
+// spellings reach each port on that port's schedule without moving VectorsFormat.
+const KeyVectorsFormat = 1
+
 // ErrInvalidOptions marks a mistake in the call rather than a defect in the message: a minimum
 // covered set smaller than the profile's, ExpectedAID together with Resolve, a message verified
 // with no decision about MaxAge, a stated but empty ExpectedKeyid, a request verified with no
