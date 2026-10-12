@@ -569,7 +569,8 @@ describe('Signature-Input, as received', () => {
     const value = signed.headers['Signature-Input'].split('=').slice(1).join('=');
     signed.headers['Signature-Input'] += `, other=${value}`;
     signed.headers.Signature = 'sig="not bytes"';
-    await assert.rejects(() => verify(signed), errors.MalformedSignatureValue);
+    // The field is malformed, not the signature in it (@0zq820dl).
+    await assert.rejects(() => verify(signed), errors.MalformedSignature);
   });
 });
 

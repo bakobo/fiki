@@ -1,9 +1,11 @@
 // RFC 8941's bare item types, all of them and none of RFC 9651's (`this.i` @7vdhfv3q).
 //
 // fiki-js never parsed tokens or decimals, so a Signature member whose value was a token failed to
-// parse here and was MalformedSignature, where every other port parses it and refuses it as
-// MalformedSignatureValue. The verifier-level expectations below are fiki-py's outcomes for the
-// same headers, read from a scratch script that called fiki-py with them.
+// parse here and was MalformedSignature, where every other port parsed it and refused it as
+// MalformedSignatureValue. Format 4 makes any member that is not a byte sequence MalformedSignature
+// in every port, as the KERI profile says (@0zq820dl), so the class now agrees either way and the
+// message says which happened. The verifier-level expectations below are fiki-py's outcomes for
+// the same headers, read from a scratch script that called fiki-py with them.
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -109,8 +111,8 @@ const refused = (Class, fragment) => (err) => {
 
 describe('a verifier reads tokens and decimals and refuses them where fiki-py does', () => {
   it('a Signature member that is a token or a decimal is not a byte sequence', async () => {
-    await assert.rejects(verify({ Signature: 'sig=tok' }), refused(errors.MalformedSignatureValue, 'carries something else'));
-    await assert.rejects(verify({ Signature: 'sig=1.5' }), refused(errors.MalformedSignatureValue, 'carries something else'));
+    await assert.rejects(verify({ Signature: 'sig=tok' }), refused(errors.MalformedSignature, 'carries something else'));
+    await assert.rejects(verify({ Signature: 'sig=1.5' }), refused(errors.MalformedSignature, 'carries something else'));
   });
   it('a covered component with a token or decimal parameter is unsupported', async () => {
     for (const param of ['a=tok', 'a=1.5', 'req=tok']) {

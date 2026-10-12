@@ -734,10 +734,11 @@ function read(found, { requireKeyid, requireCreated }) {
 
   const signatures = parse(rawSignature, 'Signature', MalformedSignature);
   for (const member of signatures.values()) {
-    // Draft 6 of the KERI profile would call this malformed-signature, since such a header is
-    // neither mode's form; the class stays the one the shared vectors pin (@2f227n4r).
+    // The KERI profile calls a member that is not a byte sequence malformed-signature: the field is
+    // malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is kept for a byte
+    // sequence that cannot be an Ed25519 signature, below.
     if (!(member.value instanceof Uint8Array)) {
-      throw new MalformedSignatureValue(
+      throw new MalformedSignature(
         'RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this ' +
           'Signature header carries something else.',
       );
