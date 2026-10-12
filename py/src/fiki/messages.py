@@ -72,7 +72,7 @@ from .errors import (
     UnknownKey,
     UnsupportedAlgorithm,
 )
-from .keys import misspelled_aid, public_key, to_aid, verifying_key
+from .keys import public_key, to_aid, verifying_key, well_formed_aid
 
 ALG = "ed25519"
 
@@ -134,7 +134,7 @@ _DEFAULT_REQUEST = _Default("DEFAULT_MINIMUM")
 _DEFAULT_RESPONSE = _Default("RESPONSE_MINIMUM")
 
 # keyid -> the 32 raw bytes of the Ed25519 key it names, or None when it names no key the caller
-# knows. It may raise MalformedKey itself for a keyid that is not a well-formed identifier.
+# knows. fiki hands it only a well-formed AID (@7w7nv94j), so it answers about key state alone.
 Resolver = Callable[[str], "bytes | None"]
 
 
@@ -988,10 +988,13 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
             "key to verify it against."
         )
     if resolve is not None:
-        if misspelled_aid(keyid):
+        # A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+        # well-formed AID, whatever its shape, is refused here and never handed to it.
+        if not well_formed_aid(keyid):
             raise MalformedKey(
-                f"The keyid {shown(keyid)} is shaped like an AID and is not its canonical spelling, "
-                "so it is not an AID at all.",
+                f"The keyid {shown(keyid)} is not a well-formed AID: 44 characters, B, D or E, "
+                "then the canonical base64url spelling of 32 bytes. A resolver is asked only "
+                "about an AID.",
                 keyid=keyid,
             )
         return None

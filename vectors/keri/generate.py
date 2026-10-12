@@ -51,7 +51,7 @@ from fiki import (  # noqa: E402
     verifying_key,
 )
 from fiki.base import component  # noqa: E402
-from fiki.errors import FikiError, MalformedKey, UnsupportedSigner  # noqa: E402
+from fiki.errors import FikiError, UnsupportedSigner  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m). Format 4
@@ -272,7 +272,8 @@ def padding_bit_alias(aid: str) -> str:
 
 
 def well_formed_aid(keyid: str) -> bool:
-    """KEYS_RULE's test, shared by this generator and fiki-py's driver."""
+    """KEYS_RULE's test, which the keys table is checked against. The resolver does not apply it:
+    a library must (fiki @7w7nv94j)."""
     if len(keyid) != 44 or keyid[0] not in "BDE":
         return False
     try:
@@ -285,14 +286,19 @@ def well_formed_aid(keyid: str) -> bool:
 
 
 def resolver(keys: list[dict]):
-    """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode."""
+    """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode.
+
+    It knows key state and nothing else (keri_vectors_format 6, fiki @7w7nv94j): it returns a key,
+    says the keyid is unknown, or says its signer is unsupported. A keyid that is not a
+    well-formed AID never reaches it, because the library refuses it first, and the vectors'
+    keyid-not-an-aid and padding-bit-alias cases check that the library does. A B keyid's key is
+    its prefix's 32 bytes, handed back unexamined, so a weak key is the library's to refuse.
+    """
     table = {entry["keyid"]: entry for entry in keys if entry["kind"] == "transferable"}
 
     def resolve(keyid: str):
-        if not well_formed_aid(keyid):
-            raise MalformedKey(f'"{keyid}" is not a well-formed AID.', keyid=keyid)
         if keyid.startswith("B"):
-            return verifying_key(keyid).public_bytes_raw()
+            return base64.urlsafe_b64decode("A" + keyid[1:])[1:]
         entry = table.get(keyid)
         if entry is None:
             return None

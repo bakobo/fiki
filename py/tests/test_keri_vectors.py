@@ -6,13 +6,15 @@ runs it. signify-ts and keripy load the same JSON directly, so everything this d
 the files; the only thing it adds is the resolver a KERI verifier would back with key event logs,
 built here from the keys table each file carries.
 
-The resolver is authoritative (@6g9zjsv9). It derives a non-transferable ``B…`` keyid from the
-prefix, looks every transferable keyid up in the table, answers None for a well-formed AID it has
-no key state for, raises UnsupportedSigner for a key state with no single effective signer, and
-refuses a keyid that is not an AID at all. It never decodes a ``D…`` keyid as a key, which is
-exactly what one of the vectors is there to catch. The resolver, the well-formedness rule and the
-policy-applying verifier are the generator's own, imported rather than copied, so the rule the
-files state is the one this driver runs (@4tkkp50h).
+The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back a
+non-transferable ``B…`` keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
+the table, answers None for a keyid it has no key state for, and raises UnsupportedSigner for a
+key state with no single effective signer. It never decodes a ``D…`` keyid as a key, which is
+exactly what one of the vectors is there to catch, and it carries no well-formedness check: a
+keyid that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
+test the library rather than this file. The resolver and the verifier are written here from the
+files alone, never imported from the generator, so a library that skipped a check cannot pass by
+borrowing the generator's; only the generator's table of profile codes is imported.
 """
 
 from __future__ import annotations
@@ -22,12 +24,14 @@ import importlib.util
 import json
 from pathlib import Path
 
+import http_sfv
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-from fiki import KERI_VECTORS_FORMAT, Key, sign_request, signature_base, verifying_key
+from fiki import (KERI_VECTORS_FORMAT, Key, Request, response_signature_base, sign_request,
+                  signature_base, verify_request, verify_response, verifying_key)
 from fiki.base import component
-from fiki.errors import FikiError
+from fiki.errors import FikiError, UnsupportedSigner
 
 KERI = Path(__file__).resolve().parents[2] / "vectors" / "keri"
 FILES = ("rfc9421.json", "requests.json", "responses.json", "refusals.json", "legacy.json")
@@ -97,11 +101,71 @@ def body_of(message: dict) -> bytes | None:
     return None if message["body"] is None else message["body"].encode("utf-8")
 
 
+def resolver(keys: list[dict]):
+    """A KERI verifier's key lookup over a file's keys table: key state, and nothing else."""
+    table = {entry["keyid"]: entry for entry in keys if entry["kind"] == "transferable"}
+
+    def resolve(keyid: str):
+        if keyid.startswith("B"):
+            return base64.urlsafe_b64decode("A" + keyid[1:])[1:]
+        entry = table.get(keyid)
+        if entry is None:
+            return None
+        if entry["effective_key"] is None:
+            raise UnsupportedSigner(f"{keyid} has no single key that satisfies its threshold.",
+                                    keyid=keyid)
+        return b64url(entry["effective_key"])
+
+    return resolve
+
+
+def as_request(message: dict) -> Request:
+    return Request(method=message["method"], url=message["url"], headers=message["headers"],
+                   body=body_of(message))
+
+
+def verify(request: dict, response: dict | None = None, *, now: int, policy: dict, keys: list):
+    """Verify as a KERI verifier would, under a policy object as the files spell one."""
+    common = dict(max_age=policy["max_age"], skew=policy["skew"], now=now,
+                  resolve=resolver(keys), expected_keyid=policy.get("expected_keyid"))
+    if response is not None:
+        return verify_response(status=response["status"], headers=response["headers"],
+                               body=body_of(response), request=as_request(request),
+                               minimum=policy["response_minimum"], **common)
+    authorities = policy.get("authorities")
+    return verify_request(method=request["method"], url=request["url"],
+                          headers=request["headers"], body=body_of(request),
+                          minimum=policy["request_minimum"],
+                          authorities=None if authorities is None else set(authorities), **common)
+
+
+def expected_base(request: dict, response: dict | None, keys: list) -> tuple[str, str]:
+    """The base the message's Signature-Input describes, rebuilt, and its signature checked."""
+    message = response or request
+    parsed = http_sfv.Dictionary()
+    parsed.parse(message["headers"]["Signature-Input"].encode("utf-8"))
+    ((_, inner),) = parsed.items()
+    params = dict(inner.params)
+    kwargs = dict(covered=list(inner), created=params["created"], keyid=params["keyid"],
+                  alg=params.get("alg"), expires=params.get("expires"),
+                  nonce=params.get("nonce"), tag=params.get("tag"))
+    if response is not None:
+        base = response_signature_base(status=response["status"], headers=response["headers"],
+                                       request=as_request(request), **kwargs)
+    else:
+        base = signature_base(method=request["method"], url=request["url"],
+                              headers=request["headers"], **kwargs)
+    signature = message["headers"]["Signature"].split("=", 1)[1].strip(":")
+    Ed25519PublicKey.from_public_bytes(resolver(keys)(params["keyid"])).verify(
+        base64.b64decode(signature), base)
+    return base.decode("utf-8"), signature
+
+
 def run(case: dict, data: dict):
     """Verify a case's message under the file's policy extended by the case's, as a KERI verifier."""
     policy = {**data["policy"], **case.get("policy", {})}
-    return GENERATOR.verify(case["request"], case.get("response"), now=case["now"],
-                            policy=policy, keys=data["keys"])
+    return verify(case["request"], case.get("response"), now=case["now"], policy=policy,
+                  keys=data["keys"])
 
 
 def serialized(covered) -> list[str]:
@@ -229,7 +293,7 @@ def test_request_accept_vectors(case):
     expected = case["expected"]
     assert verdict.keyid == expected["keyid"]
     assert serialized(verdict.covered) == expected["covered"]
-    assert GENERATOR.expected_base(case["request"], keys=data["keys"]) == (
+    assert expected_base(case["request"], None, data["keys"]) == (
         expected["base"], expected["signature"]
     )
 
@@ -237,12 +301,12 @@ def test_request_accept_vectors(case):
 @pytest.mark.parametrize("case", cases("responses.json"))
 def test_response_accept_vectors(case):
     data = load("responses.json")
-    GENERATOR.verify(case["request"], now=case["now"], policy=data["policy"], keys=data["keys"])
+    verify(case["request"], now=case["now"], policy=data["policy"], keys=data["keys"])
     verdict = run(case, data)
     expected = case["expected"]
     assert verdict.keyid == expected["keyid"]
     assert serialized(verdict.covered) == expected["covered"]
-    assert GENERATOR.expected_base(case["request"], case["response"], keys=data["keys"]) == (
+    assert expected_base(case["request"], case["response"], data["keys"]) == (
         expected["base"], expected["signature"]
     )
 

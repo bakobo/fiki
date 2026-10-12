@@ -372,7 +372,25 @@ def aid_lens():
         if note:
             entry["note"] = note
         cases.append(entry)
-    return {**HEADER, "about": "A seed to its non-transferable AID and to its keyid.",
+    # format 4 (@7w7nv94j): strings that are not an AID, which each port hands straight to its
+    # AID decoder (fiki-py's verifying_key) and which must be refused there as MalformedKey.
+    real = Key.from_seed(SEED_A).aid
+    alphabet = B64URL
+    for case_id, text, note in [
+        ("wrong-length", real[:-1], "43 characters; an AID is 44."),
+        ("wrong-code", "A" + real[1:], "A is not the Ed25519N code B."),
+        ("padding-bit-alias-of-a-b-aid",
+         real[0] + alphabet[alphabet.index(real[1]) ^ 16] + real[2:],
+         "The same 32 bytes with a non-zero bit in the pad byte the code replaced: a second "
+         "spelling of the key, which is not the AID."),
+        ("small-order-b-aid", aid_of_raw(b"\x01" + bytes(31)),
+         "Well formed, but its key is the identity point, under which a signature verifies over "
+         "any message (@37wdchu5)."),
+    ]:
+        assert text != real
+        cases.append({"id": case_id, "aid": text, "error": "MalformedKey", "note": note})
+    return {**HEADER, "about": "A seed to its non-transferable AID and to its keyid, and strings "
+                               "that are not an AID, each refused as MalformedKey.",
             "cases": cases}
 
 

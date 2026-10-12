@@ -25,6 +25,9 @@ D = (-121665 * pow(121666, -1, P)) % P
 
 KEY = Key.from_seed(bytes(range(32)))
 URL = "https://api.example.com/things?limit=1"
+# A well-formed E AID, so the resolver is asked (@7w7nv94j): fiki refuses a keyid that is not an
+# AID before any resolver sees it, which would leave these tests testing that instead.
+TRANSFERABLE = "E" + base64.urlsafe_b64encode(bytes(1) + bytes(range(100, 132))).decode()[1:]
 IDENTITY = b"\x01" + bytes(31)
 FORGED = b"\x01" + bytes(63)
 
@@ -148,7 +151,7 @@ def test_the_forged_signature_is_refused_on_the_raw_keyid_path():
 
 
 def test_the_forged_signature_is_refused_on_the_resolver_path():
-    headers = forged_request("EAnyTransferableAidAtAll")
+    headers = forged_request(TRANSFERABLE)
     with pytest.raises(MalformedKey):
         verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: IDENTITY)
@@ -170,7 +173,7 @@ def test_every_small_order_encoding_is_malformed_as_a_keyid(raw):
 
 @pytest.mark.parametrize("raw", SMALL, ids=[r.hex() for r in SMALL])
 def test_every_small_order_encoding_is_malformed_from_a_resolver(raw):
-    headers = forged_request("EAnyTransferableAidAtAll")
+    headers = forged_request(TRANSFERABLE)
     with pytest.raises(MalformedKey):
         verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: raw)
@@ -187,6 +190,7 @@ def test_a_key_that_is_not_a_canonical_curve_point_is_malformed_not_a_mismatch(r
     headers = sign_request(key=KEY, method="GET", url=URL, keyid=keyid_of(raw))
     with pytest.raises(MalformedKey):
         verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None)
+    headers = sign_request(key=KEY, method="GET", url=URL, keyid=TRANSFERABLE)
     with pytest.raises(MalformedKey):
         verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                        resolve=lambda keyid: raw)
@@ -198,8 +202,9 @@ def test_an_honest_key_still_verifies_on_every_path():
     raw = verifying_key(KEY.aid).public_bytes_raw()
     headers = sign_request(key=KEY, method="GET", url=URL)
     assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None).aid == KEY.aid
-    assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
-                          resolve=lambda keyid: raw).keyid == keyid_of(raw)
+    resolved = sign_request(key=KEY, method="GET", url=URL, keyid=TRANSFERABLE)
+    assert verify_request(authorities=None, method="GET", url=URL, headers=resolved, max_age=None,
+                          resolve=lambda keyid: raw).keyid == TRANSFERABLE
     assert verify_request(authorities=None, method="GET", url=URL, headers=headers, max_age=None,
                           expected_aid=KEY.aid).aid == KEY.aid
 

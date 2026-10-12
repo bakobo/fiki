@@ -54,6 +54,7 @@ from fiki.errors import (
     UnsupportedSigner,
 )
 from fiki.messages import content_digest
+from test_keys import padding_bit_alias
 
 KEY = Key.from_seed(bytes(range(32)))
 OTHER = Key.from_seed(bytes(range(1, 33)))
@@ -187,13 +188,42 @@ def test_a_resolver_returning_something_other_than_32_bytes_is_a_malformed_key()
         verify(request, headers, resolve=lambda keyid: b"short")
 
 
-def test_a_resolver_may_refuse_a_malformed_keyid_itself():
-    def resolve(keyid):
-        raise MalformedKey(f"{keyid} is not an AID.", keyid=keyid)
+# fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j): 44
+# characters, B, D or E, then 43 base64url characters decoding behind one pad character to 32
+# bytes with a zero pad byte. N3 of the format-4 plan.
+NOT_AIDS = {
+    "not-an-aid": "not-an-aid",
+    "one-short": AID[:-1],
+    "one-long": AID + "A",
+    "wrong-code": "A" + AID[1:],
+    "lowercase-code": "e" + AID[1:],
+    "outside-base64url": "E" + "!" * 43,
+    "standard-alphabet": "E" + "+" * 43,
+    "padded": AID[:-1] + "=",
+    "padding-bit-alias": padding_bit_alias(AID),
+    "raw-keyid": base64.urlsafe_b64encode(raw(KEY)).decode().rstrip("="),
+}
 
-    request, headers = sign(keyid="not-an-aid")
-    with pytest.raises(MalformedKey):
-        verify(request, headers, resolve=resolve)
+
+@pytest.mark.parametrize("keyid", NOT_AIDS.values(), ids=NOT_AIDS.keys())
+def test_a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved(keyid):
+    calls = []
+    request, headers = sign(keyid=AID)
+    mangle_input(headers, f'keyid="{AID}"', f'keyid="{keyid}"')
+    with pytest.raises(MalformedKey) as caught:
+        verify(request, headers, resolve=lambda k: calls.append(k) or raw(KEY))
+    assert caught.value.keyid == keyid
+    assert calls == []
+
+
+@pytest.mark.parametrize("code", "BDE")
+def test_a_well_formed_unknown_aid_is_resolved_once(code):
+    keyid = cesr(code, hashlib.sha256(b"unknown").digest())
+    calls = []
+    request, headers = sign(keyid=keyid)
+    with pytest.raises(UnknownKey):
+        verify(request, headers, resolve=lambda k: calls.append(k))
+    assert calls == [keyid]
 
 
 def test_a_d_prefixed_keyid_is_never_decoded_as_a_key_when_a_resolver_is_supplied():

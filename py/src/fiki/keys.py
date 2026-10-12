@@ -168,20 +168,21 @@ class Key:
 _SPELLED_CODES = "BDE"
 
 
-def misspelled_aid(keyid: str) -> bool:
-    """True when ``keyid`` is shaped like a B, D or E AID and is not its canonical spelling.
+def well_formed_aid(keyid: str) -> bool:
+    """True when ``keyid`` is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j).
 
-    That is, 44 characters under one of those codes whose remaining 43 are not base64url, or
-    which decode with a non-zero pad byte and so name the same 32 bytes as another spelling.
-    fiki checks this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+    44 characters, a first character of B, D or E, and 43 base64url characters that decode
+    behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the
+    keyid exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever
+    answers about key state.
     """
     if len(keyid) != _QB64_LEN or keyid[:1] not in _SPELLED_CODES:
         return False
     try:
         decoded = base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)
     except ValueError:  # binascii.Error, or non-ASCII input, which base64 refuses as ValueError
-        return True
-    return keyid[0] + base64.urlsafe_b64encode(b"\x00" + decoded[1:]).decode("ascii")[1:] != keyid
+        return False
+    return keyid[0] + base64.urlsafe_b64encode(b"\x00" + decoded[1:]).decode("ascii")[1:] == keyid
 
 
 def verifying_key(aid: str) -> Ed25519PublicKey:
