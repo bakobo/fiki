@@ -6,3 +6,4 @@ closed: 2026-10-12T02:55Z
 - 2026-10-09T20:40Z Ruled 2026-10-09 (Daniel, fiki-release session): *string for ExpectedAID and ExpectedKeyid, matching Skew *int64, plus a fiki.String helper; AnyKeyid stays. Lands in format 4.
 - 2026-10-09T21:24Z Go API half done in 0.9.0 (#19, merge 6897263, this.i @65u2932c): ExpectedAID and ExpectedKeyid are *string with fiki.String, and a pointer to empty is ErrInvalidOptions. Still open: the misuse vector per port for an explicit empty expected_aid, which waits for vectors format 4.
 - 2026-10-12T02:55Z Done in bakobo/fiki#25 (merge e676c7d), vectors_format 4 / keri_vectors_format 6, this.i @646un6k8 and children; all six ports, differential 0 disagreements. Unreleased until the next release.
+- 2026-10-12T02:55Z Class changed in #25: an empty expected AID is MalformedKey in all six (five already were); Go moved from ErrInvalidOptions, revising @65u2932c.
