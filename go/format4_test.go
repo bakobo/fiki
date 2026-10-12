@@ -211,3 +211,26 @@ func nonCanonicalPoint(t *testing.T) []byte {
 	}
 	return key
 }
+
+// --- an explicitly empty expected AID is MalformedKey, as in the other five ports (@7j58rwu2) ---
+
+func TestAnEmptyExpectedAIDIsMalformedKey(t *testing.T) {
+	// An empty AID is a string that is not an AID, so the AID decoder refuses it, as any other;
+	// nil still states none, and an empty ExpectedKeyid stays the caller's mistake.
+	key := testKey(t)
+	headers := signedUnder(t, key, "")
+	_, err := verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String("")})
+	if kindOf(t, err) != KindMalformedKey {
+		t.Error("an empty ExpectedAID on a request should be MalformedKey")
+	}
+	statusOnly, err := SignResponse(key, 200, nil, nil, SignOptions{Created: signedAt})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = verifyResponseOptedOut(200, nil, statusOnly, VerifyOptions{ExpectedAID: String("")})
+	if kindOf(t, err) != KindMalformedKey {
+		t.Error("an empty ExpectedAID on a response should be MalformedKey")
+	}
+	_, err = verifyOptedOut("GET", urlQuery, headers, VerifyOptions{ExpectedAID: String(""), ExpectedKeyid: String("")})
+	isInvalidOptions(t, err)
+}

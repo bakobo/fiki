@@ -485,8 +485,10 @@ type Verdict struct {
 // both, is ErrInvalidOptions.
 //
 // ExpectedAID and ExpectedKeyid are optional strings, so they are pointers: nil is unset, and
-// fiki.String states one. A pointer to "" is ErrInvalidOptions, because an empty value is most
-// often a configuration value nobody filled in, never a decision to check nothing (@65u2932c).
+// fiki.String states one. A pointer to "" is never a decision to check nothing, because an empty
+// value is most often a configuration value nobody filled in (@65u2932c): an empty ExpectedAID is
+// MalformedKey, as any other string that is not an AID (@7j58rwu2), and an empty ExpectedKeyid is
+// ErrInvalidOptions.
 type VerifyOptions struct {
 	MaxAge *int64
 	AnyAge bool
@@ -663,7 +665,7 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	// expected keyid, and only then the resolver, which is never asked about a keyid already refused.
 	value, _ := list.param("keyid")
 	keyid, _ := value.(string)
-	public, aid, err := localKey(orEmpty(opts.ExpectedAID), keyid, opts.Resolve)
+	public, aid, err := localKey(opts.ExpectedAID, keyid, opts.Resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -908,13 +910,13 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 // key to verify with and the identity to report when no resolver is needed, or a nil key when the
 // resolver decides. Either way a keyid that is not well formed is refused here, before the expected
 // keyid is compared and before any resolver sees it (this.i @5zrf8gjk).
-func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
-	if expectedAID != "" {
-		public, err := VerifyingKey(expectedAID)
+func localKey(expectedAID *string, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
+	if expectedAID != nil {
+		public, err := VerifyingKey(*expectedAID)
 		if err != nil {
 			return nil, "", err
 		}
-		return public, expectedAID, nil
+		return public, *expectedAID, nil
 	}
 	if keyid == "" {
 		return nil, "", errorf(KindMissingKey,
@@ -1038,27 +1040,16 @@ func checkExpectedKeyid(opts VerifyOptions) error {
 // ExpectedAID: fiki.String(aid).
 func String(s string) *string { return &s }
 
-// orEmpty is the string p points to, or "" when it is nil. Only for a pointer checkStated has
-// already passed, where "" can only mean nil.
-func orEmpty(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-// checkStated refuses an optional string that is stated and empty (this.i @65u2932c, tick 5kyt).
+// checkStated refuses an ExpectedKeyid that is stated and empty (this.i @65u2932c, tick 5kyt).
 // nil is unset; a pointer to "" is most often a configuration value that was never filled in, and
-// reading it as unset would quietly turn "verify this AID" into "verify anyone".
+// reading it as unset would quietly turn "verify this signer" into "verify anyone". A keyid is
+// matched as a string, so an empty one is the call's mistake. An empty ExpectedAID is not checked
+// here: an AID is decoded as a key, and the decoder refuses "" as MalformedKey, as it refuses any
+// other string that is not an AID, in every port (@7j58rwu2).
 func checkStated(opts VerifyOptions) error {
-	for _, s := range []struct {
-		name  string
-		value *string
-	}{{"ExpectedAID", opts.ExpectedAID}, {"ExpectedKeyid", opts.ExpectedKeyid}} {
-		if s.value != nil && *s.value == "" {
-			return invalidOptions("%s is stated and empty, which names no one; leave it nil to "+
-				"state none.", s.name)
-		}
+	if opts.ExpectedKeyid != nil && *opts.ExpectedKeyid == "" {
+		return invalidOptions("ExpectedKeyid is stated and empty, which names no one; leave it nil " +
+			"to state none.")
 	}
 	return nil
 }
