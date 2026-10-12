@@ -78,13 +78,16 @@ namespace Bakobo.Fiki
         }
 
         /// <summary>
-        /// True when <paramref name="keyId"/> is shaped like a B, D or E AID and is not its canonical
-        /// spelling. fiki checks this before any resolver sees the keyid, so a resolver never has to.
+        /// True when <paramref name="keyId"/> is a well-formed AID under the KERI vectors' keys_rule
+        /// (this.i @7w7nv94j): 44 characters, a first character of B, D or E, and 43 base64url
+        /// characters that decode behind one pad character to 32 bytes with a zero pad byte, so that
+        /// re-encoding gives back the keyid exactly. fiki checks this before any resolver sees a
+        /// keyid, so a resolver only ever answers about key state.
         /// </summary>
-        internal static bool Misspelled(string keyId) =>
+        internal static bool WellFormed(string keyId) =>
             keyId.Length == Qb64Length
             && SpelledCodes.IndexOf(keyId[0]) >= 0
-            && Canonical(keyId) == null;
+            && Canonical(keyId) != null;
 
         private static FikiException Malformed(string aid, string message) =>
             new FikiException(FikiErrorKind.MalformedKey, message, keyId: aid);

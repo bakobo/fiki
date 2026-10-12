@@ -181,13 +181,84 @@ namespace Bakobo.Fiki.Tests
         public void AResolverReturningSomethingOtherThan32BytesIsAMalformedKey() =>
             Assert.Equal(FikiErrorKind.MalformedKey, Sign(keyId: Aid).Refused(o => o.WithResolver(_ => Bytes.Utf8("short"))).Kind);
 
-        [Fact]
-        public void AResolverMayRefuseAMalformedKeyidItself()
+        // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j):
+        // 44 characters, B, D or E, then 43 base64url characters decoding behind one pad character to
+        // 32 bytes with a zero pad byte. N3 of the format-4 plan.
+        public static IEnumerable<object[]> NotAids() => new[]
         {
-            var caught = Sign(keyId: "not-an-aid").Refused(o => o.WithResolver(k =>
-                throw new FikiException(FikiErrorKind.MalformedKey, $"{k} is not an AID.", keyId: k)));
+            new object[] { "not-an-aid" },
+            new object[] { Aid.Substring(0, 43) },
+            new object[] { Aid + "A" },
+            new object[] { "A" + Aid.Substring(1) },
+            new object[] { "e" + Aid.Substring(1) },
+            new object[] { "E" + new string('!', 43) },
+            new object[] { "E" + new string('+', 43) },
+            new object[] { Aid.Substring(0, 43) + "=" },
+            new object[] { KeysTests.PaddingBitAlias(Aid) },
+            // fiki's own default keyid, the 43-character raw key: a verifier with a resolver never
+            // reads a key inline (@6g9zjsv9), so it is not an AID either.
+            new object[] { Bytes.B64Url(Key.VerifyingKey(Key.FromSeed(Bytes.Range(0, 32)).Aid).ToBytes()) },
+        };
+
+        [Theory]
+        [MemberData(nameof(NotAids))]
+        public void AKeyidThatIsNotAnAidIsMalformedAndNeverResolved(string keyId)
+        {
+            var calls = new List<string>();
+            var message = Sign(keyId: Aid).Mangle($"keyid=\"{Aid}\"", $"keyid=\"{keyId}\"");
+            var caught = message.Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Raw(TheKey);
+            }));
             Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
-            Assert.Equal("not-an-aid", caught.KeyId);
+            Assert.Equal(keyId, caught.KeyId);
+            Assert.Empty(calls);
+        }
+
+        [Theory]
+        [InlineData('B')]
+        [InlineData('D')]
+        [InlineData('E')]
+        public void AWellFormedUnknownAidIsResolvedOnce(char code)
+        {
+            var keyId = Cesr(code, Sha256(Bytes.Utf8("unknown")));
+            var calls = new List<string>();
+            var caught = Sign(keyId: keyId).Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return null;
+            }));
+            Assert.Equal(FikiErrorKind.UnknownKey, caught.Kind);
+            Assert.Equal(new[] { keyId }, calls);
+        }
+
+        [Fact]
+        public void ASmallOrderBAidIsWellFormedSoItIsResolvedAndItsKeyRefused()
+        {
+            // The resolver is asked, since the keyid is an AID, and the key it returns is refused.
+            var keyId = "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+            var calls = new List<string>();
+            var caught = Sign(keyId: keyId).Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Bytes.FromB64Url("A" + k.Substring(1)).Skip(1).ToArray();
+            }));
+            Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
+            Assert.Equal(new[] { keyId }, calls);
+        }
+
+        [Fact]
+        public void AResponseKeyidThatIsNotAnAidIsNeverResolvedEither()
+        {
+            var calls = new List<string>();
+            var caught = CheckRefused(Respond(keyId: "not-an-aid"), with: o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Raw(TheKey);
+            }));
+            Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
+            Assert.Empty(calls);
         }
 
         [Fact]
@@ -389,13 +460,15 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void ASignatureMemberThatIsAnInnerListOrABareKeyIsAMalformedValue()
+        public void ASignatureMemberThatIsAnInnerListOrABareKeyIsAMalformedSignature()
         {
+            // The KERI profile's malformed-signature (@0zq820dl): the field is malformed, not the
+            // signature in it.
             var message = Sign();
             message.Headers["Signature"] = "sig=(:AAAA:)";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
             message.Headers["Signature"] = "sig";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
         }
 
         // --- the section 9 order ---
@@ -539,19 +612,113 @@ namespace Bakobo.Fiki.Tests
         public void AResponseJudgesItsRequestsBodyByContentNotHeaders()
         {
             // Profile section 3 (version 1): both sides hold the whole request by then (@7p9s3g9k).
-            var chunked = new Request("POST", Url, new Dictionary<string, string>
-                { { "Transfer-Encoding", "chunked" }, { "Content-Digest", HttpSignatures.ContentDigest(Body) } });
+            // A request whose headers announce a body it carries is judged by that content; one
+            // carrying an empty body binds none.
+            var chunked = new Request("POST", Url, new Dictionary<string, string> { { "Transfer-Encoding", "chunked" } }, new byte[0]);
             var headers = Respond(request: chunked, covered: HttpSignatures.ResponseMinimum.Concat(new[] { "content-digest" }));
             Assert.Equal(TheKey.Aid, Check(headers, request: chunked, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum)).Aid);
+        }
+
+        // --- a Request that announces a body it does not carry is a caller error (@6v00d3tu) ---
+
+        private const string Announced = "announces a body in its headers";
+
+        /// <summary>A request signed for with its body, then handed over without it.</summary>
+        private static (Request Given, Request Stripped) Announcing(params (string Name, string Value)[] extra)
+        {
+            var headers = extra.ToDictionary(e => e.Name, e => e.Value);
+            headers["Content-Digest"] = HttpSignatures.ContentDigest(Body);
+            return (new Request("POST", Url, headers, Body), new Request("POST", Url, headers));
+        }
+
+        public static IEnumerable<object[]> AnnouncingHeaders() => new[]
+        {
+            new object[] { new[] { ("Content-Length", "18") } },
+            new object[] { new[] { ("Transfer-Encoding", "chunked") } },
+            new object[] { new[] { ("Content-Length", "18"), ("Transfer-Encoding", "chunked") } },
+            new object[] { new[] { ("content-length", "abc") } },
+        };
+
+        [Theory]
+        [MemberData(nameof(AnnouncingHeaders))]
+        public void VerifyingAResponseToARequestAnnouncingABodyItLacksIsACallerError((string, string)[] extra)
+        {
+            var (given, stripped) = Announcing(extra);
+            var headers = Respond(request: given);
+            var caught = Assert.Throws<ArgumentException>(() =>
+                Check(headers, request: stripped, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum)));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheCallerErrorDoesNotDependOnTheResponseCoveringTheRequestDigest()
+        {
+            // Before vectors_format 4, a response covering "content-digest";req over a request with
+            // no body was already a caller error; one covering only @status was verified. Now both are
+            // refused, and for the same reason.
+            var (_, stripped) = Announcing(("Content-Length", "18"));
+            var headers = Respond(noRequest: true, noBody: true, covered: new[] { "@status" });
+            Assert.Equal(TheKey.Aid, Check(headers, noBody: true, request: new Request("POST", Url), with: o => o.WithoutMinimum()).Aid);
+            var caught = Assert.Throws<ArgumentException>(() => Check(headers, noBody: true, request: stripped, with: o => o.WithoutMinimum()));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+        }
+
+        [Theory]
+        [InlineData("Content-Length", "18")]
+        [InlineData("Transfer-Encoding", "gzip")]
+        public void SigningAResponseToARequestAnnouncingABodyItLacksIsACallerError(string name, string value)
+        {
+            var (_, stripped) = Announcing((name, value));
+            var caught = Assert.Throws<ArgumentException>(() => Respond(request: stripped));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+            caught = Assert.Throws<ArgumentException>(() => Respond(request: stripped, covered: new[] { "@status" }));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void TheCallerErrorIsDecidedBeforeAnySignatureHeaderIsRead()
+        {
+            // V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and
+            // the resolver is never asked.
+            var (given, stripped) = Announcing(("Content-Length", "18"));
+            var calls = new List<string>();
+            byte[]? Resolve(string keyId)
+            {
+                calls.Add(keyId);
+                return Raw(TheKey);
+            }
+            var malformed = Respond(request: given);
+            malformed["Signature"] = "sig=123";
+            foreach (var headers in new[] { malformed, new Dictionary<string, string>(), new Dictionary<string, string> { { "Signature", "" } } })
+            {
+                foreach (var status in new[] { 200, 401 })
+                {
+                    var caught = Assert.Throws<ArgumentException>(() => Check(headers, status, request: stripped, with: o => o.WithResolver(Resolve)));
+                    Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+                }
+            }
+            Assert.Empty(calls);
+        }
+
+        [Theory]
+        [InlineData("0")]
+        [InlineData("000")]
+        [InlineData(" 0 ")]
+        public void ARequestAnnouncingNoBodyAndCarryingNoneIsJudgedAsBefore(string length)
+        {
+            var asked = new Request("GET", Url, new Dictionary<string, string> { { "Content-Length", length } });
+            var headers = Respond(request: asked);
+            Assert.Equal(TheKey.Aid, Check(headers, request: asked, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum)).Aid);
         }
 
         // --- the first review's findings and the profile's draft 6 (@2f227n4r) ---
 
         [Fact]
-        public void ADefaultResponseDoesNotBindARequestBodyOnlyItsHeadersAnnounce()
+        public void ADefaultResponseToARequestWithAnEmptyBodyBindsNoDigest()
         {
+            // By content alone (@7p9s3g9k): a Request whose body is empty binds no digest.
             var asked = new Request("POST", Url, new Dictionary<string, string>
-                { { "Content-Length", "18" }, { "Content-Digest", HttpSignatures.ContentDigest(Body) } });
+                { { "Content-Digest", HttpSignatures.ContentDigest(new byte[0]) } }, new byte[0]);
             var verdict = Check(Respond(request: asked), request: asked, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum));
             Assert.DoesNotContain(HttpSignatures.Req("content-digest"), verdict.Covered);
         }
@@ -764,7 +931,7 @@ namespace Bakobo.Fiki.Tests
             var message = Sign();
             message.Headers["Signature-Input"] += ", other=" + message.Headers["Signature-Input"].Substring(4);
             message.Headers["Signature"] = "sig=\"not bytes\"";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
         }
 
         [Fact]

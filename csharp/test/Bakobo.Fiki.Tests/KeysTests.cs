@@ -149,16 +149,21 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void MisspelledAidNamesOnlyAidShapedKeyidsThatAreNotCanonical()
+        public void WellFormedNamesOnlyCanonicalBDOrEAids()
         {
+            // The KERI keys_rule (this.i @7w7nv94j): anything else is refused before a resolver.
             var aid = Key.FromSeed(Seed).Aid;
-            Assert.False(Aids.Misspelled(aid));
-            Assert.True(Aids.Misspelled(PaddingBitAlias(aid)));
-            Assert.True(Aids.Misspelled("E" + new string('!', 43)));
-            Assert.True(Aids.Misspelled("D" + aid.Substring(1, 42) + "+"));
-            Assert.False(Aids.Misspelled("not-an-aid"));
-            Assert.False(Aids.Misspelled("A" + aid.Substring(1)));
-            Assert.False(Aids.Misspelled(""));
+            Assert.True(Aids.WellFormed(aid));
+            Assert.True(Aids.WellFormed("D" + aid.Substring(1)));
+            Assert.True(Aids.WellFormed("E" + aid.Substring(1)));
+            Assert.False(Aids.WellFormed(PaddingBitAlias(aid)));
+            Assert.False(Aids.WellFormed("E" + new string('!', 43)));
+            Assert.False(Aids.WellFormed("D" + aid.Substring(1, 42) + "+"));
+            Assert.False(Aids.WellFormed("B" + new string('é', 43)));
+            Assert.False(Aids.WellFormed("not-an-aid"));
+            Assert.False(Aids.WellFormed("A" + aid.Substring(1)));
+            Assert.False(Aids.WellFormed(aid.Substring(0, 43)));
+            Assert.False(Aids.WellFormed(""));
         }
     }
 }
