@@ -368,6 +368,37 @@
         "content-digest"
       ],
       "note": "Content-Length: 0 announces no body, so a body of null is not a caller error."
+    },
+    {
+      "id": "request-announces-a-chunked-body-and-carries-an-empty-one",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Transfer-Encoding": "chunked"
+        },
+        "body": ""
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest"
+      ],
+      "note": "A chunked request may carry nothing, so an empty body beside Transfer-Encoding is judged by its content: no body, and no request digest to bind."
     }
   ]
 }

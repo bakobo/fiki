@@ -323,7 +323,8 @@ def sign_response(
     into a response every profile client refuses (@2f227n4r). A digest the request body
     contradicts is refused the same way the verifier would refuse it. A ``request`` whose headers
     announce a body (a Content-Length above zero, or any Transfer-Encoding) and whose body is
-    None is a ValueError (@6v00d3tu): pass the body, or a Request without those headers.
+    None, or empty beside a Content-Length, is a ValueError (@6v00d3tu): pass the body, or a
+    Request without those headers.
     """
     check_label(label)
     minimum = _floored(minimum, RESPONSE_MINIMUM)
@@ -470,8 +471,8 @@ def verify_response(
     smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
     is a response covering ``"content-digest";req`` verified against a ``request`` whose body is
     None: that digest is recomputed over the request body, and fiki cannot check a body it was
-    not given. So is a ``request`` whose headers announce a body its ``body`` of None does not
-    carry (@6v00d3tu), decided before anything in the response is read.
+    not given. So is a ``request`` whose headers announce a body its ``body`` does not carry, None
+    or empty beside a Content-Length (@6v00d3tu), decided before anything in the response is read.
     """
     _check_window(max_age, skew)
     _check_expected_keyid(expected_keyid)
@@ -599,15 +600,23 @@ def _check_announced_body(request: Request | None) -> None:
     Whether the request had a body is judged by its content, since both sides hold the whole
     request by the time a response is signed or verified. A Request announcing a body (a
     Content-Length above zero, or any Transfer-Encoding) with none passed breaks that assumption:
-    the caller threw the body away. Decided before any header of the response is read, so no
-    defect in the message can outrank it, and no resolver is asked.
+    the caller threw the body away. So does an empty body beside a Content-Length that is not a
+    plain zero, since a length is exact and no request of zero bytes announces one; an empty body
+    beside a Transfer-Encoding is not, because a chunked request may carry nothing. Decided before
+    any header of the response is read, so no defect in the message can outrank it, and no
+    resolver is asked.
     """
-    if request is not None and request.body is None and _request_has_body(request.headers, None):
+    if request is None or request.body:
+        return
+    announced = request.headers
+    if request.body is not None:  # empty: only a length can contradict it
+        announced = {k: v for k, v in announced.items() if k != "transfer-encoding"}
+    if _request_has_body(announced, None):
         raise ValueError(
             "The request this response answers announces a body in its headers, by its "
-            "Content-Length or Transfer-Encoding, and Request.body is None, so whether the "
-            "response must bind that body cannot be decided. Pass the request body, or a Request "
-            "without those headers."
+            "Content-Length or Transfer-Encoding, and Request.body does not carry it, so whether "
+            "the response must bind that body cannot be decided. Pass the request body, or a "
+            "Request without those headers."
         )
 
 

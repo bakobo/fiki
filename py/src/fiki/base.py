@@ -224,6 +224,9 @@ def canonical(headers: Headers) -> dict[str, str]:
     out: dict[str, str] = {}
     for name, value in headers.items():
         if isinstance(value, (list, tuple)):
+            # Read once, into a plain list: a subclass could iterate differently the second time,
+            # and the value fiki checks must be the value it verifies (hostile pass on #25).
+            value = list(value)
             if not all(type(line) is str for line in value):
                 raise TypeError(
                     f"The header {shown(name)} is given as a list, whose field lines must be each "

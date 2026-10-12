@@ -1743,6 +1743,10 @@ def responses():
     add("request-announces-a-zero-length-body", expected_keyid=mine,
         request={**plain, "headers": {"Content-Length": "0"}},
         note="Content-Length: 0 announces no body, so a body of null is not a caller error.")
+    add("request-announces-a-chunked-body-and-carries-an-empty-one", expected_keyid=mine,
+        request={**plain, "method": "POST", "headers": {"Transfer-Encoding": "chunked"}, "body": ""},
+        note="A chunked request may carry nothing, so an empty body beside Transfer-Encoding is "
+             "judged by its content: no body, and no request digest to bind.")
     return {**HEADER, "about": "Responses every implementation must accept or refuse.",
             "cases": cases}
 
@@ -1802,7 +1806,7 @@ def misuse():
     without_request_digest = ["@status", req("@method"), req("@path"), req("@query"),
                               "content-digest"]
 
-    def announcing(case_id, extra, note, signature=None):
+    def announcing(case_id, extra, note, signature=None, body=None):
         asked = {"Content-Digest": content_digest(asked_body), **extra}
         headers = sign_response(key=key, status=200, created=1700000000, body=b'{"done": true}',
                                 covered=without_request_digest,
@@ -1811,7 +1815,7 @@ def misuse():
         if signature is not None:
             headers = {**headers, "Signature": signature}
         cases.append({**response, "id": case_id, "headers": headers,
-                      "request": {"method": "POST", "url": url, "headers": asked, "body": None},
+                      "request": {"method": "POST", "url": url, "headers": asked, "body": body},
                       "error": "caller", "note": note})
 
     announcing("request-announces-a-body-it-does-not-carry", {"Content-Length": "18"},
@@ -1823,6 +1827,10 @@ def misuse():
     announcing("request-announces-a-chunked-body-it-does-not-carry",
                {"Transfer-Encoding": "chunked"},
                "Any Transfer-Encoding announces a body, as Content-Length above zero does.")
+    announcing("request-announces-a-length-and-carries-an-empty-body", {"Content-Length": "18"},
+               "An empty body beside Content-Length: 18 is a body thrown away, as null is: a length "
+               "is exact, so no request of zero bytes announces one (hostile pass on #25).",
+               body="")
     return {**HEADER, "about": "Calls every implementation must reject as a caller's mistake.",
             "cases": cases}
 
