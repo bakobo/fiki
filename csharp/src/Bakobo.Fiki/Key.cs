@@ -87,5 +87,28 @@ namespace Bakobo.Fiki
         /// and for the spelling of a small-order point, against which anyone can forge a signature.
         /// </exception>
         public static PublicKey VerifyingKey(string aid) => new PublicKey(Aids.VerifyingKey(aid));
+
+        /// <summary>
+        /// The canonical AID of the Ed25519 public key <paramref name="text"/> spells (this.i
+        /// @0mvgkwnl). Call it when registrations are loaded, not per request.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="text"/> is an AID, the raw key as 43 characters of unpadded base64url (a
+        /// JWK's <c>x</c>), a base58btc did:key, a did:peer with numalgo 0, or an OpenSSH public line:
+        /// <c>ssh-ed25519</c>, one space, the blob, and optionally one space and a printable-ASCII
+        /// comment that neither begins nor ends with a space. Length, not the first character, tells
+        /// raw from AID: 43 against 44. Nothing around the text is trimmed; that is the caller's, so
+        /// that one input never has two readings.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">The text is null.</exception>
+        /// <exception cref="FikiException">
+        /// MalformedKey, for anything else, a transferable or digest AID included, whose key is not
+        /// the identifier's to give, and for a small-order or non-canonical point in any spelling.
+        /// The message never quotes the text and <see cref="FikiException.KeyId"/> is empty, because
+        /// what is handed here by mistake can be a private key: the <c>.key</c> file instead of the
+        /// <c>.pub</c>, or a seed, which in base64url is 43 characters like a raw key.
+        /// </exception>
+        public static string AidFrom(string text) =>
+            Formats.AidFrom(text ?? throw new ArgumentNullException(nameof(text), "A public key is text, not null."));
     }
 }
