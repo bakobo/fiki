@@ -55,6 +55,17 @@ The age is a decision too, with no default: `MaxAge`, a positive number of secon
 
 Signature, Signature-Input and Content-Digest are bounded before they are parsed: at most `MaxFieldBytes` (8192) each, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) covered components and `MaxParameters` (16) parameters on an item. A header over any of them is refused as malformed.
 
+## Other spellings of a key
+
+`fiki.AIDFrom` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `fiki.FromOpenSSH` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `AIDFrom` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`, and neither error quotes what it was given, since that can be a private key; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what is refused. The port runs every case in `vectors/keys/` and satisfies `key_vectors_format` 1, exported as `fiki.KeyVectorsFormat`.
+
+```go
+aid, err := fiki.AIDFrom("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")
+
+text, _ := os.ReadFile("fiki_ed25519")
+key, err := fiki.FromOpenSSH(string(text))
+```
+
 ## Responses, KERI identifiers, and resolvers
 
 The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/`. That adds `SignResponse` and `VerifyResponse`, whose `ExpectedKeyid` (or `AnyKeyid: true`) is a required decision; a caller-chosen keyid on `SignOptions`; a `Resolver` for keyids that are not keys, such as a transferable KERI AID, which is authoritative; and the profile's minimum covered sets, `RequestMinimum` and `ResponseMinimum`. The [user guide](../docs/user-guide.md#signing-with-a-keri-identifier) shows each in Go, and `guide_test.go` runs every Go sample in it.

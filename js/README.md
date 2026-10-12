@@ -61,6 +61,20 @@ A header value may be an array of strings, as Node's `IncomingMessage` gives `se
 
 The signer refuses, as a `TypeError`, anything it would otherwise serialize into a header that does not belong there: a method that is not an HTTP token, a label that is not an RFC 8941 key, a `keyid`, `nonce` or `tag` outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, a header value that is neither a string nor an array of strings, and a supplied `Content-Digest` the body does not bear out.
 
+## Other spellings of a key
+
+`aidFrom` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.fromOpenssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aidFrom` when you load registrations rather than per request; it is synchronous, and `Key.fromOpenssh` is async like the other constructors and non-extractable unless you pass `{ extractable: true }`. Both refuse anything ambiguous as `MalformedKey`, whose message never quotes the text it was given, and anything but a string as a `TypeError`; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers.
+
+```js
+import { readFileSync } from 'node:fs';
+import { Key, aidFrom } from '@bakobo/fiki';
+
+const aid = aidFrom('did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK');
+const key = await Key.fromOpenssh(readFileSync('fiki_ed25519', 'utf8'));
+```
+
+This port satisfies key vectors format 1 (`KEY_VECTORS_FORMAT`), the cases in `vectors/keys/keys.json`, beside vectors format 4 (`VECTORS_FORMAT`) and KERI vectors format 6 (`KERI_VECTORS_FORMAT`).
+
 ## Keys in a browser
 
 `Key.generate()` returns a **non-extractable** key: JavaScript cannot read its private half, so an XSS bug cannot exfiltrate it. Store the object itself in IndexedDB, which persists a `CryptoKey` without ever exposing the bytes. The cost is that the identity belongs to that browser profile — a new device registers a new AID, and `key.seed` throws.
@@ -77,7 +91,7 @@ The safe shape is the default and the portable one is explicit, because the two 
 
 ## Differences from the Python port
 
-Everything is async. WebCrypto's `sign`, `verify`, `digest` and `importKey` all return promises, so `signRequest`, `signResponse`, `verifyRequest`, `verifyResponse` and the `Key` constructors do too, where the Python versions are synchronous. Names are otherwise the same in camelCase — `signatureBase`, `responseSignatureBase`, `verifyingKey`, `Key.fromSeed`, `key.aid`, `expectedKeyid` — so the two read as one library. Three more differences are deliberate (`this.i` @9enyfktu):
+Everything is async. WebCrypto's `sign`, `verify`, `digest` and `importKey` all return promises, so `signRequest`, `signResponse`, `verifyRequest`, `verifyResponse` and the `Key` constructors do too, where the Python versions are synchronous. Names are otherwise the same in camelCase — `signatureBase`, `responseSignatureBase`, `verifyingKey`, `aidFrom`, `Key.fromSeed`, `Key.fromOpenssh`, `key.aid`, `expectedKeyid` — so the two read as one library. Three more differences are deliberate (`this.i` @9enyfktu):
 
 - A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network. fiki hands it only a well-formed AID — 44 characters, `B`, `D` or `E`, then the canonical base64url of 32 bytes — and refuses any other keyid, its own 43-character raw keyid included, as `MalformedKey` before the resolver is called (`this.i` @7w7nv94j).
 - The request a response answers is a plain object, `{ method, url, headers, body }`, rather than an exported `Request` class.

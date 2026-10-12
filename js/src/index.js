@@ -42,3 +42,10 @@ export {
   verifyRequest,
   verifyResponse,
 } from './messages.js';
+
+// The key-spelling vectors' own conformance contract, vectors/keys/ (`this.i` @0mvgkwnl). A
+// separate number again, so that each port ships the converters on its own schedule without
+// moving VECTORS_FORMAT.
+export const KEY_VECTORS_FORMAT = 1;
+
+export { aidFrom } from './formats.js';

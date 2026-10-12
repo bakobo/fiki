@@ -87,7 +87,7 @@ vectors/              conformance vectors, shared and normative
   keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 5;
                           all six ports run it
   keys/                   the spellings of an Ed25519 key fiki reads, format key_vectors_format 1,
-                          with OpenSSH fixtures written by ssh-keygen; Python runs it so far
+                          with OpenSSH fixtures written by ssh-keygen; all six ports run it
 py/                   the Python implementation
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
@@ -111,7 +111,7 @@ fiki (Java)        0.9.0    vectors format 3    keri vectors format 5    (not pu
 fiki (C#)          0.9.0    vectors format 3    keri vectors format 5
 ```
 
-Only the Python port satisfies key vectors format 1 (`vectors/keys/`), the alternate spellings of a key; the other ports do not read them yet.
+At 0.9.0 only the Python port satisfies key vectors format 1 (`vectors/keys/`), the alternate spellings of a key. On the default branch all six do, unreleased.
 
 Same format, interchangeable; the columns are compared separately, so two artifacts can agree on one and not the other. The format is a monotonic integer rather than a semantic version, because a conformance contract has no meaningful minor: an implementation either satisfies the vectors or it does not, and even *adding* a case is breaking for an implementation that already shipped. Every port exports the format it satisfies and asserts that the vectors it is running declare the same one, so a port reading newer vectors fails loudly rather than passing a subset.
 

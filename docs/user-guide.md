@@ -289,13 +289,20 @@ Every spelling has exactly one accepted form. fiki strips nothing, so trim a lin
 
 The did:key spec's grammar also admits a base64url value beginning with `u`, but its resolution algorithm requires `z`, and peer DIDs allow only `z`, so fiki reads `z` alone. A refusal never quotes what it was given, because the thing handed over by mistake is sometimes a private key: the `.key` file instead of the `.pub`.
 
-Python has this today. The other ports will follow against the same vectors, `vectors/keys/`, which carry their own format number, `key_vectors_format`, so that adding them does not move the shared contract.
+Every port reads the same spellings and refuses the same inputs, pinned by `vectors/keys/`, which carry their own format number, `key_vectors_format`, so that adding a spelling does not move the shared contract:
+
+| Language | A public key in any spelling, to its AID | An OpenSSH private key, to a signing key |
+|---|---|---|
+| Python | `aid_from(text)` | `Key.from_openssh(text)` |
+| JavaScript | `aidFrom(text)` | `await Key.fromOpenssh(text)` |
+| Go | `fiki.AIDFrom(text)` | `fiki.FromOpenSSH(text)` |
+| Rust | `fiki::aid_from(text)` | `Key::from_openssh(text)` |
+| Java | `Key.aidFrom(text)` | `Key.fromOpenssh(text)` |
+| C# | `Key.AidFrom(text)` | `Key.FromOpenSsh(text)` |
 
 ## Signing with an SSH key
 
-This is in the Python port only, for now; the others will follow with the key spellings above.
-
-If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from`.
+If you already have an Ed25519 SSH key, you can sign with it. fiki reads an unencrypted OpenSSH private key exactly as `ssh-keygen` writes it, and the server registers the matching `.pub` line through `aid_from` (each port's name for it is in the table above).
 
 ```python
 from pathlib import Path

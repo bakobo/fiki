@@ -11,7 +11,7 @@ cargo test
 
 ## Dependencies, and why this port has some
 
-The Go and JavaScript ports have none. This one cannot: Rust's standard library has no cryptography at all, so Ed25519 and SHA-2 have to come from somewhere. It takes `ed25519-dalek`, `sha2`, and `rand_core`, and nothing else — the RFC 8941 subset is still hand-rolled in `src/sfv.rs`, and base64 is thirty lines in `src/keys.rs` rather than a fourth crate.
+The Go and JavaScript ports have none. This one cannot: Rust's standard library has no cryptography at all, so Ed25519 and SHA-2 have to come from somewhere. It takes `ed25519-dalek`, `sha2`, and `rand_core`, and nothing else — the RFC 8941 subset is still hand-rolled in `src/sfv.rs`, base64 is thirty lines in `src/keys.rs` rather than a fourth crate, and the base58btc decoder `aid_from` needs is hand-written in `src/formats.rs` for the same reason.
 
 That asymmetry is recorded in `this.i` @2tt6fmc0 rather than left for a reader who expected fiki's zero-dependency claim to be universal.
 
@@ -46,6 +46,17 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 `headers` holds one string per field name. A field your framework hands over as several lines, as an `http::HeaderMap` does through `get_all`, is joined with `", "` (a comma and one space) before the call, `set-cookie` included: that is the value RFC 9421 section 2.1 signs, and what fiki-py and fiki-js do with a list (`this.i` @4un2vx4l).
 
 `verdict.keyid` is the keyid exactly as it appeared on the wire, or `None` when the signature had none. `verdict.aid` is the identity that vouched for the key: the AID of a raw key, the keyid a resolver vouched for, or the AID of `expected_aid`.
+
+## Other spellings of a key
+
+`aid_from` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key::from_openssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aid_from` when you load registrations rather than per request. Both refuse anything ambiguous as `Kind::MalformedKey`, with no `detail` and a message that never quotes the input, since what is passed by mistake can be a private key; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers.
+
+```rust
+let aid = aid_from("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK")?;
+let key = Key::from_openssh(&std::fs::read_to_string("fiki_ed25519")?)?;
+```
+
+The crate runs every case under `vectors/keys/` and satisfies `key_vectors_format` 1, exported as `KEY_VECTORS_FORMAT` beside `VECTORS_FORMAT` and `KERI_VECTORS_FORMAT`.
 
 ## Responses, KERI identifiers, and resolvers
 

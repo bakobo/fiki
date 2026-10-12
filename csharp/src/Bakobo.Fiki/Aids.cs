@@ -56,7 +56,7 @@ namespace Bakobo.Fiki
         /// any: a character outside base64url, or a non-zero bit in the pad byte the code replaced,
         /// which would give one key a second spelling (bakobo/fiki#4).
         /// </summary>
-        private static byte[]? Canonical(string qb64)
+        internal static byte[]? Canonical(string qb64)
         {
             // 43 characters behind the code hold 258 bits: the top two bits of the first are the
             // pad byte's low bits, so they must be zero, and every other bit is key.

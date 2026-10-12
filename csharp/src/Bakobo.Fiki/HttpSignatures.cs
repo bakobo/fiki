@@ -23,6 +23,13 @@ namespace Bakobo.Fiki
         public const int KeriVectorsFormat = 6;
 
         /// <summary>
+        /// The key-spelling vector set this port satisfies, <c>vectors/keys/</c>, which
+        /// <see cref="Key.AidFrom"/> and <see cref="Key.FromOpenSsh"/> answer to (this.i @0mvgkwnl).
+        /// A separate number again, so the converters move on their own schedule.
+        /// </summary>
+        public const int KeyVectorsFormat = 1;
+
+        /// <summary>
         /// The most bytes, UTF-8 and as received before any trimming, that fiki reads from any
         /// untrusted value (this.i @5zrf8gjk, @524c8qgv): each of Signature, Signature-Input and
         /// Content-Digest, where a longer one is that header's malformed kind, and a target URL, a
