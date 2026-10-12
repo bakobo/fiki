@@ -182,6 +182,10 @@ const CALLER = {
   'response-expected-keyid-omitted': 'verifyResponse requires expectedKeyid',
   'response-minimum-below-the-profiles': "A minimum covered set must include the profile's own",
   'url-over-8192-bytes': 'cannot be read: it is over 8192 bytes',
+  'request-announces-a-body-it-does-not-carry': 'announces a body in its headers',
+  'request-announces-a-body-and-the-response-signature-is-malformed': 'announces a body in its headers',
+  'request-announces-a-chunked-body-it-does-not-carry': 'announces a body in its headers',
+  'sign-response-to-a-request-announcing-a-body-it-does-not-carry': 'announces a body in its headers',
 };
 
 /** Assert a FikiError of the named class, with a well-formed message. */

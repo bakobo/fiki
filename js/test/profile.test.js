@@ -730,7 +730,9 @@ describe('the minimum covered set (profile section 3)', () => {
   });
 
   it("judges a response's request body by content, not headers (@7p9s3g9k)", async () => {
-    const chunked = { method: 'POST', url: URL_, headers: { 'Transfer-Encoding': 'chunked', 'Content-Digest': await contentDigest(BODY) } };
+    // A request whose headers announce a body it carries is judged by that content; one carrying an
+    // empty body binds none. One announcing a body it lacks is a caller error (@6v00d3tu, below).
+    const chunked = { method: 'POST', url: URL_, headers: { 'Transfer-Encoding': 'chunked' }, body: new Uint8Array(0) };
     const headers = await respond({ request: chunked, covered: [...RESPONSE_MINIMUM, 'content-digest'] });
     assert.equal((await check(headers, { request: chunked, minimum: RESPONSE_MINIMUM })).aid, KEY.aid);
   });
@@ -759,8 +761,9 @@ describe('the minimum covered set (profile section 3)', () => {
 });
 
 describe('the default response covered set (@2f227n4r, @7p9s3g9k)', () => {
-  it('does not bind a request body only its headers announce', async () => {
-    const asked = { method: 'POST', url: URL_, headers: { 'Content-Length': '18', 'Content-Digest': await contentDigest(BODY) } };
+  it('binds no digest of a request whose body is empty', async () => {
+    const empty = new Uint8Array(0);
+    const asked = { method: 'POST', url: URL_, headers: { 'Content-Digest': await contentDigest(empty) }, body: empty };
     const verdict = await check(await respond({ request: asked }), { request: asked, minimum: RESPONSE_MINIMUM });
     assert.ok(!verdict.covered.includes(req('content-digest')));
   });
@@ -780,6 +783,59 @@ describe('the default response covered set (@2f227n4r, @7p9s3g9k)', () => {
     const verdict = await check(headers, { request: head, body: null, minimum: RESPONSE_MINIMUM });
     assert.ok(!verdict.covered.includes('content-digest'));
   });
+});
+
+describe('a request that announces a body it does not carry (@6v00d3tu)', () => {
+  const ANNOUNCED = 'announces a body in its headers';
+
+  /** A request signed for with its body, then handed over without it. */
+  async function announcing(extra) {
+    const given = { method: 'POST', url: URL_, headers: { ...extra, 'Content-Digest': await contentDigest(BODY) }, body: BODY };
+    return [given, { ...given, body: null }];
+  }
+
+  for (const extra of [
+    { 'Content-Length': '18' },
+    { 'Transfer-Encoding': 'chunked' },
+    { 'Content-Length': '18', 'Transfer-Encoding': 'chunked' },
+    { 'content-length': 'abc' },
+  ]) {
+    it(`is a caller error to verifyResponse, announced by ${JSON.stringify(extra)}`, async () => {
+      const [given, stripped] = await announcing(extra);
+      const headers = await respond({ request: given });
+      await assert.rejects(() => check(headers, { request: stripped, minimum: RESPONSE_MINIMUM }), callerError(ANNOUNCED));
+    });
+  }
+
+  for (const extra of [{ 'Content-Length': '18' }, { 'Transfer-Encoding': 'gzip' }]) {
+    it(`is a caller error to signResponse, announced by ${JSON.stringify(extra)}`, async () => {
+      const [, stripped] = await announcing(extra);
+      await assert.rejects(() => respond({ request: stripped }), callerError(ANNOUNCED));
+    });
+  }
+
+  it('is decided before any signature header is read, and before any resolver is asked', async () => {
+    const [given, stripped] = await announcing({ 'Content-Length': '18' });
+    const calls = [];
+    const resolve = (keyid) => {
+      calls.push(keyid);
+      return raw(KEY);
+    };
+    for (const headers of [{ ...(await respond({ request: given })), Signature: 'sig=123' }, {}, { Signature: '' }]) {
+      for (const status of [200, 401]) {
+        await assert.rejects(() => check(headers, { status, request: stripped, resolve }), callerError(ANNOUNCED));
+      }
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  for (const length of ['0', '000', ' 0 ']) {
+    it(`judges a request announcing no body (Content-Length ${JSON.stringify(length)}) and carrying none as before`, async () => {
+      const asked = { method: 'GET', url: URL_, headers: { 'Content-Length': length } };
+      const headers = await respond({ request: asked });
+      assert.equal((await check(headers, { request: asked, minimum: RESPONSE_MINIMUM })).aid, KEY.aid);
+    });
+  }
 });
 
 describe('signers given a minimum (@2f227n4r)', () => {

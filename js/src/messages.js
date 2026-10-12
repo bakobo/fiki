@@ -125,6 +125,24 @@ const normalRequest = (request) =>
     ? null
     : { ...request, headers: canonicalHeaders(request.headers, 'request.headers'), body: bodyBytes(request.body, 'request.body') };
 
+/** A request whose headers announce a body it does not carry is a mistake in the call (@6v00d3tu).
+ *
+ * Whether the request had a body is judged by its content, since both sides hold the whole request
+ * by the time a response is signed or verified (@7p9s3g9k). A request announcing a body (a
+ * Content-Length above zero, or any Transfer-Encoding) whose body is null breaks that assumption:
+ * the caller threw the body away. Decided before any header of the response is read, so no defect
+ * in the message can outrank it, and no resolver is asked.
+ */
+function checkAnnouncedBody(request) {
+  if (request !== null && request.body === null && requestHasBody(lowered(request.headers), null)) {
+    throw new TypeError(
+      'The request this response answers announces a body in its headers, by its Content-Length or ' +
+        'Transfer-Encoding, and request.body is null, so whether the response must bind that body ' +
+        'cannot be decided. Pass the request body, or a request without those headers.',
+    );
+  }
+}
+
 /** The RFC 9530 `Content-Digest` header value for a body. */
 export async function contentDigest(body) {
   const digest = await crypto.subtle.digest(DIGEST_ALGORITHMS.get(DIGEST_OUT), bodyBytes(body));
@@ -268,7 +286,9 @@ export async function signRequest({
  * is bound by its `Content-Digest` (its headers do not count, @7p9s3g9k), and one with no digest
  * to bind is refused as UncoveredBody rather than signed into a response every profile client
  * refuses (@2f227n4r). A digest the request body contradicts is refused the way the verifier
- * would refuse it.
+ * would refuse it. A `request` whose headers announce a body (a Content-Length above zero, or any
+ * Transfer-Encoding) and whose body is null is a TypeError (@6v00d3tu): pass the body, or a request
+ * without those headers.
  */
 export async function signResponse({
   key,
@@ -292,10 +312,12 @@ export async function signResponse({
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
+  checkAnnouncedBody(request);
   headers = canonicalHeaders(headers);
   const sending = Object.assign(Object.create(null), headers);
   const chosen = covered !== null && covered !== undefined;
-  // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+  // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k), and
+  // a request announcing a body it lacks was refused above (@6v00d3tu).
   const hadBody = request !== null && hasContent(request.body);
   const specs = chosen ? covered : ['@status', ...(request === null ? [] : [req('@method'), req('@path'), req('@query')])];
   const items = specs.map(component);
@@ -441,7 +463,9 @@ function checkAuthorities(authorities) {
  * accept any signer and read it from the verdict; an empty string is a TypeError. An unsigned 401 is Unauthenticated,
  * checked before anything else, because a server that refuses before it knows the agent cannot
  * sign the refusal (@2f227n4r). A response covering `"content-digest";req` verified against a
- * request whose body is null is a TypeError: fiki cannot check a body it was not given.
+ * request whose body is null is a TypeError: fiki cannot check a body it was not given. So is a
+ * `request` whose headers announce a body its null body does not carry (@6v00d3tu), decided before
+ * anything in the response is read.
  */
 export async function verifyResponse({
   status,
@@ -469,6 +493,7 @@ export async function verifyResponse({
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
+  checkAnnouncedBody(request);
   headers = canonicalHeaders(headers);
   // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
   if (status === 401 && !headers.signature) {
