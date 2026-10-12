@@ -47,14 +47,14 @@ public final class Fiki {
      * a conformance contract has no meaningful minor: an implementation either satisfies the
      * vectors or it does not.
      */
-    public static final int VECTORS_FORMAT = 3;
+    public static final int VECTORS_FORMAT = 4;
 
     /**
      * The KERI profile's vector set this port satisfies, vectors/keri/ (this.i @8vwrexxc). A
      * separate number from {@link #VECTORS_FORMAT}, because the two sets answer to different
      * authorities and move independently.
      */
-    public static final int KERI_VECTORS_FORMAT = 5;
+    public static final int KERI_VECTORS_FORMAT = 6;
 
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";

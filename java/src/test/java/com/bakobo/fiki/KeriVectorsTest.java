@@ -59,13 +59,13 @@ class KeriVectorsTest {
     private static final Map<String, String> CODES = codes();
 
     /*
-     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * The number of cases in each file at keri_vectors_format 6, read from the files once when these constants
      * were written and never at test time (tick 7xbw, T8); rfc9421.json's one case is asserted where
      * it is read.
      */
     private static final int REQUESTS_CASES = 21;
     private static final int RESPONSES_CASES = 4;
-    private static final int REFUSALS_CASES = 64;
+    private static final int REFUSALS_CASES = 65;
     private static final int LEGACY_CASES = 4;
 
     private static JsonNode load(String name) throws Exception {

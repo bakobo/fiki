@@ -62,8 +62,9 @@ class FuzzTest {
                 });
             }
         }
-        // 237 corpus values: the generated files are not vendored (see the corpus README).
-        assertEquals(237 + 43 + 43 + 142 + 143 + 2, SEEDS.size(), "every seed loaded");
+        // 237 corpus values (the generated files are not vendored; see the corpus README), then
+        // accepts.json's Signature-Input and Signature headers and refusals.json's, at format 4.
+        assertEquals(237 + 45 + 45 + 155 + 156, SEEDS.size(), "every seed loaded");
     }
 
     /* ------------------------------------------------------------------ the generator */

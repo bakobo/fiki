@@ -152,17 +152,17 @@ class VectorsTest {
     }
 
     /*
-     * The number of cases in each file at hardening-a, read from the files once when these constants
+     * The number of cases in each file at vectors_format 4, read from the files once when these constants
      * were written and never at test time: a driver looping over an emptied cases array asserted
      * nothing and passed (tick 7xbw, T8). Counted.each holds each file to its number.
      */
-    private static final int AID_LENS_CASES = 3;
+    private static final int AID_LENS_CASES = 7;
     private static final int SIGNATURE_BASE_CASES = 14;
-    private static final int ACCEPTS_CASES = 44;
-    private static final int REFUSALS_CASES = 144;
-    private static final int RESPONSES_CASES = 13;
-    private static final int SIGNS_CASES = 16;
-    private static final int MISUSE_CASES = 10;
+    private static final int ACCEPTS_CASES = 45;
+    private static final int REFUSALS_CASES = 157;
+    private static final int RESPONSES_CASES = 15;
+    private static final int SIGNS_CASES = 18;
+    private static final int MISUSE_CASES = 13;
 
     /*
      * The message fragment each caller-error vector must carry (tick 7xbw, T3), since a vector names
