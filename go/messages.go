@@ -86,7 +86,9 @@ var signatureParams = map[string]bool{"created": true, "expires": true, "nonce":
 
 // Resolver maps a keyid to the 32 raw bytes of the Ed25519 key it names (this.i @6g9zjsv9). It
 // returns (nil, nil) when it knows no key for the keyid, which fiki reports as UnknownKey. Any error
-// it returns, such as an *Error of kind UnsupportedSigner or MalformedKey, is passed on unchanged.
+// it returns, such as an *Error of kind UnsupportedSigner, is passed on unchanged. fiki hands it
+// only a well-formed AID (@7w7nv94j), refusing any other keyid as MalformedKey first, so it answers
+// about key state alone.
 type Resolver func(keyid string) ([]byte, error)
 
 // ContentDigest is the RFC 9530 Content-Digest header value for a body.
@@ -912,18 +914,22 @@ func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, s
 		if err != nil {
 			return nil, "", err
 		}
-		return usable(public, expectedAID, expectedAID)
+		return public, expectedAID, nil
 	}
 	if keyid == "" {
 		return nil, "", errorf(KindMissingKey,
 			"This signature carries no keyid and no ExpectedAID was supplied, so there is no key to verify it against.")
 	}
 	if resolve != nil {
-		if misspelledAID(keyid) {
+		// A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+		// well-formed AID, whatever its shape, is refused here and never handed to it. That
+		// includes fiki's own raw keyid: a verifier with a resolver never reads a key inline.
+		if !wellFormedAID(keyid) {
 			return nil, "", &Error{
 				Kind: KindMalformedKey,
-				Message: fmt.Sprintf("The keyid %s is shaped like an AID and is not its canonical "+
-					"spelling, so it is not an AID at all.", shown(keyid)),
+				Message: fmt.Sprintf("The keyid %s is not a well-formed AID: 44 characters, B, D or E, "+
+					"then the canonical base64url spelling of 32 bytes. A resolver is asked only "+
+					"about an AID.", shown(keyid)),
 				Keyid: keyid,
 			}
 		}

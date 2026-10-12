@@ -4,16 +4,18 @@ package fiki
 //
 // A separate contract from the shared vectors/: its own format number, refusals named by the
 // profile's neutral section 9 codes rather than fiki's kind names, and a resolver a KERI verifier
-// would back with key event logs, built here from the keys table each file carries. fiki-py's
-// driver imports the generator's resolver, well-formedness rule and policy-applying verifier;
-// this one cannot import Python, so it restates them from the rules the files themselves state
-// (keys_rule, policy, case_policy), and the files are read from the repository root, never copied.
+// would back with key event logs, built here from the keys table each file carries. The resolver
+// and the policy-applying verifier are restated from the rules the files themselves state (policy,
+// case_policy), and the files are read from the repository root, never copied.
 //
-// The resolver is authoritative (@6g9zjsv9). It derives a non-transferable B keyid from the
-// prefix, looks every transferable keyid up in the table, answers (nil, nil) for a well-formed AID
-// it holds no key state for, returns UnsupportedSigner for a key state with no single effective
-// signer, and refuses a keyid that is not an AID at all. It never decodes a D keyid as a key,
-// which is exactly what one of the vectors is there to catch.
+// The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back
+// a non-transferable B keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
+// the table, answers (nil, nil) for a keyid it holds no key state for, and returns
+// UnsupportedSigner for a key state with no single effective signer. It never decodes a D keyid as
+// a key, which is exactly what one of the vectors is there to catch, and it carries no
+// well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to refuse, so the
+// refusal vectors for them test the library rather than this file. The keys table itself is
+// checked against keys_rule with the library's wellFormedAID.
 
 import (
 	"bytes"
@@ -183,21 +185,6 @@ func b64urlLoose(t *testing.T, text string) []byte {
 	return raw
 }
 
-// wellFormedAID is the files' keys_rule: 44 characters, a B, D or E code, and 43 base64url
-// characters that decode behind one pad character to 32 bytes with a zero pad byte, so that
-// re-encoding gives back the keyid exactly.
-func wellFormedAID(keyid string) bool {
-	if len(keyid) != 44 || !strings.ContainsRune("BDE", rune(keyid[0])) {
-		return false
-	}
-	decoded, err := base64.RawURLEncoding.Strict().DecodeString("A" + keyid[1:])
-	if err != nil || len(decoded) != 33 || strings.ContainsAny(keyid, "\r\n") {
-		return false
-	}
-	padded := append([]byte{0}, decoded[1:]...)
-	return keyid[:1]+base64.RawURLEncoding.EncodeToString(padded)[1:] == keyid
-}
-
 // keriResolver is what a KERI verifier's key lookup does, for a keys table.
 func keriResolver(keys []keriKey) Resolver {
 	table := map[string]keriKey{}
@@ -207,11 +194,12 @@ func keriResolver(keys []keriKey) Resolver {
 		}
 	}
 	return func(keyid string) ([]byte, error) {
-		if !wellFormedAID(keyid) {
-			return nil, &Error{Kind: KindMalformedKey, Message: keyid + " is not a well-formed AID.", Keyid: keyid}
-		}
 		if strings.HasPrefix(keyid, "B") {
-			return VerifyingKey(keyid)
+			prefix, err := base64.RawURLEncoding.DecodeString("A" + keyid[1:])
+			if err != nil {
+				return nil, err
+			}
+			return prefix[1:], nil
 		}
 		entry, ok := table[keyid]
 		if !ok {

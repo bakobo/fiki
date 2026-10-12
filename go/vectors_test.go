@@ -68,6 +68,20 @@ type aidCase struct {
 	PublicKeyHex string `json:"public_key_hex"`
 	AID          string `json:"aid"`
 	Keyid        string `json:"keyid"`
+	// Format 4 (@7w7nv94j): a string that is not an AID, and the kind VerifyingKey refuses it as.
+	Error  string `json:"error"`
+	Note   string `json:"note"`
+	fields []string
+}
+
+func (c *aidCase) UnmarshalJSON(raw []byte) error {
+	type plain aidCase
+	fields, err := fieldsOf(raw)
+	if err != nil {
+		return err
+	}
+	c.fields = fields
+	return json.Unmarshal(raw, (*plain)(c))
 }
 
 type baseCase struct {
@@ -302,6 +316,21 @@ func TestAIDLens(t *testing.T) {
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			ran()
+			if c.Error != "" {
+				// Handed straight to the AID decoder, which refuses it (format 4, @7w7nv94j).
+				checkFields(t, c.ID, c.fields, []string{"id", "aid", "error", "note"})
+				_, err := VerifyingKey(c.AID)
+				var fikiErr *Error
+				if !errors.As(err, &fikiErr) {
+					t.Fatalf("expected the fiki.Error %s, got %v", c.Error, err)
+				}
+				if fikiErr.Kind != c.Error {
+					t.Errorf("kind = %s, want %s", fikiErr.Kind, c.Error)
+				}
+				wellFormed(t, err)
+				return
+			}
+			checkFields(t, c.ID, c.fields, []string{"id", "seed_hex", "public_key_hex", "aid", "keyid", "note"})
 			key, err := FromSeed(mustHex(t, c.SeedHex))
 			if err != nil {
 				t.Fatal(err)
