@@ -135,7 +135,8 @@ describe('B14: a port of thousands of digits is read without converting them', (
 });
 
 describe('A4: header values are strings, and a field is named once', () => {
-  for (const headers of [{ 'x-a': null }, { 'x-a': undefined }, { 'x-a': 1 }, { 'x-a': ['1'] }]) {
+  // A list of strings is no longer here: it is joined with ", " (@4un2vx4l, headers.test.js).
+  for (const headers of [{ 'x-a': null }, { 'x-a': undefined }, { 'x-a': 1 }, { 'x-a': {} }]) {
     it(`${JSON.stringify(headers)} is a caller error on sign and verify`, async () => {
       await assert.rejects(sign({ headers }), callerError('A header is a name and a string value'));
       await assert.rejects(verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null }), callerError('A header is a name and a string value'));

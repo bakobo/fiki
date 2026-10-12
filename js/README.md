@@ -45,6 +45,8 @@ const { aid, keyid, covered } = await verifyRequest({
 });
 ```
 
+A header value may be an array of strings, as Node's `IncomingMessage` gives `set-cookie`: fiki joins it with a comma and one space, which is the value RFC 9421 section 2.1 signs for a field sent in several lines (`this.i` @4un2vx4l). A framework that joins repeated fields with a bare comma must hand fiki the array, not its own string.
+
 `keyid` is the keyid exactly as it appeared on the wire, or `null` when the signature had none; `aid` is the identity that vouched for the key — the non-transferable AID of a raw key, the keyid a resolver vouched for, or the AID of `expectedAid`.
 
 `maxAge` has no default and must be given. Both defaults would be wrong: a number guesses at somebody else's clock skew and replay window, and skipping the check silently is the thing the argument exists to prevent. An `expires` the signer declared is enforced either way. `maxAge` and `skew`, when given, are positive whole numbers of seconds.
@@ -57,7 +59,7 @@ const { aid, keyid, covered } = await verifyRequest({
 
 `Signature`, `Signature-Input` and `Content-Digest` are each read only up to `MAX_FIELD_BYTES` (8192 bytes, measured before any trimming), `MAX_DICTIONARY_MEMBERS` (16) members, `MAX_INNER_LIST_ITEMS` (64) items in an inner list and `MAX_PARAMETERS` (16) parameters on an item; a header over any of them is that header's malformed error. All four are exported. The same 8192-byte bound applies to a target URL and to every covered field value, `Host` included: over it, the base cannot be built, a `SignatureMismatch` (a URL on the signing side is a `TypeError`). An error message quotes at most 64 characters of an untrusted value, with its control characters escaped. A URL whose authority carries userinfo (`user@`) is refused like any other unreadable URL, and field names are lowercased A–Z only. RFC 8941 is parsed strictly, every bare type it defines and nothing RFC 9651 added: an integer of more than fifteen digits, a decimal of more than twelve integer or three fractional digits, a Date or a Display String, and a byte sequence that is not canonically padded base64 are refused, and a token or decimal where fiki reads a string or an integer is refused as any value of the wrong type is. A URL whose port is not a number from 0 to 65535, or with anything but `:port` after an IP-literal's `]`, is a `SignatureMismatch` when a covered `@authority` needs it.
 
-The signer refuses, as a `TypeError`, anything it would otherwise serialize into a header that does not belong there: a method that is not an HTTP token, a label that is not an RFC 8941 key, a `keyid`, `nonce` or `tag` outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, a header value that is not a string, and a supplied `Content-Digest` the body does not bear out.
+The signer refuses, as a `TypeError`, anything it would otherwise serialize into a header that does not belong there: a method that is not an HTTP token, a label that is not an RFC 8941 key, a `keyid`, `nonce` or `tag` outside printable ASCII, a component name that is not a field name, a `created` or `expires` outside 0 to 999999999999999, a header value that is neither a string nor an array of strings, and a supplied `Content-Digest` the body does not bear out.
 
 ## Keys in a browser
 
