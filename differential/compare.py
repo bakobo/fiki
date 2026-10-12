@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 PORTS = ("py", "js", "go", "rust", "java", "csharp")
@@ -34,9 +35,15 @@ def compared(outcome: str) -> str:
 def main() -> int:
     out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "out"
     cases_path = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "cases.json"
-    ids = {case["id"] for case in json.loads(cases_path.read_text(encoding="utf-8"))["cases"]}
+    listed = [case["id"] for case in json.loads(cases_path.read_text(encoding="utf-8"))["cases"]]
+    ids = set(listed)
     if not ids:
         print(f"{cases_path} holds no cases, so nothing would be compared.")
+        return 1
+    if len(ids) != len(listed):
+        # A map holds one outcome per id, so two cases sharing one would be compared as one.
+        twice = sorted(i for i, n in Counter(listed).items() if n > 1)
+        print(f"{cases_path} gives {len(twice)} id(s) to more than one case, such as {twice[0]}")
         return 1
     maps = {}
     for port in PORTS:
