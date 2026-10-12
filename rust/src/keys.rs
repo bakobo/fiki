@@ -16,7 +16,8 @@ const CODE: u8 = b'B';
 const RAW_LEN: usize = 32;
 const QB64_LEN: usize = 44;
 
-const URL_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+pub(crate) const URL_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const STD_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Base64 with an explicit alphabet and no padding, written out rather than pulled in: the port
@@ -188,7 +189,7 @@ pub(crate) fn public_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
 
 /// Whether the little-endian y in an encoded point, sign bit cleared, is below p = 2^255 - 19.
 /// Only 19 values are not: 0x7f, then thirty 0xff, then a low byte of 0xed or more.
-fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
+pub(crate) fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
     !(raw[31] & 0x7f == 0x7f && raw[1..31].iter().all(|b| *b == 0xff) && raw[0] >= 0xed)
 }
 
