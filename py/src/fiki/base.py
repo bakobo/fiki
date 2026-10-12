@@ -226,14 +226,17 @@ def canonical(headers: Headers) -> dict[str, str]:
     for name, value in headers.items():
         # Exactly a list or a tuple, never a subclass, which could iterate one way for fiki and
         # another for the caller, so no reading of it is the value the caller holds (hostile pass
-        # on #25). A subclass falls through to the string check below and is a caller error.
+        # on #25). A subclass falls through to the string check below and is a caller error. The
+        # lines are copied once and the copy is checked and joined, so a list another thread
+        # changes in between cannot be checked as one sequence and joined as another.
         if type(value) in (list, tuple):
-            if not all(type(line) is str for line in value):
+            lines = list(value)
+            if not all(type(line) is str for line in lines):
                 raise TypeError(
                     f"The header {shown(name)} is given as a list, whose field lines must be each "
                     "a string; this one holds something else."
                 )
-            value = ", ".join(value)
+            value = ", ".join(lines)
         if type(name) is not str or type(value) is not str:
             raise TypeError(
                 f"A header is a name and a value, both strings; this one is {shown(name)}: "
