@@ -87,5 +87,51 @@ namespace Bakobo.Fiki
         /// and for the spelling of a small-order point, against which anyone can forge a signature.
         /// </exception>
         public static PublicKey VerifyingKey(string aid) => new PublicKey(Aids.VerifyingKey(aid));
+
+        /// <summary>
+        /// The canonical AID of the Ed25519 public key <paramref name="text"/> spells (this.i
+        /// @0mvgkwnl). Call it when registrations are loaded, not per request.
+        /// </summary>
+        /// <remarks>
+        /// <paramref name="text"/> is an AID, the raw key as 43 characters of unpadded base64url (a
+        /// JWK's <c>x</c>), a base58btc did:key, a did:peer with numalgo 0, or an OpenSSH public line:
+        /// <c>ssh-ed25519</c>, one space, the blob, and optionally one space and a printable-ASCII
+        /// comment that neither begins nor ends with a space. Length, not the first character, tells
+        /// raw from AID: 43 against 44. Nothing around the text is trimmed; that is the caller's, so
+        /// that one input never has two readings.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">The text is null.</exception>
+        /// <exception cref="FikiException">
+        /// MalformedKey, for anything else, a transferable or digest AID included, whose key is not
+        /// the identifier's to give, and for a small-order or non-canonical point in any spelling.
+        /// The message never quotes the text and <see cref="FikiException.KeyId"/> is empty, because
+        /// what is handed here by mistake can be a private key: the <c>.key</c> file instead of the
+        /// <c>.pub</c>, or a seed, which in base64url is 43 characters like a raw key.
+        /// </exception>
+        public static string AidFrom(string text) =>
+            Formats.AidFrom(text ?? throw new ArgumentNullException(nameof(text), "A public key is text, not null."));
+
+        /// <summary>
+        /// Load an unencrypted OpenSSH Ed25519 private key, the armored openssh-key-v1 text ssh-keygen
+        /// writes, LF line endings, with or without the final newline (this.i @0mvgkwnl).
+        /// </summary>
+        /// <remarks>
+        /// Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross between
+        /// protocols: every base SignRequest and SignResponse build begins with a double quote, SSH
+        /// user authentication signs data beginning with a length-prefixed session identifier (RFC
+        /// 4252 section 7), and SSHSIG signs data beginning "SSHSIG". But an agent signs whatever bytes
+        /// it is asked to, so anyone able to use a forwarded agent could sign fiki requests with a
+        /// login key. The separation is a property of SignRequest, not of the key: <see cref="Sign"/>
+        /// signs any bytes.
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">The text is null.</exception>
+        /// <exception cref="FikiException">
+        /// MalformedKey, for an encrypted key, a key that is not Ed25519, more or fewer than one key,
+        /// check integers that differ, padding that is not 1, 2, 3, ..., or a public key that is not
+        /// the same in both places it is stored or not the one the seed derives. The error never
+        /// carries any part of the key, and its <see cref="FikiException.KeyId"/> is empty.
+        /// </exception>
+        public static Key FromOpenSsh(string text) =>
+            new Key(OpenSsh.Read(text ?? throw new ArgumentNullException(nameof(text), "An OpenSSH private key is text, not null.")));
     }
 }
