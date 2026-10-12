@@ -33,13 +33,13 @@ func load(t *testing.T, name string, into any) {
 // hardening-a (tick 7xbw, T8), never at test time: an emptied or shortened cases array fails here
 // rather than passing a driver that loops over nothing.
 var vectorCounts = map[string]int{
-	"aid-lens.json":       3,
+	"aid-lens.json":       7,
 	"signature-base.json": 14,
-	"accepts.json":        44,
-	"refusals.json":       144,
-	"misuse.json":         10,
-	"signs.json":          16,
-	"responses.json":      13,
+	"accepts.json":        45,
+	"refusals.json":       157,
+	"misuse.json":         13,
+	"signs.json":          18,
+	"responses.json":      15,
 }
 
 // pinned asserts that a file holds exactly its pinned number of cases, and returns what each case

@@ -142,7 +142,7 @@ var keriCounts = map[string]int{
 	"keri/rfc9421.json":   1,
 	"keri/requests.json":  21,
 	"keri/responses.json": 4,
-	"keri/refusals.json":  64,
+	"keri/refusals.json":  65,
 	"keri/legacy.json":    4,
 }
 
