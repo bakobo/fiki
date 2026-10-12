@@ -797,10 +797,12 @@ public final class Fiki {
     /**
      * The UTF-8 length of a value as fiki-py measures it, {@code len(value.encode("utf-8",
      * "surrogatepass"))} (tick 7us4): a lone surrogate is the three bytes its code point would take,
-     * where {@code getBytes(UTF_8)} replaces it with a one-byte "?" and so undercounts.
+     * where {@code getBytes(UTF_8)} replaces it with a one-byte "?" and so undercounts. A long, since
+     * a string of 2^31 - 1 chars can take three times that many bytes, and an int would wrap past the
+     * bound check.
      */
-    static int utf8Length(String value) {
-        int bytes = 0;
+    static long utf8Length(String value) {
+        long bytes = 0;
         for (int i = 0; i < value.length(); i++) {
             char ch = value.charAt(i);
             if (ch < 0x80) {
@@ -1790,7 +1792,7 @@ public final class Fiki {
                 "The " + name + " header holds a character that has no UTF-8 encoding, so it cannot be "
                     + "read as an RFC 8941 " + shape + ".");
         }
-        int bytes = utf8Length(raw);
+        long bytes = utf8Length(raw);
         if (bytes > MAX_FIELD_BYTES) {
             throw new FikiException(kind,
                 "The " + name + " header is " + bytes + " bytes, and fiki reads one of at most "
