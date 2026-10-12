@@ -440,6 +440,34 @@
         "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
       },
       "note": "A response binds @status, its body, and the request's method, path, query and digest, each marked req."
+    },
+    {
+      "id": "sign-response-to-a-request-announcing-a-body-it-does-not-carry",
+      "kind": "response",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": null,
+      "url": null,
+      "headers": {},
+      "body": "{\"done\": true}",
+      "covered": null,
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things",
+        "headers": {
+          "Content-Length": "18"
+        },
+        "body": null
+      },
+      "keyid": null,
+      "label": "sig",
+      "error": "caller",
+      "note": "The request's headers announce 18 bytes and no body is given, so whether the response must bind it cannot be decided."
     }
   ]
 }

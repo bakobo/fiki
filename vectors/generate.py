@@ -1529,6 +1529,13 @@ def signs():
         method=None, url=None, request=request,
         note="A response binds @status, its body, and the request's method, path, query and "
              "digest, each marked req.")
+    # format 4 (@6v00d3tu): a Request announcing a body it does not carry is the caller's mistake.
+    add("sign-response-to-a-request-announcing-a-body-it-does-not-carry", kind="response",
+        status=200, body_text='{"done": true}', method=None, url=None,
+        request={"method": "POST", "url": "https://api.example.com/things",
+                 "headers": {"Content-Length": "18"}, "body": None}, error="caller",
+        note="The request's headers announce 18 bytes and no body is given, so whether the "
+             "response must bind it cannot be decided.")
     return {**HEADER, "about": "What every implementation's signer must emit, byte for byte.",
             "cases": cases}
 
@@ -1633,6 +1640,14 @@ def responses():
                    "Signature": f"sig=:{base64.b64encode(key.sign(longer)).decode()}:"},
         note="A req component reads the request's URL, which is bounded too. The signature is "
              "good over the base a port without the bound would build.")
+    # format 4 (@6v00d3tu): the controls beside misuse.json's caller errors. A request that
+    # announces no body and carries none is judged by content, as before.
+    add("request-announces-no-body-and-carries-none", expected_keyid=mine,
+        request={**plain, "method": "POST"},
+        note="No Content-Length, no Transfer-Encoding and no body: nothing is announced.")
+    add("request-announces-a-zero-length-body", expected_keyid=mine,
+        request={**plain, "headers": {"Content-Length": "0"}},
+        note="Content-Length: 0 announces no body, so a body of null is not a caller error.")
     return {**HEADER, "about": "Responses every implementation must accept or refuse.",
             "cases": cases}
 
@@ -1682,6 +1697,31 @@ def misuse():
                   "error": "caller", "note": "A response minimum must include RESPONSE_MINIMUM."})
     cases.append({**response, "id": "response-expected-keyid-empty", "expected_keyid": "",
                   "error": "caller", "note": "An empty AID names nothing; it is not the decline."})
+
+    # format 4 (@6v00d3tu): a Request that announces a body it does not carry. Each response is
+    # signed over the request WITH its body, so the only thing wrong is the body left out.
+    asked_body = b'{"hello": "world"}'
+
+    def announcing(case_id, extra, note, signature=None):
+        asked = {"Content-Digest": content_digest(asked_body), **extra}
+        headers = sign_response(key=key, status=200, created=1700000000, body=b'{"done": true}',
+                                request=Request(method="POST", url=url, headers=asked,
+                                                body=asked_body))
+        if signature is not None:
+            headers = {**headers, "Signature": signature}
+        cases.append({**response, "id": case_id, "headers": headers,
+                      "request": {"method": "POST", "url": url, "headers": asked, "body": None},
+                      "error": "caller", "note": note})
+
+    announcing("request-announces-a-body-it-does-not-carry", {"Content-Length": "18"},
+               "Signed over the request with its 18-byte body, verified with the body left out.")
+    announcing("request-announces-a-body-and-the-response-signature-is-malformed",
+               {"Content-Length": "18"},
+               "The caller error wins: it is decided before any signature header is parsed.",
+               signature="sig=123")
+    announcing("request-announces-a-chunked-body-it-does-not-carry",
+               {"Transfer-Encoding": "chunked"},
+               "Any Transfer-Encoding announces a body, as Content-Length above zero does.")
     return {**HEADER, "about": "Calls every implementation must reject as a caller's mistake.",
             "cases": cases}
 

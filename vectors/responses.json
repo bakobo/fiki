@@ -308,6 +308,66 @@
       "now": 1700000000,
       "error": "SignatureMismatch",
       "note": "A req component reads the request's URL, which is bounded too. The signature is good over the base a port without the bound would build."
+    },
+    {
+      "id": "request-announces-no-body-and-carries-none",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {},
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest"
+      ],
+      "note": "No Content-Length, no Transfer-Encoding and no body: nothing is announced."
+    },
+    {
+      "id": "request-announces-a-zero-length-body",
+      "status": 200,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:8fdzoUlQ0qcOaXDPC/y/P8r5aO6sJbiTyE8e+CF73wojYuUX5YlFC85HMl9z+H8ndBtLYIiGq7IxfnrH0cpACw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "body": "{\"done\": true}",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Length": "0"
+        },
+        "body": null
+      },
+      "minimum": "default",
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "max_age": null,
+      "now": 1700000000,
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest"
+      ],
+      "note": "Content-Length: 0 announces no body, so a body of null is not a caller error."
     }
   ]
 }

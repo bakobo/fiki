@@ -320,15 +320,18 @@ def sign_response(
     non-empty is bound by its ``Content-Digest`` (its headers do not count, @7p9s3g9k), and one
     with no digest to bind is refused as :class:`~fiki.errors.UncoveredBody` rather than signed
     into a response every profile client refuses (@2f227n4r). A digest the request body
-    contradicts is refused the same way the verifier would refuse it.
+    contradicts is refused the same way the verifier would refuse it. A ``request`` whose headers
+    announce a body (a Content-Length above zero, or any Transfer-Encoding) and whose body is
+    None is a ValueError (@6v00d3tu): pass the body, or a Request without those headers.
     """
     check_label(label)
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     sending = canonical(headers or {})
     request = _canonical_request(request)
+    _check_announced_body(request)
     chosen = covered is not None
     # By content alone: both sides hold the whole request by now (profile section 3,
-    # @7p9s3g9k).
+    # @7p9s3g9k), and a Request announcing a body it lacks was refused above (@6v00d3tu).
     had_body = request is not None and bool(request.body)
     if covered is None:
         covered = ["@status"]
@@ -466,13 +469,15 @@ def verify_response(
     smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
     is a response covering ``"content-digest";req`` verified against a ``request`` whose body is
     None: that digest is recomputed over the request body, and fiki cannot check a body it was
-    not given.
+    not given. So is a ``request`` whose headers announce a body its ``body`` of None does not
+    carry (@6v00d3tu), decided before anything in the response is read.
     """
     _check_window(max_age, skew)
     _check_expected_keyid(expected_keyid)
     minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT_RESPONSE else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
+    _check_announced_body(request)
     # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
     if status == 401 and not headers.get("signature"):
         raise Unauthenticated(
@@ -584,6 +589,25 @@ def _canonical_request(request: Request | None) -> Request | None:
     if request is None:
         return None
     return replace(request, headers=canonical(request.headers))
+
+
+def _check_announced_body(request: Request | None) -> None:
+    """A Request whose headers announce a body it does not carry is a mistake in the call
+    (@6v00d3tu, revising @7p9s3g9k's second half).
+
+    Whether the request had a body is judged by its content, since both sides hold the whole
+    request by the time a response is signed or verified. A Request announcing a body (a
+    Content-Length above zero, or any Transfer-Encoding) with none passed breaks that assumption:
+    the caller threw the body away. Decided before any header of the response is read, so no
+    defect in the message can outrank it, and no resolver is asked.
+    """
+    if request is not None and request.body is None and _request_has_body(request.headers, None):
+        raise ValueError(
+            "The request this response answers announces a body in its headers, by its "
+            "Content-Length or Transfer-Encoding, and Request.body is None, so whether the "
+            "response must bind that body cannot be decided. Pass the request body, or a Request "
+            "without those headers."
+        )
 
 
 def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:

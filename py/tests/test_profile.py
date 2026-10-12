@@ -557,19 +557,72 @@ def test_a_response_to_a_request_with_a_body_must_cover_the_requests_digest():
 
 def test_a_response_judges_its_requests_body_by_content_not_headers():
     """Profile section 3 (version 1): both sides hold the whole request by the time a response
-    is signed or verified, so the request's headers do not count (@7p9s3g9k)."""
-    chunked = Request(method="POST", url=URL, headers={"Transfer-Encoding": "chunked",
-                                                        "Content-Digest": content_digest(BODY)})
+    is signed or verified (@7p9s3g9k). A request whose headers announce a body it carries is
+    judged by that content; one carrying an empty body binds none."""
+    chunked = Request(method="POST", url=URL, headers={"Transfer-Encoding": "chunked"}, body=b"")
     headers = respond(request=chunked, covered=list(RESPONSE_MINIMUM) + ["content-digest"])
     assert check(headers, request=chunked, minimum=RESPONSE_MINIMUM).aid == KEY.aid
 
 
+# --- a Request that announces a body it does not carry is a caller error (@6v00d3tu) ---
+
+ANNOUNCED = "announces a body in its headers"
+
+
+def _announcing(extra):
+    """A request signed for with its body, then handed over without it."""
+    given = Request(method="POST", url=URL, headers={**extra, "Content-Digest": content_digest(BODY)},
+                    body=BODY)
+    return given, Request(method=given.method, url=URL, headers=given.headers, body=None)
+
+
+@pytest.mark.parametrize("extra", [{"Content-Length": "18"}, {"Transfer-Encoding": "chunked"},
+                                   {"Content-Length": "18", "Transfer-Encoding": "chunked"},
+                                   {"content-length": "abc"}])
+def test_verifying_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error(extra):
+    given, stripped = _announcing(extra)
+    headers = respond(request=given)
+    with pytest.raises(ValueError, match=ANNOUNCED):
+        check(headers, request=stripped, expected_keyid=None, minimum=RESPONSE_MINIMUM)
+
+
+@pytest.mark.parametrize("extra", [{"Content-Length": "18"}, {"Transfer-Encoding": "gzip"}])
+def test_signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error(extra):
+    _, stripped = _announcing(extra)
+    with pytest.raises(ValueError, match=ANNOUNCED):
+        respond(request=stripped)
+
+
+def test_the_caller_error_is_decided_before_any_signature_header_is_read():
+    """V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and
+    the resolver is never asked."""
+    given, stripped = _announcing({"Content-Length": "18"})
+    calls = []
+
+    def resolve(keyid):
+        calls.append(keyid)
+        return raw(KEY)
+
+    for headers in ({**respond(request=given), "Signature": "sig=123"}, {}, {"Signature": ""}):
+        for status in (200, 401):
+            with pytest.raises(ValueError, match=ANNOUNCED):
+                check(headers, status=status, request=stripped, resolve=resolve)
+    assert calls == []
+
+
+@pytest.mark.parametrize("length", ["0", "000", " 0 "])
+def test_a_request_announcing_no_body_and_carrying_none_is_judged_as_before(length):
+    asked = Request(method="GET", url=URL, headers={"Content-Length": length})
+    headers = respond(request=asked)
+    assert check(headers, request=asked, minimum=RESPONSE_MINIMUM).aid == KEY.aid
+
+
 # --- the first review's findings and the profile's draft 6 (@2f227n4r) ---
 
-def test_a_default_response_does_not_bind_a_request_body_only_its_headers_announce():
-    """By content alone (@7p9s3g9k): a Request handed over without its body binds no digest."""
-    asked = Request(method="POST", url=URL, headers={"Content-Length": "18",
-                                                     "Content-Digest": content_digest(BODY)})
+def test_a_default_response_to_a_request_with_an_empty_body_binds_no_digest():
+    """By content alone (@7p9s3g9k): a Request whose body is empty binds no digest."""
+    asked = Request(method="POST", url=URL, headers={"Content-Digest": content_digest(b"")},
+                    body=b"")
     headers = respond(request=asked)
     verdict = check(headers, request=asked, minimum=RESPONSE_MINIMUM)
     assert req("content-digest") not in verdict.covered

@@ -37,9 +37,9 @@ COUNTS = {
     "signature-base.json": 14,
     "accepts.json": 44,
     "refusals.json": 144,
-    "misuse.json": 10,
-    "signs.json": 16,
-    "responses.json": 13,
+    "misuse.json": 13,
+    "signs.json": 17,
+    "responses.json": 15,
 }
 
 # Each test that runs one file's cases, and the file.
@@ -257,6 +257,12 @@ CALLER_MESSAGES = {
     "response-minimum-below-the-profiles": "must include the profile's own, @status",
     "response-expected-keyid-empty": "expected_keyid is empty, which names no AID",
     "url-over-8192-bytes": "cannot be read: it is over 8192 bytes",
+    "request-announces-a-body-it-does-not-carry": "announces a body in its headers",
+    "request-announces-a-body-and-the-response-signature-is-malformed":
+        "announces a body in its headers",
+    "request-announces-a-chunked-body-it-does-not-carry": "announces a body in its headers",
+    "sign-response-to-a-request-announcing-a-body-it-does-not-carry":
+        "announces a body in its headers",
 }
 
 
