@@ -1042,7 +1042,7 @@ fn b18_the_verdict_documents_both_fields() {
 #[test]
 fn b19_both_vectors_formats_are_exported() {
     let formats: [u32; 2] = [fiki::VECTORS_FORMAT, fiki::KERI_VECTORS_FORMAT];
-    assert_eq!(formats, [3, 5]);
+    assert_eq!(formats, [4, 6]);
 }
 
 // --- B20: input bounds, size before shape ---

@@ -501,8 +501,9 @@ fn port(text: &str, message: &Message) -> Result<Option<u32>> {
 }
 
 /// RFC 3986 section 3.2.2: what may sit between an IP-literal's brackets, as Python's urlsplit
-/// checks it from 3.11.4, so a host fiki-py refuses is refused here too. IPvFuture is "v", hex
-/// digits, "." and then anything but a line feed; otherwise an IPv6address, with an optional zone
+/// checks it from 3.11.4, so a host fiki-py refuses is refused here too. IPvFuture is a lowercase
+/// "v", hex digits, "." and then anything but a line feed; an uppercase "V" is refused in every
+/// port (`this.i` @6u9547gt), though RFC 3986's ABNF is case-insensitive; otherwise an IPv6address, with an optional zone
 /// after "%", in RFC 3986's grammar, which accepts exactly what Python's ipaddress.IPv6Address does.
 fn ip_literal(inside: &str) -> bool {
     if let Some(future) = inside.strip_prefix('v') {

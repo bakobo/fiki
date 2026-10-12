@@ -207,8 +207,9 @@ fn refusals(
     let known: Resolver = Arc::new(move |keyid: &str| Ok(key_state.get(keyid).copied()));
     let nobody: Resolver = Arc::new(|_: &str| Ok(None));
     // guide:begin resolver-refuses
-    // A resolver may refuse a keyid itself, in fiki's vocabulary: MalformedKey for one that is not
-    // a well-formed identifier, UnsupportedSigner for a key state no single key can sign for.
+    // A resolver is asked only about a well-formed AID, since fiki refuses any other keyid as
+    // MalformedKey first, and may refuse a key state in fiki's vocabulary: UnsupportedSigner for
+    // one no single key can sign for.
     let group: Resolver = Arc::new(|keyid: &str| {
         Err(Error::detailed(
             Kind::UnsupportedSigner,

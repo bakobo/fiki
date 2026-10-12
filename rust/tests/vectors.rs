@@ -40,13 +40,53 @@ struct File<T> {
     cases: Vec<T>,
 }
 
+/// An aid-lens case: a seed and the AID, keyid and key it gives, or (format 4, `this.i` @7w7nv94j)
+/// an `aid` that is not one and the `error` the AID decoder refuses it with.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AidCase {
     id: String,
-    seed_hex: String,
-    public_key_hex: String,
     aid: String,
-    keyid: String,
+    #[serde(default)]
+    seed_hex: Option<String>,
+    #[serde(default)]
+    public_key_hex: Option<String>,
+    #[serde(default)]
+    keyid: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    note: Option<String>,
+}
+
+impl AidCase {
+    fn check(&self) -> Result<(), String> {
+        if let Some(error) = &self.error {
+            return match verifying_key(&self.aid) {
+                Ok(_) => Err(format!("decoded; expected {error}")),
+                Err(e) if e.kind.to_string() == *error => well_formed(&e),
+                Err(e) => Err(format!("{}: {e}; expected {error}", e.kind)),
+            };
+        }
+        let (Some(seed), Some(public_key), Some(keyid)) =
+            (&self.seed_hex, &self.public_key_hex, &self.keyid)
+        else {
+            return Err("a case with neither an error nor a seed, key and keyid".into());
+        };
+        let key = Key::from_seed(&from_hex(seed)).unwrap();
+        if key.aid() != self.aid {
+            return Err(format!("aid {}", key.aid()));
+        }
+        if key.keyid() != *keyid {
+            return Err(format!("keyid {}", key.keyid()));
+        }
+        let public = verifying_key(&self.aid).map_err(|e| format!("{}: {e}", e.kind))?;
+        if to_hex(public.as_bytes()) != *public_key {
+            return Err(format!("public key {}", to_hex(public.as_bytes())));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -124,13 +164,13 @@ fn max_age(seconds: Option<i64>) -> MaxAge {
 /// 7xbw, T8) and never at test time: an emptied or shortened cases array fails here rather than
 /// passing a driver that loops over nothing.
 const CASE_COUNTS: [(&str, usize); 7] = [
-    ("aid-lens.json", 3),
+    ("aid-lens.json", 7),
     ("signature-base.json", 14),
-    ("accepts.json", 44),
-    ("refusals.json", 144),
-    ("misuse.json", 10),
-    ("signs.json", 16),
-    ("responses.json", 13),
+    ("accepts.json", 45),
+    ("refusals.json", 157),
+    ("misuse.json", 13),
+    ("signs.json", 18),
+    ("responses.json", 15),
 ];
 
 fn pinned(name: &str) -> usize {
@@ -475,20 +515,12 @@ fn this_port_satisfies_the_vectors_format_it_is_running() {
 #[test]
 fn aid_lens() {
     let file: File<AidCase> = load("aid-lens.json");
-    let mut ran = 0;
-    for case in held("aid-lens.json", file.cases) {
-        ran += 1;
-        let key = Key::from_seed(&from_hex(&case.seed_hex)).unwrap();
-        assert_eq!(key.aid(), case.aid, "{}", case.id);
-        assert_eq!(key.keyid(), case.keyid, "{}", case.id);
-        let public = verifying_key(&case.aid).unwrap();
-        assert_eq!(
-            to_hex(public.as_bytes()),
-            case.public_key_hex,
-            "{}",
-            case.id
-        );
-    }
+    let cases = held("aid-lens.json", file.cases);
+    assert!(
+        cases.iter().any(|c| c.error.is_some()),
+        "aid-lens.json has no refusal case"
+    );
+    let ran = each(cases, |c| c.id.clone(), AidCase::check);
     all_ran("aid-lens.json", ran);
 }
 
