@@ -5,3 +5,4 @@ closed: 2026-10-12T02:55Z
 
 - 2026-10-09T20:40Z Ruled 2026-10-09: such a Request is a caller error (ErrInvalidOptions and equivalents), superseding @7p9s3g9k by a new this.i node. Format 4.
 - 2026-10-12T02:55Z Done in bakobo/fiki#25 (merge e676c7d), vectors_format 4 / keri_vectors_format 6, this.i @646un6k8 and children; all six ports, differential 0 disagreements. Unreleased until the next release.
+- 2026-10-12T02:55Z Refined in #25 after its hostile pass: an empty body beside a Content-Length that is not a plain zero is the same caller error; an empty body beside Transfer-Encoding is not (a chunked request may carry nothing).
