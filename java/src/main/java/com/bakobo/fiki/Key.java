@@ -166,7 +166,10 @@ public final class Key {
         return decodePublic(verifyingKeyBytes(aid));
     }
 
-    /** Recover the raw 32 bytes from a non-transferable AID. */
+    /**
+     * Recover the raw 32 bytes from a non-transferable AID, refusing as MalformedKey anything that
+     * is not one and any key a verifier must never trust (a small-order or non-canonical point).
+     */
     public static byte[] verifyingKeyBytes(String aid) {
         if (aid == null || aid.length() != QB64_LEN || aid.charAt(0) != CODE) {
             throw new FikiException(
@@ -189,7 +192,9 @@ public final class Key {
             throw new FikiException(
                 FikiException.Kind.MalformedKey, "The AID " + aid + " is not the canonical spelling of its key.", aid);
         }
-        return raw;
+        // A well-spelled AID whose key no verifier may trust, such as the identity point, is not an
+        // AID of any key (@2kc2c4h5, @7w7nv94j's small-order case).
+        return trusted(raw, aid);
     }
 
     // The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
@@ -197,22 +202,23 @@ public final class Key {
     private static final String SPELLED_CODES = "BDE";
 
     /**
-     * True when {@code keyid} is shaped like a B, D or E AID and is not its canonical spelling:
-     * 44 characters under one of those codes whose other 43 are not base64url, or which decode
-     * with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks this
-     * before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+     * True when {@code keyid} is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j):
+     * 44 characters, a first character of B, D or E, and 43 base64url characters that decode
+     * behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the
+     * keyid exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever
+     * answers about key state.
      */
-    static boolean misspelledAid(String keyid) {
+    static boolean wellFormedAid(String keyid) {
         if (keyid.length() != QB64_LEN || SPELLED_CODES.indexOf(keyid.charAt(0)) < 0) {
             return false;
         }
         if (!keyid.matches("^[A-Za-z0-9\\-_]{44}$")) {
-            return true;
+            return false;
         }
         byte[] decoded = URL_DECODER.decode("A" + keyid.substring(1));
         byte[] padded = new byte[RAW_LEN + 1];
         System.arraycopy(decoded, 1, padded, 1, RAW_LEN);
-        return !(keyid.charAt(0) + URL.encodeToString(padded).substring(1)).equals(keyid);
+        return (keyid.charAt(0) + URL.encodeToString(padded).substring(1)).equals(keyid);
     }
 
     /* ------------------------------------------- keys a verifier must never trust (@2kc2c4h5) */

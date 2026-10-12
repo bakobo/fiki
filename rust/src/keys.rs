@@ -255,25 +255,25 @@ impl Key {
 // Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
 const SPELLED_CODES: &[u8] = b"BDE";
 
-/// True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+/// True when `keyid` is a well-formed AID under the KERI vectors' keys_rule (`this.i` @7w7nv94j).
 ///
-/// That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
-/// decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
-/// this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
-pub(crate) fn misspelled_aid(keyid: &str) -> bool {
+/// 44 characters, a first character of B, D or E, and 43 base64url characters that decode behind
+/// one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the keyid
+/// exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever answers
+/// about key state.
+pub(crate) fn well_formed_aid(keyid: &str) -> bool {
     if keyid.len() != QB64_LEN || !SPELLED_CODES.contains(&keyid.as_bytes()[0]) {
         return false;
     }
-    if !keyid.bytes().all(|b| URL_ALPHABET.contains(&b)) {
-        return true;
-    }
     // Forty-four base64url characters always decode to 33 bytes. Zeroing the pad byte and
     // re-encoding gives the one canonical spelling of those key bytes, behind any code.
-    let mut decoded = decode(&format!("A{}", &keyid[1..]), URL_ALPHABET).unwrap_or_default();
-    if let Some(pad) = decoded.first_mut() {
-        *pad = 0;
+    match decode(&format!("A{}", &keyid[1..]), URL_ALPHABET) {
+        Some(mut decoded) => {
+            decoded[0] = 0;
+            b64url(&decoded).get(1..) == keyid.get(1..)
+        }
+        None => false,
     }
-    b64url(&decoded).get(1..) != keyid.get(1..)
 }
 
 /// The raw key a keyid names in the RFC 8037 "x" form (@7xrx5evg), decoded strictly: exactly 43

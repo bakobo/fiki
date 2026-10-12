@@ -54,6 +54,7 @@ from fiki.errors import (
     UnsupportedSigner,
 )
 from fiki.messages import content_digest
+from test_keys import padding_bit_alias
 
 KEY = Key.from_seed(bytes(range(32)))
 OTHER = Key.from_seed(bytes(range(1, 33)))
@@ -187,13 +188,42 @@ def test_a_resolver_returning_something_other_than_32_bytes_is_a_malformed_key()
         verify(request, headers, resolve=lambda keyid: b"short")
 
 
-def test_a_resolver_may_refuse_a_malformed_keyid_itself():
-    def resolve(keyid):
-        raise MalformedKey(f"{keyid} is not an AID.", keyid=keyid)
+# fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j): 44
+# characters, B, D or E, then 43 base64url characters decoding behind one pad character to 32
+# bytes with a zero pad byte. N3 of the format-4 plan.
+NOT_AIDS = {
+    "not-an-aid": "not-an-aid",
+    "one-short": AID[:-1],
+    "one-long": AID + "A",
+    "wrong-code": "A" + AID[1:],
+    "lowercase-code": "e" + AID[1:],
+    "outside-base64url": "E" + "!" * 43,
+    "standard-alphabet": "E" + "+" * 43,
+    "padded": AID[:-1] + "=",
+    "padding-bit-alias": padding_bit_alias(AID),
+    "raw-keyid": base64.urlsafe_b64encode(raw(KEY)).decode().rstrip("="),
+}
 
-    request, headers = sign(keyid="not-an-aid")
-    with pytest.raises(MalformedKey):
-        verify(request, headers, resolve=resolve)
+
+@pytest.mark.parametrize("keyid", NOT_AIDS.values(), ids=NOT_AIDS.keys())
+def test_a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved(keyid):
+    calls = []
+    request, headers = sign(keyid=AID)
+    mangle_input(headers, f'keyid="{AID}"', f'keyid="{keyid}"')
+    with pytest.raises(MalformedKey) as caught:
+        verify(request, headers, resolve=lambda k: calls.append(k) or raw(KEY))
+    assert caught.value.keyid == keyid
+    assert calls == []
+
+
+@pytest.mark.parametrize("code", "BDE")
+def test_a_well_formed_unknown_aid_is_resolved_once(code):
+    keyid = cesr(code, hashlib.sha256(b"unknown").digest())
+    calls = []
+    request, headers = sign(keyid=keyid)
+    with pytest.raises(UnknownKey):
+        verify(request, headers, resolve=lambda k: calls.append(k))
+    assert calls == [keyid]
 
 
 def test_a_d_prefixed_keyid_is_never_decoded_as_a_key_when_a_resolver_is_supplied():
@@ -557,19 +587,72 @@ def test_a_response_to_a_request_with_a_body_must_cover_the_requests_digest():
 
 def test_a_response_judges_its_requests_body_by_content_not_headers():
     """Profile section 3 (version 1): both sides hold the whole request by the time a response
-    is signed or verified, so the request's headers do not count (@7p9s3g9k)."""
-    chunked = Request(method="POST", url=URL, headers={"Transfer-Encoding": "chunked",
-                                                        "Content-Digest": content_digest(BODY)})
+    is signed or verified (@7p9s3g9k). A request whose headers announce a body it carries is
+    judged by that content; one carrying an empty body binds none."""
+    chunked = Request(method="POST", url=URL, headers={"Transfer-Encoding": "chunked"}, body=b"")
     headers = respond(request=chunked, covered=list(RESPONSE_MINIMUM) + ["content-digest"])
     assert check(headers, request=chunked, minimum=RESPONSE_MINIMUM).aid == KEY.aid
 
 
+# --- a Request that announces a body it does not carry is a caller error (@6v00d3tu) ---
+
+ANNOUNCED = "announces a body in its headers"
+
+
+def _announcing(extra):
+    """A request signed for with its body, then handed over without it."""
+    given = Request(method="POST", url=URL, headers={**extra, "Content-Digest": content_digest(BODY)},
+                    body=BODY)
+    return given, Request(method=given.method, url=URL, headers=given.headers, body=None)
+
+
+@pytest.mark.parametrize("extra", [{"Content-Length": "18"}, {"Transfer-Encoding": "chunked"},
+                                   {"Content-Length": "18", "Transfer-Encoding": "chunked"},
+                                   {"content-length": "abc"}])
+def test_verifying_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error(extra):
+    given, stripped = _announcing(extra)
+    headers = respond(request=given)
+    with pytest.raises(ValueError, match=ANNOUNCED):
+        check(headers, request=stripped, expected_keyid=None, minimum=RESPONSE_MINIMUM)
+
+
+@pytest.mark.parametrize("extra", [{"Content-Length": "18"}, {"Transfer-Encoding": "gzip"}])
+def test_signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error(extra):
+    _, stripped = _announcing(extra)
+    with pytest.raises(ValueError, match=ANNOUNCED):
+        respond(request=stripped)
+
+
+def test_the_caller_error_is_decided_before_any_signature_header_is_read():
+    """V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and
+    the resolver is never asked."""
+    given, stripped = _announcing({"Content-Length": "18"})
+    calls = []
+
+    def resolve(keyid):
+        calls.append(keyid)
+        return raw(KEY)
+
+    for headers in ({**respond(request=given), "Signature": "sig=123"}, {}, {"Signature": ""}):
+        for status in (200, 401):
+            with pytest.raises(ValueError, match=ANNOUNCED):
+                check(headers, status=status, request=stripped, resolve=resolve)
+    assert calls == []
+
+
+@pytest.mark.parametrize("length", ["0", "000", " 0 "])
+def test_a_request_announcing_no_body_and_carrying_none_is_judged_as_before(length):
+    asked = Request(method="GET", url=URL, headers={"Content-Length": length})
+    headers = respond(request=asked)
+    assert check(headers, request=asked, minimum=RESPONSE_MINIMUM).aid == KEY.aid
+
+
 # --- the first review's findings and the profile's draft 6 (@2f227n4r) ---
 
-def test_a_default_response_does_not_bind_a_request_body_only_its_headers_announce():
-    """By content alone (@7p9s3g9k): a Request handed over without its body binds no digest."""
-    asked = Request(method="POST", url=URL, headers={"Content-Length": "18",
-                                                     "Content-Digest": content_digest(BODY)})
+def test_a_default_response_to_a_request_with_an_empty_body_binds_no_digest():
+    """By content alone (@7p9s3g9k): a Request whose body is empty binds no digest."""
+    asked = Request(method="POST", url=URL, headers={"Content-Digest": content_digest(b"")},
+                    body=b"")
     headers = respond(request=asked)
     verdict = check(headers, request=asked, minimum=RESPONSE_MINIMUM)
     assert req("content-digest") not in verdict.covered
@@ -751,7 +834,8 @@ def test_a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labe
     value = headers["Signature-Input"].split("=", 1)[1]
     headers["Signature-Input"] += f", other={value}"
     headers["Signature"] = 'sig="not bytes"'
-    with pytest.raises(MalformedSignatureValue):
+    # MalformedSignature since format 4 (@0zq820dl), and still ahead of the label count.
+    with pytest.raises(MalformedSignature):
         verify(request, headers)
 
 

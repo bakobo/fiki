@@ -25,7 +25,7 @@ use crate::base::{
     CONTENT_DIGEST, DEFAULT_COVERED, MAX_FIELD_BYTES,
 };
 use crate::errors::{Error, Kind, Result};
-use crate::keys::{aid_of, b64std, misspelled_aid, public_key, raw_keyid, verifying_key, Key};
+use crate::keys::{aid_of, b64std, public_key, raw_keyid, verifying_key, well_formed_aid, Key};
 use crate::sfv::{parse_dictionary, serialize_inner_list, InnerList, Item, Member, Value};
 
 /// The only signature algorithm fiki produces or accepts.
@@ -195,10 +195,11 @@ pub const MAX_PARAMETERS: usize = 16;
 /// Maps a keyid to the 32 raw bytes of the Ed25519 key it names, or `None` when it names no key
 /// the caller knows (`this.i` @6g9zjsv9, @5e2phpjy).
 ///
-/// Authoritative: fiki never falls back to decoding the keyid when one is supplied. It may refuse
-/// a keyid itself — `MalformedKey` for one that is not a well-formed identifier, `UnsupportedSigner`
-/// for a key state with no single key that satisfies its threshold — and fiki carries that refusal
-/// out unchanged.
+/// Authoritative: fiki never falls back to decoding the keyid when one is supplied. fiki hands it
+/// only a well-formed AID (`this.i` @7w7nv94j), refusing any other keyid as `MalformedKey` first,
+/// so it answers about key state alone. It may refuse a key state itself — `UnsupportedSigner` for
+/// one with no single key that satisfies its threshold — and fiki carries that refusal out
+/// unchanged.
 pub type Resolver = Arc<dyn Fn(&str) -> Result<Option<[u8; 32]>> + Send + Sync>;
 
 /// The RFC 9530 `Content-Digest` header value for a body.
@@ -538,7 +539,10 @@ pub fn sign_request(
 /// `request` it answers is given — that request's method, path and query, plus its
 /// `content-digest` when it had content, each marked `req`. A request with content and no digest to
 /// bind is refused as `UncoveredBody`, and a request digest the request's body contradicts is
-/// refused the way the verifier would refuse it.
+/// refused the way the verifier would refuse it. A `request` whose headers announce a body (a
+/// `Content-Length` above zero, or any `Transfer-Encoding`) and whose body is `None`, or empty
+/// beside a `Content-Length`, is `InvalidArgument` (`this.i` @6v00d3tu): pass the body, or a
+/// `Request` without those headers.
 pub fn sign_response(
     key: &Key,
     status: u16,
@@ -551,9 +555,11 @@ pub fn sign_response(
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
     let request = asked.as_ref();
+    check_announced_body(request)?;
     let mut sending = headers.clone();
     let chosen = opts.covered.is_some();
-    // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+    // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+    // and a Request announcing a body it lacks was refused above (@6v00d3tu).
     let had_body = request.is_some_and(|r| has_content(r.body));
     let covered = opts.covered.clone().unwrap_or_else(|| {
         let mut covered = vec!["@status".to_string()];
@@ -647,7 +653,9 @@ pub fn verify_request(
 /// [`Minimum::Off`] is the explicit opt-out. A response covering
 /// `"content-digest";req` verified against a `request` whose body is `None` is `InvalidArgument`:
 /// that digest is recomputed over the request body, and fiki cannot check a body it was not given.
-/// So is `authorities`, which a response has no use for.
+/// So is a `request` whose headers announce a body its `body` does not carry, `None` or empty
+/// beside a `Content-Length` (`this.i` @6v00d3tu), decided before anything in the response is read, and so is
+/// `authorities`, which a response has no use for.
 pub fn verify_response(
     status: u16,
     headers: &BTreeMap<String, String>,
@@ -667,6 +675,7 @@ pub fn verify_response(
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
     let request = asked.as_ref();
+    check_announced_body(request)?;
     // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
     if status == 401 && headers.get("signature").map_or(true, String::is_empty) {
         return Err(Error::new(
@@ -834,6 +843,41 @@ fn verify(
     })
 }
 
+/// A `Request` whose headers announce a body it does not carry is a mistake in the call
+/// (`this.i` @6v00d3tu, revising @7p9s3g9k's second half).
+///
+/// Whether the request had a body is judged by its content, since both sides hold the whole
+/// request by the time a response is signed or verified. A `Request` announcing a body (a
+/// `Content-Length` above zero, or any `Transfer-Encoding`) with `body: None` breaks that
+/// assumption: the caller threw the body away. So does an empty body beside a `Content-Length`
+/// that is not a plain zero, since a length is exact and no request of zero bytes announces one;
+/// an empty body beside a `Transfer-Encoding` is not, because a chunked request may carry nothing.
+/// Decided before any header of the response is read, so no defect in the message can outrank it,
+/// and no resolver is asked.
+fn check_announced_body(request: Option<&Asked>) -> Result<()> {
+    let Some(r) = request else { return Ok(()) };
+    let announced = match r.body {
+        None => request_has_body(&r.headers, None),
+        // Empty: only a length can contradict it, since a chunked request may carry nothing.
+        Some([]) => {
+            let mut lengths = r.headers.clone();
+            lengths.remove("transfer-encoding");
+            request_has_body(&lengths, None)
+        }
+        Some(_) => false,
+    };
+    if announced {
+        return Err(Error::new(
+            Kind::InvalidArgument,
+            "The request this response answers announces a body in its headers, by its \
+             Content-Length or Transfer-Encoding, and Request.body does not carry it, so whether \
+             the response must bind that body cannot be decided. Pass the request body, or a \
+             Request without those headers.",
+        ));
+    }
+    Ok(())
+}
+
 /// The profile's request body test: a length above zero, any transfer coding, or content.
 ///
 /// Requests only. A response's body is its content, since a HEAD or 304 response carries the
@@ -919,9 +963,13 @@ fn read(
                 value: Value::Bytes(raw),
                 ..
             }) => values.push((label, raw)),
+            // The KERI profile calls a member that is not a byte sequence malformed-signature:
+            // the field is malformed, not the signature in it (`this.i` @0zq820dl).
+            // MalformedSignatureValue is kept for a byte sequence that cannot be an Ed25519
+            // signature, below.
             _ => {
                 return Err(Error::new(
-                    Kind::MalformedSignatureValue,
+                    Kind::MalformedSignature,
                     "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in \
                      colons; this Signature header carries something else.",
                 ))
@@ -1153,10 +1201,12 @@ fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Loca
     })?;
     let malformed = |why: String| Error::detailed(Kind::MalformedKey, why, keyid);
     if let Some(resolver) = &opts.resolve {
-        if misspelled_aid(keyid) {
+        // A resolver answers only about key state (`this.i` @7w7nv94j), so a keyid that is not a
+        // well-formed AID, whatever its shape, is refused here and never handed to it.
+        if !well_formed_aid(keyid) {
             return Err(malformed(format!(
-                "The keyid {} is shaped like an AID and is not its canonical spelling, so it is not \
-                 an AID at all.",
+                "The keyid {} is not a well-formed AID: 44 characters, B, D or E, then the \
+                 canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                 shown(keyid)
             )));
         }

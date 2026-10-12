@@ -36,6 +36,7 @@ from fiki import (  # noqa: E402
     RESPONSE_MINIMUM,
     Key,
     Request,
+    req,
     response_signature_base,
     sign_request,
     sign_response,
@@ -57,12 +58,13 @@ SEED_B = bytes(range(1, 33))
 # strict RFC 8941, the input bounds, raw field values, weak keys, and the verdict's keyid. Format 3
 # (`this.i` @524c8qgv) makes the verifier fail closed by default: every accept and refusal case
 # states the verifier's `minimum` ("default", null for the explicit opt-out, or a list) and its
-# `authorities` (null or a list), since authorities is now a required decision. Bump it whenever
+# `authorities` (null or a list), since authorities is now a required decision. Format 4
+# (`this.i` @646un6k8) settles the contract questions the format-3 reviews left open. Bump it whenever
 # the behaviour these files require changes — a covered-set default, an error name, a refusal
 # that becomes an acceptance. Every port exports the format it
 # satisfies and asserts the two agree, so a port running newer vectors fails loudly rather than
 # passing a subset and reporting conformance it does not have.
-VECTORS_FORMAT = 3
+VECTORS_FORMAT = 4
 
 # The verifier's default minimum (@524c8qgv), stated here rather than imported so that these
 # files say what the contract is, not what fiki-py happens to do. Content-digest joins it whenever
@@ -371,7 +373,25 @@ def aid_lens():
         if note:
             entry["note"] = note
         cases.append(entry)
-    return {**HEADER, "about": "A seed to its non-transferable AID and to its keyid.",
+    # format 4 (@7w7nv94j): strings that are not an AID, which each port hands straight to its
+    # AID decoder (fiki-py's verifying_key) and which must be refused there as MalformedKey.
+    real = Key.from_seed(SEED_A).aid
+    alphabet = B64URL
+    for case_id, text, note in [
+        ("wrong-length", real[:-1], "43 characters; an AID is 44."),
+        ("wrong-code", "A" + real[1:], "A is not the Ed25519N code B."),
+        ("padding-bit-alias-of-a-b-aid",
+         real[0] + alphabet[alphabet.index(real[1]) ^ 16] + real[2:],
+         ("The same 32 bytes with a non-zero bit in the pad byte the code replaced: a second "
+          "spelling of the key, which is not the AID.")),
+        ("small-order-b-aid", aid_of_raw(b"\x01" + bytes(31)),
+         ("Well formed, but its key is the identity point, under which a signature verifies "
+          "over any message (@37wdchu5).")),
+    ]:
+        assert text != real
+        cases.append({"id": case_id, "aid": text, "error": "MalformedKey", "note": note})
+    return {**HEADER, "about": "A seed to its non-transferable AID and to its keyid, and strings "
+                               "that are not an AID, each refused as MalformedKey.",
             "cases": cases}
 
 
@@ -620,12 +640,15 @@ def refusals():
 
     not_bytes = signed()
     not_bytes["Signature"] = 'sig="a string, not a byte sequence"'
-    add("signature-that-is-not-a-byte-sequence", "MalformedSignatureValue", headers=not_bytes)
+    add("signature-that-is-not-a-byte-sequence", "MalformedSignature", headers=not_bytes,
+        note="A member that is not a byte sequence is MalformedSignature, as the KERI profile "
+             "says (format 4, @0zq820dl); before format 4 it was MalformedSignatureValue.")
 
     no_keyid = signed()
-    no_keyid["Signature-Input"] = (
-        no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
-    )
+    # The keyid is the last parameter fiki emits, so cutting it leaves alg in place once
+    # (format 4, @5hyzg8j9: these two cases wrote alg twice before).
+    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0]
+    assert no_keyid["Signature-Input"].count(";alg=") == 1
     add("no-keyid-and-no-preregistered-aid", "MissingKey", headers=no_keyid)
 
     def digest_signed(digest):
@@ -981,7 +1004,8 @@ def refusals():
         body_text=None, headers=get_default, authorities=["other.example"], max_age=10,
         now=1700001000)
     no_keyid = signed(method="GET", body=None)
-    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
+    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0]
+    assert no_keyid["Signature-Input"].count(";alg=") == 1
     add("keyid-required-beside-expected-aid-under-the-default", "MissingKey", method="GET",
         body_text=None, headers=no_keyid, expected_aid=key.aid,
         note="Any minimum requires keyid even when the verifier names the key (@7y9lfnzq).")
@@ -1206,6 +1230,64 @@ def refusals():
         headers={**honest, "Signature": f"sig=:{non_canonical_r_signature(url)}:"},
         note="R encoded as y = p + 1, the identity's non-canonical spelling. RFC 8032 decoding "
              "refuses it; a ZIP-215-mode verifier would not.")
+
+    # --- format 4 (@646un6k8) ---
+
+    # A Signature member that is not a byte sequence is MalformedSignature (@0zq820dl), the class
+    # a header that does not parse gets; MalformedSignatureValue stays for bytes that cannot be
+    # an Ed25519 signature.
+    shaped = signed(method="GET", body=None)
+    for case_id, value, error in [
+        ("signature-member-is-an-integer", "123", "MalformedSignature"),
+        ("signature-member-is-a-token", "abc", "MalformedSignature"),
+        ("signature-member-is-a-string", '"abc"', "MalformedSignature"),
+        ("signature-member-is-a-boolean", "?1", "MalformedSignature"),
+        ("signature-member-is-a-decimal", "1.5", "MalformedSignature"),
+        ("signature-member-is-an-inner-list", "(:AAAA:)", "MalformedSignature"),
+        ("signature-member-is-a-short-byte-sequence", ":AAAA:", "MalformedSignatureValue"),
+    ]:
+        add(case_id, error, method="GET", body_text=None, headers={**shaped, "Signature": f"sig={value}"},
+            note="A byte sequence of the wrong length is MalformedSignatureValue; any other shape "
+                 "is MalformedSignature (@0zq820dl)." if error == "MalformedSignatureValue" else
+                 "The member's value is not a byte sequence, so the field is malformed, not the "
+                 "signature in it (@0zq820dl, docs/keri-profile.md).")
+
+    # An explicitly empty expected AID names no key, and is refused as any other string that is
+    # not an AID is (@7j58rwu2): the AID decoder's MalformedKey, never a silently skipped check.
+    add("expected-aid-is-empty", "MalformedKey", method="GET", body_text=None,
+        headers=signed(method="GET", body=None), expected_aid="",
+        note="The 3,000 generated differential cases never set expected_aid to the empty "
+             "string, which is how Go's ErrInvalidOptions went unnoticed (@7j58rwu2).")
+
+    # An IPvFuture's v is lowercase, and an uppercase V is an authority that cannot be read, in
+    # a URL and in Host, whatever the interpreter (@6u9547gt). Each is signed over the lowercase
+    # spelling, so a port that folds the V verifies it.
+    lower_v = signed(method="GET", body=None, url="https://[v1.x]/x")
+    add("ipvfuture-with-an-uppercase-v-in-the-url", "SignatureMismatch", method="GET",
+        body_text=None, target="https://[V1.x]/x", headers=lower_v, authorities=["[v1.x]"],
+        note="RFC 3986's ABNF is case-insensitive, but fiki spells IPvFuture with a lowercase v "
+             "everywhere; CPython's urlsplit accepts [V1.x] only from 3.13.16 and 3.14.8.")
+    add("ipvfuture-with-an-uppercase-v-in-host", "SignatureMismatch", method="GET",
+        body_text=None, target="/x",
+        headers={**signed(method="GET", body=None, url="/x", headers={"Host": "[v1.x]"}),
+                 "Host": "[V1.x]"},
+        note="Host is validated like any authority, so the same spelling is refused there.")
+
+    # Outcomes all six ports already agree on, pinned (@5hyzg8j9). A Date member is
+    # MalformedSignature, since no port parses RFC 9651's additions (@7vdhfv3q).
+    add("signature-member-is-a-date", "MalformedSignature", method="GET", body_text=None,
+        headers={**shaped, "Signature": "sig=@1659578233"},
+        note="RFC 9651's Date is not in RFC 8941, which RFC 9421 references (@7vdhfv3q).")
+    # An exactly empty signature header is absent (@8v8z3m6c), unlike one of whitespace, which
+    # signature-header-of-spaces pins as malformed: several HTTP stacks report a header they never
+    # received as "", and none reports one as spaces.
+    empty = signed(method="GET", body=None)
+    add("signature-header-is-empty", "MissingSignature", method="GET", body_text=None,
+        headers={**empty, "Signature": ""},
+        note="Go's Header.Get, for one, gives an absent header as the empty string.")
+    add("signature-input-header-is-empty", "MissingSignatureInput", method="GET", body_text=None,
+        headers={**empty, "Signature-Input": ""},
+        note="The same rule for Signature-Input, found after Signature in section 9's order.")
 
     return {
         **HEADER,
@@ -1437,6 +1519,9 @@ def accepts():
         note="A field nothing covers is never read, so it is not refused.")
     add("at-sign-in-path-and-query", method="GET", url="https://api.example.com/a@b?c=@d",
         note="An @ outside the authority is not userinfo.")
+    # format 4 (@6u9547gt): the control beside the two uppercase-V refusals.
+    add("ipvfuture-with-a-lowercase-v", method="GET", url="https://[v1.x]/x",
+        authorities=["[v1.x]"], note="An IPvFuture spelled with a lowercase v is an authority.")
     for case_id, signer_seed, crafted_headers, note in mixed_order_accepts(signed_at):
         add(case_id, method="GET", url="https://api.example.com/x", presigned=crafted_headers,
             note=note)
@@ -1528,6 +1613,24 @@ def signs():
         method=None, url=None, request=request,
         note="A response binds @status, its body, and the request's method, path, query and "
              "digest, each marked req.")
+    # format 4 (@6v00d3tu): a Request announcing a body it does not carry is the caller's mistake.
+    add("sign-response-to-a-request-announcing-a-body-it-does-not-carry", kind="response",
+        status=200, body_text='{"done": true}', method=None, url=None,
+        request={"method": "POST", "url": "https://api.example.com/things",
+                 "headers": {"Content-Length": "18"}, "body": None}, error="caller",
+        note="The request's headers announce 18 bytes and no body is given, so whether the "
+             "response must bind it cannot be decided.")
+    # format 4 (@4efl0354): a signer handed a request whose covered Content-Digest is not ASCII
+    # reports the digest as malformed. The body is given; with none, ports refuse earlier, at the
+    # base-value check, and that ordering is not pinned.
+    add("sign-response-with-a-non-ascii-request-digest", kind="response", status=200,
+        body_text='{"done": true}', method=None, url=None,
+        request={"method": "POST", "url": "https://api.example.com/things",
+                 "headers": {"Content-Digest": "sha-256=:caf\u00e9:"}, "body": body},
+        covered=["@status", '"@method";req', '"@path";req', '"@query";req', "content-digest",
+                 '"content-digest";req'],
+        error="MalformedDigest",
+        note="A signer has no signature to mismatch; the request's digest header is malformed.")
     return {**HEADER, "about": "What every implementation's signer must emit, byte for byte.",
             "cases": cases}
 
@@ -1632,6 +1735,18 @@ def responses():
                    "Signature": f"sig=:{base64.b64encode(key.sign(longer)).decode()}:"},
         note="A req component reads the request's URL, which is bounded too. The signature is "
              "good over the base a port without the bound would build.")
+    # format 4 (@6v00d3tu): the controls beside misuse.json's caller errors. A request that
+    # announces no body and carries none is judged by content, as before.
+    add("request-announces-no-body-and-carries-none", expected_keyid=mine,
+        request={**plain, "method": "POST"},
+        note="No Content-Length, no Transfer-Encoding and no body: nothing is announced.")
+    add("request-announces-a-zero-length-body", expected_keyid=mine,
+        request={**plain, "headers": {"Content-Length": "0"}},
+        note="Content-Length: 0 announces no body, so a body of null is not a caller error.")
+    add("request-announces-a-chunked-body-and-carries-an-empty-one", expected_keyid=mine,
+        request={**plain, "method": "POST", "headers": {"Transfer-Encoding": "chunked"}, "body": ""},
+        note="A chunked request may carry nothing, so an empty body beside Transfer-Encoding is "
+             "judged by its content: no body, and no request digest to bind.")
     return {**HEADER, "about": "Responses every implementation must accept or refuse.",
             "cases": cases}
 
@@ -1681,6 +1796,41 @@ def misuse():
                   "error": "caller", "note": "A response minimum must include RESPONSE_MINIMUM."})
     cases.append({**response, "id": "response-expected-keyid-empty", "expected_keyid": "",
                   "error": "caller", "note": "An empty AID names nothing; it is not the decline."})
+
+    # format 4 (@6v00d3tu): a Request that announces a body it does not carry. Each response is
+    # signed over the request WITH its body, so the only thing wrong is the body left out. The
+    # covered list leaves out "content-digest";req on purpose: a response binding the request's
+    # digest against a request with no body was already a caller error before format 4, so a
+    # case that covered it would pass on a port that never learned this rule.
+    asked_body = b'{"hello": "world"}'
+    without_request_digest = ["@status", req("@method"), req("@path"), req("@query"),
+                              "content-digest"]
+
+    def announcing(case_id, extra, note, signature=None, body=None):
+        asked = {"Content-Digest": content_digest(asked_body), **extra}
+        headers = sign_response(key=key, status=200, created=1700000000, body=b'{"done": true}',
+                                covered=without_request_digest,
+                                request=Request(method="POST", url=url, headers=asked,
+                                                body=asked_body))
+        if signature is not None:
+            headers = {**headers, "Signature": signature}
+        cases.append({**response, "id": case_id, "headers": headers,
+                      "request": {"method": "POST", "url": url, "headers": asked, "body": body},
+                      "error": "caller", "note": note})
+
+    announcing("request-announces-a-body-it-does-not-carry", {"Content-Length": "18"},
+               "Signed over the request with its 18-byte body, verified with the body left out.")
+    announcing("request-announces-a-body-and-the-response-signature-is-malformed",
+               {"Content-Length": "18"},
+               "The caller error wins: it is decided before any signature header is parsed.",
+               signature="sig=123")
+    announcing("request-announces-a-chunked-body-it-does-not-carry",
+               {"Transfer-Encoding": "chunked"},
+               "Any Transfer-Encoding announces a body, as Content-Length above zero does.")
+    announcing("request-announces-a-length-and-carries-an-empty-body", {"Content-Length": "18"},
+               "An empty body beside Content-Length: 18 is a body thrown away, as null is: a length "
+               "is exact, so no request of zero bytes announces one (hostile pass on #25).",
+               body="")
     return {**HEADER, "about": "Calls every implementation must reject as a caller's mistake.",
             "cases": cases}
 

@@ -5,15 +5,17 @@
 //! profile's neutral section 9 codes rather than fiki's kind names, and files read from the
 //! repository root rather than copied. Everything this driver needs is in the files; the only thing
 //! it adds is the resolver a KERI verifier would back with key event logs, built from the keys
-//! table each file carries, and the verifier that applies each file's policy. Both follow
-//! `vectors/keri/generate.py`'s `resolver` and `verify`, which fiki-py's driver imports rather than
-//! copies; Rust cannot import them, so they are restated here against the rule the files state.
+//! table each file carries, and the verifier that applies each file's policy. Both are written here
+//! from the files alone, as fiki-py's driver now writes its own, so a library that skipped a check
+//! cannot pass by borrowing the generator's.
 //!
-//! The resolver is authoritative (@6g9zjsv9). It derives a non-transferable `B…` keyid's key from
-//! the prefix, looks every transferable keyid up in the table, answers `None` for a well-formed AID
-//! it has no key state for, refuses a key state with no single effective signer as
-//! `UnsupportedSigner`, and refuses a keyid that is not an AID at all. It never decodes a `D…`
-//! keyid as a key, which is exactly what one of the vectors is there to catch.
+//! The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back
+//! a non-transferable `B…` keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
+//! the table, answers `None` for a keyid it has no key state for, and refuses a key state with no
+//! single effective signer as `UnsupportedSigner`. It never decodes a `D…` keyid as a key, which is
+//! exactly what one of the vectors is there to catch, and it carries no well-formedness check: a
+//! keyid that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
+//! test the library rather than this file.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -136,7 +138,7 @@ const CASE_COUNTS: [(&str, usize); 5] = [
     ("rfc9421.json", 1),
     ("requests.json", 21),
     ("responses.json", 4),
-    ("refusals.json", 64),
+    ("refusals.json", 65),
     ("legacy.json", 4),
 ];
 
@@ -272,15 +274,16 @@ fn resolver(keys: &Value) -> Resolver {
         .map(|entry| (entry["keyid"].as_str().unwrap().to_string(), entry.clone()))
         .collect();
     Arc::new(move |keyid: &str| {
-        if !well_formed_aid(keyid) {
-            return Err(Error::detailed(
-                Kind::MalformedKey,
-                format!("\"{keyid}\" is not a well-formed AID."),
-                keyid,
-            ));
-        }
-        if keyid.starts_with('B') {
-            return Ok(Some(*verifying_key(keyid)?.as_bytes()));
+        // A B keyid's 32 prefix bytes, handed back unexamined: whether they are a well-formed AID
+        // or a usable key is fiki's to decide (@7w7nv94j), so a library that skipped either check
+        // fails the vectors that pin it.
+        if let Some(prefix) = keyid.strip_prefix('B') {
+            let decoded = b64_decode(&format!("A{prefix}"), URL).unwrap_or_else(|| {
+                panic!("fiki handed the resolver {keyid:?}, which is not an AID")
+            });
+            return Ok(Some(decoded[1..].try_into().unwrap_or_else(|_| {
+                panic!("fiki handed the resolver {keyid:?}, which is not an AID")
+            })));
         }
         let Some(entry) = table.get(keyid) else {
             return Ok(None);
@@ -475,7 +478,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 5);
+    assert_eq!(KERI_VECTORS_FORMAT, 6);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");

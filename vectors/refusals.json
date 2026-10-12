@@ -1,6 +1,6 @@
 {
   "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
-  "vectors_format": 3,
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
@@ -251,14 +251,15 @@
       "minimum": "default",
       "authorities": null,
       "expected_aid": null,
-      "error": "MalformedSignatureValue"
+      "error": "MalformedSignature",
+      "note": "A member that is not a byte sequence is MalformedSignature, as the KERI profile says (format 4, @0zq820dl); before format 4 it was MalformedSignatureValue."
     },
     {
       "id": "no-keyid-and-no-preregistered-aid",
       "method": "POST",
       "url": "https://api.example.com/things?limit=1&sort=name",
       "headers": {
-        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";alg=\"ed25519\"",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\"",
         "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
@@ -1722,7 +1723,7 @@
       "method": "GET",
       "url": "https://api.example.com/things?limit=1&sort=name",
       "headers": {
-        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";alg=\"ed25519\"",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\"",
         "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
       },
       "body": null,
@@ -2590,6 +2591,230 @@
       "expected_aid": null,
       "error": "SignatureMismatch",
       "note": "R encoded as y = p + 1, the identity's non-canonical spelling. RFC 8032 decoding refuses it; a ZIP-215-mode verifier would not."
+    },
+    {
+      "id": "signature-member-is-an-integer",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=123"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-token",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=abc"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-string",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=\"abc\""
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-boolean",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=?1"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-decimal",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=1.5"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-an-inner-list",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=(:AAAA:)"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "The member's value is not a byte sequence, so the field is malformed, not the signature in it (@0zq820dl, docs/keri-profile.md)."
+    },
+    {
+      "id": "signature-member-is-a-short-byte-sequence",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AAAA:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignatureValue",
+      "note": "A byte sequence of the wrong length is MalformedSignatureValue; any other shape is MalformedSignature (@0zq820dl)."
+    },
+    {
+      "id": "expected-aid-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": "",
+      "error": "MalformedKey",
+      "note": "The 3,000 generated differential cases never set expected_aid to the empty string, which is how Go's ErrInvalidOptions went unnoticed (@7j58rwu2)."
+    },
+    {
+      "id": "ipvfuture-with-an-uppercase-v-in-the-url",
+      "method": "GET",
+      "url": "https://[V1.x]/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AMN9wwwQoQ4L879gCJdYKgZXUFvVnC3n2RhWgS3ktVld2/nr/bBVXZ0hiXZb67P7I8rlBwkY+1s8M+AYlONsAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": [
+        "[v1.x]"
+      ],
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "RFC 3986's ABNF is case-insensitive, but fiki spells IPvFuture with a lowercase v everywhere; CPython's urlsplit accepts [V1.x] only from 3.13.16 and 3.14.8."
+    },
+    {
+      "id": "ipvfuture-with-an-uppercase-v-in-host",
+      "method": "GET",
+      "url": "/x",
+      "headers": {
+        "Host": "[V1.x]",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AMN9wwwQoQ4L879gCJdYKgZXUFvVnC3n2RhWgS3ktVld2/nr/bBVXZ0hiXZb67P7I8rlBwkY+1s8M+AYlONsAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "SignatureMismatch",
+      "note": "Host is validated like any authority, so the same spelling is refused there."
+    },
+    {
+      "id": "signature-member-is-a-date",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=@1659578233"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "RFC 9651's Date is not in RFC 8941, which RFC 9421 references (@7vdhfv3q)."
+    },
+    {
+      "id": "signature-header-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": ""
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingSignature",
+      "note": "Go's Header.Get, for one, gives an absent header as the empty string."
+    },
+    {
+      "id": "signature-input-header-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingSignatureInput",
+      "note": "The same rule for Signature-Input, found after Signature in section 9's order."
     }
   ]
 }

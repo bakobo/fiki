@@ -84,6 +84,8 @@ URLS = [
     "https://[2001:db8::1]:8443/things",
     "https://[::ffff:1.2.3.4]/things",
     "https://[v1.x]/things",
+    "https://[V1.x]/things",
+    "https://[v1.x]:8443/things",
     "https://[2001:db8::1/things",
     "https://2001:db8::1/things",
     "https://1.2.3.4/things",
@@ -124,7 +126,7 @@ HOSTS = [
     "api.example.com", "API.EXAMPLE.COM", "api.example.com.", "api.example.com:443", "api.example.com:8443",
     "api.example.com:", "api.example.com:65536", "api.example.com:0", "api.example.com:00443", "other.example",
     "victim.example", "evil.example", "", " ", " api.example.com", "api.example.com ", "\tapi.example.com",
-    "[2001:db8::1]", "[2001:db8::1]:8443", "[::1", "2001:db8::1", "user@api.example.com", "api.example.com, evil.example",
+    "[2001:db8::1]", "[2001:db8::1]:8443", "[::1", "[v1.x]", "[V1.x]", "[not-an-ip]", "2001:db8::1", "user@api.example.com", "api.example.com, evil.example",
     "api.example.com/x", "api.example.com?x", "api.example.com#x", "api.exa\u212aple.com", "api.example.\u00e9",
     "1.2.3.4", "api.example.com\x00", "api.example.com\r\nX: y", "*",
 ]
@@ -241,8 +243,10 @@ def decisions(rng: random.Random, base: dict) -> dict:
     if rng.random() < 0.2:
         policy["minimum"] = rng.choice(MINIMA)
     if rng.random() < 0.05:
+        # The empty string and two near-misses: each is MalformedKey in every port (@646un6k8).
         policy["expected_aid"] = rng.choice([None, "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
-                                             "DAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4"])
+                                             "DAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4", "",
+                                             "not-an-aid", "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG"])
     return policy
 
 

@@ -1,6 +1,6 @@
 {
-  "about": "A seed to its non-transferable AID and to its keyid.",
-  "vectors_format": 3,
+  "about": "A seed to its non-transferable AID and to its keyid, and strings that are not an AID, each refused as MalformedKey.",
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
@@ -37,6 +37,30 @@
       "public_key_hex": "79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664",
       "aid": "BHm1Vi6P5lT5QHixEuipi6eQH4U65pW-1-DjkQutBJZk",
       "keyid": "ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ"
+    },
+    {
+      "id": "wrong-length",
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG",
+      "error": "MalformedKey",
+      "note": "43 characters; an AID is 44."
+    },
+    {
+      "id": "wrong-code",
+      "aid": "AAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "error": "MalformedKey",
+      "note": "A is not the Ed25519N code B."
+    },
+    {
+      "id": "padding-bit-alias-of-a-b-aid",
+      "aid": "BQOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "error": "MalformedKey",
+      "note": "The same 32 bytes with a non-zero bit in the pad byte the code replaced: a second spelling of the key, which is not the AID."
+    },
+    {
+      "id": "small-order-b-aid",
+      "aid": "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "error": "MalformedKey",
+      "note": "Well formed, but its key is the identity point, under which a signature verifies over any message (@37wdchu5)."
     }
   ]
 }

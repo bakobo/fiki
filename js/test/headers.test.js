@@ -107,3 +107,74 @@ describe('a header named __proto__ (PR #5 hostile review, H1)', () => {
     await assert.rejects(() => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers: swapped, maxAge: null }), errors.SignatureMismatch);
   });
 });
+
+// Node's IncomingMessage gives set-cookie as an array, and RFC 9421 section 2.1 says a field sent in
+// several lines is those lines joined with a comma and one space (@4un2vx4l, tick 7r4c).
+describe('a header value given as a list is joined with ", " (@4un2vx4l)', () => {
+  const LISTED = ['@method', '@authority', '@path', '@query', 'x-tag', 'set-cookie'];
+  const EACH = 'whose field lines must be each a string';
+  const sign = (headers) => signRequest({ key: KEY, method: 'GET', url: URL_, headers, covered: LISTED, created: AT });
+  const verify = (headers) => verifyRequest({ ...POLICY, method: 'GET', url: URL_, headers, maxAge: null });
+  const joined = () => sign({ 'X-Tag': 'a=1, b=2', 'Set-Cookie': 's=1, t=2' });
+
+  it('verifies against the value joined as RFC 9421 joins it', async () => {
+    const listed = { ...(await joined()), 'X-Tag': ['a=1', 'b=2'], 'Set-Cookie': ['s=1', 't=2'] };
+    assert.deepEqual((await verify(listed)).covered, LISTED);
+  });
+
+  it('is signed as its joined value', async () => {
+    const listed = await sign({ 'X-Tag': ['a=1', 'b=2'], 'Set-Cookie': ['s=1', 't=2'] });
+    assert.equal(listed.Signature, (await joined()).Signature);
+    const base = signatureBase({ method: 'GET', url: URL_, headers: { 'X-Tag': ['a=1', 'b=2'] }, covered: ['x-tag'], created: AT, keyid: 'k' });
+    assert.equal(new TextDecoder().decode(base).split('\n')[0], '"x-tag": a=1, b=2');
+  });
+
+  it('is the string itself when it holds one element', async () => {
+    const signed = await sign({ 'X-Tag': 'a=1', 'Set-Cookie': 's=1' });
+    assert.deepEqual((await verify({ ...signed, 'X-Tag': ['a=1'], 'Set-Cookie': ['s=1'] })).covered, LISTED);
+  });
+
+  it('does not verify against a list a framework joined with a bare comma', async () => {
+    const signed = await joined();
+    await assert.rejects(() => verify({ ...signed, 'X-Tag': 'a=1,b=2', 'Set-Cookie': ['s=1', 't=2'] }), errors.SignatureMismatch);
+  });
+
+  it('is joined in a response and in the request it answers', async () => {
+    const request = { method: 'GET', url: URL_, headers: { 'X-Tag': ['a=1', 'b=2'] } };
+    const covered = ['@status', 'set-cookie', '"x-tag";req'];
+    const signed = await signResponse({ key: KEY, status: 200, request, headers: { 'Set-Cookie': ['s=1', 't=2'] }, covered, created: AT });
+    const verdict = await verifyResponse({
+      ...POLICY, status: 200, request: { ...request, headers: { 'x-tag': 'a=1, b=2' } }, headers: { ...signed, 'Set-Cookie': 's=1, t=2' }, maxAge: null, expectedKeyid: null,
+    });
+    assert.deepEqual(verdict.covered, covered);
+  });
+
+  it('reads each line once, so an array cannot show one value and have another verified', async () => {
+    // Hostile pass on #25: fiki used to check the lines through the array's iterator and then
+    // call the array's own join, either of which a caller's array could override.
+    const signed = await sign({ 'X-Tag': 'a=1, b=2', 'Set-Cookie': 's=1, t=2' });
+    const lying = ['a=1', 'b=2'];
+    lying.join = () => 'role=admin';
+    lying[Symbol.iterator] = function* () { yield 'role=admin'; };
+    assert.deepEqual((await verify({ ...signed, 'X-Tag': lying, 'Set-Cookie': ['s=1', 't=2'] })).covered, LISTED);
+    const wrong = ['role=admin'];
+    wrong.join = () => 'a=1, b=2';
+    await assert.rejects(() => verify({ ...signed, 'X-Tag': wrong, 'Set-Cookie': ['s=1', 't=2'] }), errors.SignatureMismatch);
+  });
+
+  it('stops at the first hole of a sparse array rather than reading every slot', async () => {
+    // Hostile pass on #25: the check ran after copying every index, so a declared length of
+    // billions allocated before the refusal. 2**32 - 1 slots would not finish if copied.
+    const sparse = ['a=1'];
+    sparse.length = 2 ** 32 - 1;
+    await assert.rejects(() => sign({ 'X-Tag': sparse }), callerError(EACH));
+  });
+
+  for (const value of [['a=1', 2], ['a=1', new TextEncoder().encode('b=2')], [null], ['a=1', ['b=2']], ['a=1', , 'b=2']]) {
+    it(`is a caller error when it holds a non-string, as in ${JSON.stringify(value)}`, async () => {
+      const signed = await joined();
+      await assert.rejects(() => verify({ ...signed, 'X-Tag': value }), callerError(EACH));
+      await assert.rejects(() => sign({ 'X-Tag': value }), callerError(EACH));
+    });
+  }
+});

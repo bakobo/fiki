@@ -1,6 +1,6 @@
 {
   "about": "Calls every implementation must reject as a caller's mistake.",
-  "vectors_format": 3,
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
@@ -230,6 +230,122 @@
       "id": "response-expected-keyid-empty",
       "error": "caller",
       "note": "An empty AID names nothing; it is not the decline."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:",
+          "Content-Length": "18"
+        },
+        "body": null
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "request-announces-a-body-it-does-not-carry",
+      "error": "caller",
+      "note": "Signed over the request with its 18-byte body, verified with the body left out."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=123",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:",
+          "Content-Length": "18"
+        },
+        "body": null
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "request-announces-a-body-and-the-response-signature-is-malformed",
+      "error": "caller",
+      "note": "The caller error wins: it is decided before any signature header is parsed."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:",
+          "Transfer-Encoding": "chunked"
+        },
+        "body": null
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "request-announces-a-chunked-body-it-does-not-carry",
+      "error": "caller",
+      "note": "Any Transfer-Encoding announces a body, as Content-Length above zero does."
+    },
+    {
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1",
+      "body": "{\"done\": true}",
+      "max_age": null,
+      "now": 1700000000,
+      "headers": {
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
+        "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
+      },
+      "minimum": "default",
+      "omit": [],
+      "kind": "response",
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things?limit=1",
+        "headers": {
+          "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:",
+          "Content-Length": "18"
+        },
+        "body": ""
+      },
+      "expected_keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "id": "request-announces-a-length-and-carries-an-empty-body",
+      "error": "caller",
+      "note": "An empty body beside Content-Length: 18 is a body thrown away, as null is: a length is exact, so no request of zero bytes announces one (hostile pass on #25)."
     }
   ]
 }

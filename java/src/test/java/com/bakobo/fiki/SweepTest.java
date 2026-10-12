@@ -442,8 +442,8 @@ class SweepTest {
 
     @Test
     void b19BothVectorsFormatsAreExported() {
-        assertEquals(3, Fiki.VECTORS_FORMAT);
-        assertEquals(5, Fiki.KERI_VECTORS_FORMAT);
+        assertEquals(4, Fiki.VECTORS_FORMAT);
+        assertEquals(6, Fiki.KERI_VECTORS_FORMAT);
     }
 
     @Test

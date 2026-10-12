@@ -8,8 +8,8 @@
 //
 // Every bare item type RFC 8941 defines is parsed, tokens and decimals included, though fiki reads
 // neither in any header it uses: a parser that refuses one where every other port parses it moves
-// the refusal to a different class, MalformedSignature where the others say
-// MalformedSignatureValue (@7vdhfv3q). RFC 9651's Dates and Display Strings are NOT parsed, since
+// the refusal to a different class, such as MalformedSignatureInput where the others say
+// UnsupportedComponent for a token parameter (@7vdhfv3q). RFC 9651's Dates and Display Strings are NOT parsed, since
 // RFC 9421 references RFC 8941, and fall to the same syntax error as any other text the grammar
 // does not allow. Inner-list items carry parameters, because RFC 9421 section 2.4's `req` is one,
 // and fiki decides what a parameter means only after the parse, where refusing it can name the

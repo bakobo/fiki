@@ -86,7 +86,9 @@ var signatureParams = map[string]bool{"created": true, "expires": true, "nonce":
 
 // Resolver maps a keyid to the 32 raw bytes of the Ed25519 key it names (this.i @6g9zjsv9). It
 // returns (nil, nil) when it knows no key for the keyid, which fiki reports as UnknownKey. Any error
-// it returns, such as an *Error of kind UnsupportedSigner or MalformedKey, is passed on unchanged.
+// it returns, such as an *Error of kind UnsupportedSigner, is passed on unchanged. fiki hands it
+// only a well-formed AID (@7w7nv94j), refusing any other keyid as MalformedKey first, so it answers
+// about key state alone.
 type Resolver func(keyid string) ([]byte, error)
 
 // ContentDigest is the RFC 9530 Content-Digest header value for a body.
@@ -175,7 +177,10 @@ func SignRequest(key *Key, method, rawURL string, headers map[string]string, opt
 // was non-empty, each marked req. That binds the response to what was asked. A request whose body
 // was non-empty and which carries no Content-Digest to bind is refused as UncoveredBody rather than
 // signed into a response every profile client refuses, and a request digest its Body contradicts
-// is refused as the verifier would refuse it. The caller's mistakes are SignRequest's.
+// is refused as the verifier would refuse it. The caller's mistakes are SignRequest's, plus a
+// request whose headers announce a body (a Content-Length above zero, or any Transfer-Encoding)
+// and whose Body is nil, or empty beside a Content-Length (this.i @6v00d3tu): pass the body, or a
+// Request without those headers.
 func SignResponse(key *Key, status int, request *Request, headers map[string]string, opts SignOptions) (map[string]string, error) {
 	if err := checkLabel(opts.Label); err != nil {
 		return nil, err
@@ -193,8 +198,14 @@ func SignResponse(key *Key, status int, request *Request, headers map[string]str
 			return nil, err
 		}
 	}
+	if request != nil {
+		if err := checkAnnouncedBody(request.Body, requestHeaders); err != nil {
+			return nil, err
+		}
+	}
 	chosen := opts.Covered != nil
-	// By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+	// By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+	// and a Request announcing a body it lacks was refused above (@6v00d3tu).
 	hadBody := request != nil && len(request.Body) > 0
 	source := opts.Covered
 	if !chosen {
@@ -385,6 +396,35 @@ func floored(minimum, floor []string) error {
 	return nil
 }
 
+// checkAnnouncedBody refuses a Request whose headers announce a body (a Content-Length above zero,
+// or any Transfer-Encoding) and whose Body is nil, as the caller's mistake (this.i @6v00d3tu,
+// revising @7p9s3g9k's second half). Whether the request had a body is judged by its content,
+// because both sides hold the whole request by the time a response is signed or verified; a
+// Request announcing a body nobody passed breaks that assumption, since the caller threw the body
+// away. So does an empty Body beside a Content-Length that is not a plain zero, since a length is
+// exact and no request of zero bytes announces one; an empty Body beside a Transfer-Encoding is
+// not, because a chunked request may carry nothing. Decided before any header of the response is
+// read, so no defect in the message outranks it and no resolver is asked. headers are canonical,
+// their names lowercase.
+func checkAnnouncedBody(body []byte, headers map[string]string) error {
+	if len(body) > 0 {
+		return nil
+	}
+	announced := headers
+	if body != nil { // empty: only a length can contradict it
+		announced = map[string]string{}
+		if length, ok := headers["content-length"]; ok {
+			announced["content-length"] = length
+		}
+	}
+	if !requestHasBody(announced, nil) {
+		return nil
+	}
+	return invalidOptions("The request this response answers announces a body in its headers, by " +
+		"its Content-Length or Transfer-Encoding, and Request.Body does not carry it, so whether the " +
+		"response must bind that body cannot be decided. Pass the request body, or a Request without those headers.")
+}
+
 // requestHasBody is the profile's request body test: a length above zero, any transfer coding, or
 // content. Requests only: a response's body is its content, since a HEAD or 304 response carries
 // the length of a representation it does not send (@2f227n4r).
@@ -459,8 +499,10 @@ type Verdict struct {
 // both, is ErrInvalidOptions.
 //
 // ExpectedAID and ExpectedKeyid are optional strings, so they are pointers: nil is unset, and
-// fiki.String states one. A pointer to "" is ErrInvalidOptions, because an empty value is most
-// often a configuration value nobody filled in, never a decision to check nothing (@65u2932c).
+// fiki.String states one. A pointer to "" is never a decision to check nothing, because an empty
+// value is most often a configuration value nobody filled in (@65u2932c): an empty ExpectedAID is
+// MalformedKey, as any other string that is not an AID (@7j58rwu2), and an empty ExpectedKeyid is
+// ErrInvalidOptions.
 type VerifyOptions struct {
 	MaxAge *int64
 	AnyAge bool
@@ -549,7 +591,10 @@ func VerifyRequest(method, rawURL string, headers map[string]string, opts Verify
 // default with no request is MissingComponent; NoMinimum opts out. ExpectedKeyid or AnyKeyid is
 // a required decision, as is MaxAge or AnyAge. With ResponseMinimum, a request whose Body is non-empty obliges the response to cover
 // "content-digest";req, and that digest is recomputed over request.Body, so verifying such a
-// response against a Request with no Body is ErrInvalidOptions. A response's own body is its
+// response against a Request with no Body is ErrInvalidOptions, and so is a Request whose headers
+// announce a body its Body does not carry, nil or empty beside a Content-Length, decided before
+// anything in the response is read
+// (this.i @6v00d3tu). A response's own body is its
 // content, never its Content-Length. An unsigned 401 is Unauthenticated, checked before anything
 // else in the message, because a server that refuses before it knows the agent cannot sign the
 // refusal (@2f227n4r). The policy's limits and the input bounds are VerifyRequest's.
@@ -579,6 +624,11 @@ func VerifyResponse(status int, request *Request, headers map[string]string, opt
 	m, err := responseMessage(status, headers, request, true)
 	if err != nil {
 		return nil, err
+	}
+	if request != nil {
+		if err := checkAnnouncedBody(request.Body, m.request.headers); err != nil {
+			return nil, err
+		}
 	}
 	// Empty counts as absent, as read treats it: an empty Signature header signs nothing. One of
 	// only whitespace is present, and malformed, in every port (review B7).
@@ -630,7 +680,7 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	// expected keyid, and only then the resolver, which is never asked about a keyid already refused.
 	value, _ := list.param("keyid")
 	keyid, _ := value.(string)
-	public, aid, err := localKey(orEmpty(opts.ExpectedAID), keyid, opts.Resolve)
+	public, aid, err := localKey(opts.ExpectedAID, keyid, opts.Resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -750,9 +800,10 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 	}
 	for _, entry := range signatures {
 		if _, ok := entry.Value.([]byte); !ok {
-			// Draft 6 of the KERI profile would call this malformed-signature, since such a header
-			// is neither mode's form; the kind stays the one the shared vectors pin (@2f227n4r).
-			return empty, nil, errorf(KindMalformedSignatureValue,
+			// The KERI profile calls a member that is not a byte sequence malformed-signature: the
+			// field is malformed, not the signature in it (this.i @0zq820dl). MalformedSignatureValue
+			// is kept for a byte sequence that cannot be an Ed25519 signature, below.
+			return empty, nil, errorf(KindMalformedSignature,
 				"RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this "+
 					"Signature header carries something else.")
 		}
@@ -874,24 +925,28 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 // key to verify with and the identity to report when no resolver is needed, or a nil key when the
 // resolver decides. Either way a keyid that is not well formed is refused here, before the expected
 // keyid is compared and before any resolver sees it (this.i @5zrf8gjk).
-func localKey(expectedAID, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
-	if expectedAID != "" {
-		public, err := VerifyingKey(expectedAID)
+func localKey(expectedAID *string, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
+	if expectedAID != nil {
+		public, err := VerifyingKey(*expectedAID)
 		if err != nil {
 			return nil, "", err
 		}
-		return usable(public, expectedAID, expectedAID)
+		return public, *expectedAID, nil
 	}
 	if keyid == "" {
 		return nil, "", errorf(KindMissingKey,
 			"This signature carries no keyid and no ExpectedAID was supplied, so there is no key to verify it against.")
 	}
 	if resolve != nil {
-		if misspelledAID(keyid) {
+		// A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+		// well-formed AID, whatever its shape, is refused here and never handed to it. That
+		// includes fiki's own raw keyid: a verifier with a resolver never reads a key inline.
+		if !wellFormedAID(keyid) {
 			return nil, "", &Error{
 				Kind: KindMalformedKey,
-				Message: fmt.Sprintf("The keyid %s is shaped like an AID and is not its canonical "+
-					"spelling, so it is not an AID at all.", shown(keyid)),
+				Message: fmt.Sprintf("The keyid %s is not a well-formed AID: 44 characters, B, D or E, "+
+					"then the canonical base64url spelling of 32 bytes. A resolver is asked only "+
+					"about an AID.", shown(keyid)),
 				Keyid: keyid,
 			}
 		}
@@ -1000,27 +1055,16 @@ func checkExpectedKeyid(opts VerifyOptions) error {
 // ExpectedAID: fiki.String(aid).
 func String(s string) *string { return &s }
 
-// orEmpty is the string p points to, or "" when it is nil. Only for a pointer checkStated has
-// already passed, where "" can only mean nil.
-func orEmpty(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-// checkStated refuses an optional string that is stated and empty (this.i @65u2932c, tick 5kyt).
+// checkStated refuses an ExpectedKeyid that is stated and empty (this.i @65u2932c, tick 5kyt).
 // nil is unset; a pointer to "" is most often a configuration value that was never filled in, and
-// reading it as unset would quietly turn "verify this AID" into "verify anyone".
+// reading it as unset would quietly turn "verify this signer" into "verify anyone". A keyid is
+// matched as a string, so an empty one is the call's mistake. An empty ExpectedAID is not checked
+// here: an AID is decoded as a key, and the decoder refuses "" as MalformedKey, as it refuses any
+// other string that is not an AID, in every port (@7j58rwu2).
 func checkStated(opts VerifyOptions) error {
-	for _, s := range []struct {
-		name  string
-		value *string
-	}{{"ExpectedAID", opts.ExpectedAID}, {"ExpectedKeyid", opts.ExpectedKeyid}} {
-		if s.value != nil && *s.value == "" {
-			return invalidOptions("%s is stated and empty, which names no one; leave it nil to "+
-				"state none.", s.name)
-		}
+	if opts.ExpectedKeyid != nil && *opts.ExpectedKeyid == "" {
+		return invalidOptions("ExpectedKeyid is stated and empty, which names no one; leave it nil " +
+			"to state none.")
 	}
 	return nil
 }

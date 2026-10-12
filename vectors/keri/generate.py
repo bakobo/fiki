@@ -51,13 +51,15 @@ from fiki import (  # noqa: E402
     verifying_key,
 )
 from fiki.base import component  # noqa: E402
-from fiki.errors import FikiError, MalformedKey, UnsupportedSigner  # noqa: E402
+from fiki.errors import FikiError, UnsupportedSigner  # noqa: E402
 from fiki.messages import content_digest  # noqa: E402
 
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m). Format 4
 # is the 0.8.0 cross-port sweep (@5zrf8gjk): the keyid order, the empty-Signature 401,
 # Content-Length's whitespace, weak and aliased B keyids, and the request-digest response case.
-KERI_VECTORS_FORMAT = 5
+# Format 5 is the review's remaining profile cases; format 6 rides with vectors_format 4
+# (@646un6k8): a non-byte-sequence Signature member and a keyid the library must refuse itself.
+KERI_VECTORS_FORMAT = 6
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -270,7 +272,8 @@ def padding_bit_alias(aid: str) -> str:
 
 
 def well_formed_aid(keyid: str) -> bool:
-    """KEYS_RULE's test, shared by this generator and fiki-py's driver."""
+    """KEYS_RULE's test, which the keys table is checked against. The resolver does not apply it:
+    a library must (fiki @7w7nv94j)."""
     if len(keyid) != 44 or keyid[0] not in "BDE":
         return False
     try:
@@ -283,14 +286,19 @@ def well_formed_aid(keyid: str) -> bool:
 
 
 def resolver(keys: list[dict]):
-    """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode."""
+    """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode.
+
+    It knows key state and nothing else (keri_vectors_format 6, fiki @7w7nv94j): it returns a key,
+    says the keyid is unknown, or says its signer is unsupported. A keyid that is not a
+    well-formed AID never reaches it, because the library refuses it first, and the vectors'
+    keyid-not-an-aid and padding-bit-alias cases check that the library does. A B keyid's key is
+    its prefix's 32 bytes, handed back unexamined, so a weak key is the library's to refuse.
+    """
     table = {entry["keyid"]: entry for entry in keys if entry["kind"] == "transferable"}
 
     def resolve(keyid: str):
-        if not well_formed_aid(keyid):
-            raise MalformedKey(f'"{keyid}" is not a well-formed AID.', keyid=keyid)
         if keyid.startswith("B"):
-            return verifying_key(keyid).public_bytes_raw()
+            return base64.urlsafe_b64decode("A" + keyid[1:])[1:]
         entry = table.get(keyid)
         if entry is None:
             return None
@@ -695,6 +703,10 @@ def refusals():
     add("signature-not-64-bytes", "malformed-signature-value", {**post, "headers": {
         **post["headers"], "Signature": f"{LABEL}=:{base64.b64encode(bytes(32)).decode()}:"}},
         note="A 32-byte byte sequence where the 64-byte Ed25519 signature belongs.")
+    add("signature-member-not-a-byte-sequence", "malformed-signature", {**post, "headers": {
+        **post["headers"], "Signature": f'{LABEL}="not a byte sequence"'}},
+        note="Section 9: a Signature member that is not a byte sequence is malformed-signature, "
+             "not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).")
 
     # The covered list.
     add("duplicate-component", "duplicate-component",

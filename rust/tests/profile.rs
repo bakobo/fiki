@@ -367,22 +367,77 @@ fn a_keyid_the_resolver_does_not_know_is_an_unknown_key() {
 }
 
 #[test]
-fn a_resolver_may_refuse_a_malformed_keyid_or_a_key_state_itself() {
-    for refused in [Kind::MalformedKey, Kind::UnsupportedSigner] {
+fn a_resolver_may_refuse_a_key_state_itself() {
+    // A resolver answers about key state alone (@7w7nv94j): fiki hands it only a well-formed AID.
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        Err(Error::detailed(
+            Kind::UnsupportedSigner,
+            format!("{keyid} is refused."),
+            keyid,
+        ))
+    });
+    let err = signed(under_aid()).verify(resolving(resolver)).unwrap_err();
+    assert_eq!(err.kind, Kind::UnsupportedSigner);
+    assert_eq!(err.detail, Some(aid()));
+}
+
+/// A resolver that records every keyid it is asked about and answers with `key()`'s raw bytes.
+fn recording() -> (Resolver, Arc<std::sync::Mutex<Vec<String>>>) {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let k = raw(&key());
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        seen.lock().unwrap().push(keyid.to_string());
+        Ok(Some(k))
+    });
+    (resolver, calls)
+}
+
+#[test]
+fn a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved() {
+    // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j):
+    // 44 characters, B, D or E, then 43 base64url characters decoding behind one pad character to
+    // 32 bytes with a zero pad byte. N3 of the format-4 plan.
+    let aid = aid();
+    let not_aids = [
+        ("not-an-aid", "not-an-aid".to_string()),
+        ("one-short", aid[..43].to_string()),
+        ("one-long", format!("{aid}A")),
+        ("wrong-code", format!("A{}", &aid[1..])),
+        ("lowercase-code", format!("e{}", &aid[1..])),
+        ("outside-base64url", format!("E{}", "!".repeat(43))),
+        ("standard-alphabet", format!("E{}", "+".repeat(43))),
+        ("padded", format!("{}=", &aid[..43])),
+        ("padding-bit-alias", padding_bit_alias(&aid)),
+        ("raw-keyid", encode(&raw(&key()), B64URL, false)),
+    ];
+    for (name, keyid) in not_aids {
+        let (resolver, calls) = recording();
+        let sent =
+            signed(under_aid()).mangle(&format!("keyid=\"{aid}\""), &format!("keyid=\"{keyid}\""));
+        let err = sent.verify(resolving(resolver)).unwrap_err();
+        assert_eq!(err.kind, Kind::MalformedKey, "{name}: {err}");
+        assert_eq!(err.detail.as_deref(), Some(keyid.as_str()), "{name}");
+        assert!(calls.lock().unwrap().is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn a_well_formed_unknown_aid_is_resolved_once() {
+    for code in ['B', 'D', 'E'] {
+        let keyid = cesr(code, &Sha256::digest(b"unknown"));
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
         let resolver: Resolver = Arc::new(move |keyid: &str| {
-            Err(Error::detailed(
-                refused,
-                format!("{keyid} is refused."),
-                keyid,
-            ))
+            seen.lock().unwrap().push(keyid.to_string());
+            Ok(None)
         });
         let sent = signed(SignOptions {
-            keyid: Some("not-an-aid".into()),
+            keyid: Some(keyid.clone()),
             ..Default::default()
         });
-        let err = sent.verify(resolving(resolver)).unwrap_err();
-        assert_eq!(err.kind, refused);
-        assert_eq!(err.detail.as_deref(), Some("not-an-aid"));
+        assert_eq!(sent.kind(resolving(resolver)), Kind::UnknownKey, "{code}");
+        assert_eq!(*calls.lock().unwrap(), vec![keyid]);
     }
 }
 
@@ -901,11 +956,8 @@ fn a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labels() {
         let both = format!("{}, other={value}", sent.headers["Signature-Input"]);
         sent.headers.insert("Signature-Input".into(), both);
         sent.headers.insert("Signature".into(), member.into());
-        assert_eq!(
-            sent.kind(opted_out()),
-            Kind::MalformedSignatureValue,
-            "{member}"
-        );
+        // MalformedSignature since format 4 (@0zq820dl), and still ahead of the label count.
+        assert_eq!(sent.kind(opted_out()), Kind::MalformedSignature, "{member}");
     }
 }
 
@@ -1088,29 +1140,173 @@ fn a_response_to_a_request_with_a_body_must_cover_the_requests_digest() {
 #[test]
 fn a_response_judges_its_requests_body_by_content_not_headers() {
     // Profile section 3: both sides hold the whole request by the time a response is signed or
-    // verified, so the request's headers do not count (@7p9s3g9k).
-    for announced in [("Transfer-Encoding", "chunked"), ("Content-Length", "18")] {
-        let digest = content_digest(BODY);
-        let asked = Request {
-            method: "POST".into(),
-            url: URL.into(),
-            headers: headers(&[announced, ("Content-Digest", &digest)]),
-            body: None,
+    // verified (@7p9s3g9k). A request whose headers announce a body it carries is judged by that
+    // content; one carrying an empty body binds none.
+    let chunked = Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(&[("Transfer-Encoding", "chunked")]),
+        body: Some(Vec::new()),
+    };
+    let mut covered: Vec<&str> = RESPONSE_MINIMUM.to_vec();
+    covered.push("content-digest");
+    let opts = SignOptions {
+        body: Some(RESPONSE_BODY.to_vec()),
+        ..covering(&covered)
+    };
+    let signed = respond_to(Some(&chunked), &[], opts).unwrap();
+    let verdict = check_as(
+        200,
+        &signed,
+        Some(&chunked),
+        Some(RESPONSE_BODY),
+        minimum(&RESPONSE_MINIMUM),
+    )
+    .unwrap();
+    assert_eq!(verdict.aid, key().aid());
+    assert!(!verdict.covered.contains(&req("content-digest")));
+}
+
+// --- a Request that announces a body it does not carry is a caller error (@6v00d3tu) ---
+
+const ANNOUNCED: &str = "announces a body in its headers";
+
+/// A request signed for with its body, then handed over without it.
+fn announcing(extra: &[(&str, &str)]) -> (Request, Request) {
+    let digest = content_digest(BODY);
+    let mut pairs = extra.to_vec();
+    pairs.push(("Content-Digest", &digest));
+    let given = Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(&pairs),
+        body: Some(BODY.to_vec()),
+    };
+    let stripped = Request {
+        body: None,
+        ..given.clone()
+    };
+    (given, stripped)
+}
+
+fn announced(result: fiki::Result<impl std::fmt::Debug>) {
+    let err = result.unwrap_err();
+    assert_eq!(err.kind, Kind::InvalidArgument, "{err}");
+    assert!(err.to_string().contains(ANNOUNCED), "{err}");
+}
+
+#[test]
+fn verifying_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error() {
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Transfer-Encoding", "chunked")],
+        &[("Content-Length", "18"), ("Transfer-Encoding", "chunked")],
+        &[("content-length", "abc")],
+    ] {
+        let (given, stripped) = announcing(extra);
+        let signed = respond_to(Some(&given), &[], SignOptions::default()).unwrap();
+        announced(check_as(
+            200,
+            &signed,
+            Some(&stripped),
+            None,
+            minimum(&RESPONSE_MINIMUM),
+        ));
+    }
+}
+
+#[test]
+fn signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error() {
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Transfer-Encoding", "gzip")],
+    ] {
+        let (_, stripped) = announcing(extra);
+        announced(respond_to(Some(&stripped), &[], SignOptions::default()));
+    }
+}
+
+#[test]
+fn an_empty_body_beside_a_length_is_a_caller_error_and_beside_a_coding_is_no_body() {
+    let empty = |extra: &[(&str, &str)]| Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(extra),
+        body: Some(Vec::new()),
+    };
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Content-Length", "abc")],
+        &[("Content-Length", "18"), ("Transfer-Encoding", "chunked")],
+    ] {
+        let asked = empty(extra);
+        announced(respond_to(Some(&asked), &[], SignOptions::default()));
+        let bodiless = Request {
+            headers: BTreeMap::new(),
+            ..asked.clone()
         };
-        let opts = SignOptions {
-            body: Some(RESPONSE_BODY.to_vec()),
-            ..Default::default()
-        };
-        let signed = respond_to(Some(&asked), &[], opts).unwrap();
-        let verdict = check_as(
+        let signed = respond_to(Some(&bodiless), &[], SignOptions::default()).unwrap();
+        announced(check_as(
             200,
             &signed,
             Some(&asked),
-            Some(RESPONSE_BODY),
+            None,
             minimum(&RESPONSE_MINIMUM),
-        )
-        .unwrap();
+        ));
+    }
+    for extra in [
+        &[("Transfer-Encoding", "chunked")][..],
+        &[("Content-Length", "0"), ("Transfer-Encoding", "chunked")],
+    ] {
+        let asked = empty(extra);
+        let signed = respond_to(Some(&asked), &[], SignOptions::default()).unwrap();
+        let verdict =
+            check_as(200, &signed, Some(&asked), None, minimum(&RESPONSE_MINIMUM)).unwrap();
         assert!(!verdict.covered.contains(&req("content-digest")));
+    }
+}
+
+#[test]
+fn the_caller_error_is_decided_before_any_signature_header_is_read() {
+    // V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and the
+    // resolver is never asked.
+    let (given, stripped) = announcing(&[("Content-Length", "18")]);
+    let calls = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let k = raw(&key());
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        seen.lock().unwrap().push(keyid.to_string());
+        Ok(Some(k))
+    });
+    let mut malformed = respond_to(Some(&given), &[], SignOptions::default()).unwrap();
+    malformed.insert("Signature".into(), "sig=123".into());
+    for signed in [malformed, BTreeMap::new(), headers(&[("Signature", "")])] {
+        for status in [200, 401] {
+            announced(check_as(
+                status,
+                &signed,
+                Some(&stripped),
+                None,
+                resolving(resolver.clone()),
+            ));
+        }
+    }
+    assert!(calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_request_announcing_no_body_and_carrying_none_is_judged_as_before() {
+    for length in ["0", "000", " 0 "] {
+        let asked = Request {
+            method: "GET".into(),
+            url: URL.into(),
+            headers: headers(&[("Content-Length", length)]),
+            body: None,
+        };
+        let signed = respond_to(Some(&asked), &[], SignOptions::default()).unwrap();
+        let verdict =
+            check_as(200, &signed, Some(&asked), None, minimum(&RESPONSE_MINIMUM)).unwrap();
+        assert_eq!(verdict.aid, key().aid());
     }
 }
 
@@ -1609,7 +1805,7 @@ fn a_malformed_spec_in_a_minimum_is_an_unsupported_component() {
     );
 }
 
-// --- an AID-shaped keyid is spelled canonically before any resolver sees it (bakobo/fiki#4) ---
+// --- a keyid is a well-formed AID before any resolver sees it (bakobo/fiki#4, @7w7nv94j) ---
 
 #[test]
 fn a_padding_bit_alias_is_malformed_even_through_a_resolver() {
@@ -1637,15 +1833,16 @@ fn an_aid_shaped_keyid_outside_the_alphabet_is_malformed_through_a_resolver() {
 }
 
 #[test]
-fn a_keyid_of_another_shape_reaches_the_resolver_unchanged() {
-    // Only B, D and E qb64 are checked for spelling; anything else is the resolver's to judge.
+fn a_keyid_of_another_shape_is_malformed_and_never_reaches_the_resolver() {
+    // Before format 4 only B, D and E qb64 were checked for spelling and anything else was the
+    // resolver's to judge; now every keyid that is not a well-formed AID is fiki's (@7w7nv94j).
     let sent = signed(SignOptions {
         keyid: Some(format!("A{}", "!".repeat(43))),
         ..Default::default()
     });
-    let seen: Resolver =
-        Arc::new(|keyid: &str| Ok((keyid == format!("A{}", "!".repeat(43))).then(|| raw(&key()))));
-    assert!(sent.verify(resolving(seen)).is_ok());
+    let (seen, calls) = recording();
+    assert_eq!(sent.kind(resolving(seen)), Kind::MalformedKey);
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 #[test]

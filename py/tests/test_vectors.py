@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from fiki import (VECTORS_FORMAT, Key, Request, sign_request, sign_response, signature_base,
-                  verify_request, verify_response)
+                  verify_request, verify_response, verifying_key)
 from fiki.errors import FikiError
 
 VECTORS = Path(__file__).resolve().parents[2] / "vectors"
@@ -33,13 +33,13 @@ def load(name: str) -> dict:
 # Every file's case count, read once from the files at hardening-a and never at test time, so a
 # file emptied or cut short fails at collection rather than passing on the cases it still holds.
 COUNTS = {
-    "aid-lens.json": 3,
+    "aid-lens.json": 7,
     "signature-base.json": 14,
-    "accepts.json": 44,
-    "refusals.json": 144,
-    "misuse.json": 10,
-    "signs.json": 16,
-    "responses.json": 13,
+    "accepts.json": 45,
+    "refusals.json": 157,
+    "misuse.json": 14,
+    "signs.json": 18,
+    "responses.json": 16,
 }
 
 # Each test that runs one file's cases, and the file.
@@ -97,6 +97,14 @@ def test_the_vectors_are_where_every_port_can_reach_them():
 @pytest.mark.parametrize("case", cases("aid-lens.json"))
 def test_aid_lens(case):
     """A seed to its AID and back. The one thing here RFC 9421 knows nothing about."""
+    if "error" in case:
+        # format 4 (@7w7nv94j): handed straight to the AID decoder, which refuses it.
+        assert set(case) == {"id", "aid", "error", "note"}
+        with pytest.raises(FikiError) as caught:
+            verifying_key(case["aid"])
+        assert type(caught.value).__name__ == case["error"]
+        _well_formed(caught.value)
+        return
     key = Key.from_seed(bytes.fromhex(case["seed_hex"]))
     assert key.aid == case["aid"]
     assert base64.urlsafe_b64encode(bytes.fromhex(case["public_key_hex"])).decode().rstrip("=") == (
@@ -257,6 +265,13 @@ CALLER_MESSAGES = {
     "response-minimum-below-the-profiles": "must include the profile's own, @status",
     "response-expected-keyid-empty": "expected_keyid is empty, which names no AID",
     "url-over-8192-bytes": "cannot be read: it is over 8192 bytes",
+    "request-announces-a-body-it-does-not-carry": "announces a body in its headers",
+    "request-announces-a-body-and-the-response-signature-is-malformed":
+        "announces a body in its headers",
+    "request-announces-a-chunked-body-it-does-not-carry": "announces a body in its headers",
+    "request-announces-a-length-and-carries-an-empty-body": "announces a body in its headers",
+    "sign-response-to-a-request-announcing-a-body-it-does-not-carry":
+        "announces a body in its headers",
 }
 
 

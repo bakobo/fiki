@@ -228,8 +228,10 @@ namespace Bakobo.Fiki
             var floor = Floored(minimum, ResponseMinimum);
             var sending = new List<KeyValuePair<string, string>>(HeaderSnapshot.Take(headers ?? new KeyValuePair<string, string>[0]));
             HeaderSnapshot.Check(request);
+            CheckAnnouncedBody(request);
             var chosen = covered != null;
-            // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+            // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+            // and a Request announcing a body it lacks was refused above (@6v00d3tu).
             var hadBody = HasContent(request?.BodyRef);
             if (covered == null)
             {
@@ -311,6 +313,7 @@ namespace Bakobo.Fiki
             }
             // Unstated, a response is held to the profile's own minimum; WithoutMinimum opts out.
             var floor = Floored(options.MinimumStated ? options.Minimum : ResponseMinimum, ResponseMinimum);
+            CheckAnnouncedBody(options.Request);
             // A server that refuses before it knows the agent cannot sign the refusal, so an
             // unsigned 401 is an authentication failure whose body is not to be trusted (@2f227n4r).
             // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
@@ -441,6 +444,39 @@ namespace Bakobo.Fiki
         }
 
         /// <summary>
+        /// A Request whose headers announce a body it does not carry is a mistake in the call
+        /// (@6v00d3tu, revising @7p9s3g9k's second half). Whether the request had a body is judged
+        /// by its content, since both sides hold the whole request by the time a response is signed
+        /// or verified; a Request announcing a body (a Content-Length above zero, or any
+        /// Transfer-Encoding) with none passed breaks that assumption, because the caller threw the
+        /// body away. So does an empty body beside a Content-Length that is not a plain zero, since a
+        /// length is exact and no request of zero bytes announces one; an empty body beside a
+        /// Transfer-Encoding is not, because a chunked request may carry nothing. Decided before any
+        /// header of the response is read, so no defect in the message can outrank it, and no
+        /// resolver is asked.
+        /// </summary>
+        private static void CheckAnnouncedBody(Request? request)
+        {
+            if (request == null || HasContent(request.BodyRef))
+            {
+                return;
+            }
+            var announced = Lowered(request.Headers);
+            if (request.BodyRef != null)
+            {
+                // Empty: only a length can contradict it.
+                announced.Remove("transfer-encoding");
+            }
+            if (RequestHasBody(announced, null))
+            {
+                throw new ArgumentException(
+                    "The request this response answers announces a body in its headers, by its Content-Length or " +
+                    "Transfer-Encoding, and Request.Body does not carry it, so whether the response must bind that body " +
+                    "cannot be decided. Pass the request body, or a Request without those headers.");
+            }
+        }
+
+        /// <summary>
         /// The profile's request body test: a length above zero, any transfer coding, or content.
         /// Requests only: a response's body is its content, since a HEAD or 304 response carries the
         /// length of a representation it does not send (@2f227n4r).
@@ -562,11 +598,14 @@ namespace Bakobo.Fiki
             }
             if (resolve != null)
             {
-                if (Aids.Misspelled(keyId!))
+                // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+                // well-formed AID, whatever its shape, is refused here and never handed to it.
+                if (!Aids.WellFormed(keyId!))
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedKey,
-                        $"The keyid {PyText.Shown(keyId!)} is shaped like an AID and is not its canonical spelling, so it is not an AID at all.",
+                        $"The keyid {PyText.Shown(keyId!)} is not a well-formed AID: 44 characters, B, D or E, then the canonical " +
+                        "base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                         keyId: keyId);
                 }
                 aid = keyId!;
@@ -657,12 +696,13 @@ namespace Bakobo.Fiki
             var signatures = Members(Parse(rawSignature, "Signature", FikiErrorKind.MalformedSignature), "Signature", FikiErrorKind.MalformedSignature);
             foreach (var member in signatures)
             {
-                // Draft 6 of the KERI profile would call this malformed-signature, since such a header
-                // is neither mode's form; the kind stays the one the shared vectors pin (@2f227n4r).
+                // The KERI profile calls a member that is not a byte sequence malformed-signature: the
+                // field is malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is
+                // kept for a byte sequence that cannot be an Ed25519 signature, below.
                 if (!(member.Value is SfItem item && item.Value.Type == SfType.ByteSequence))
                 {
                     throw new FikiException(
-                        FikiErrorKind.MalformedSignatureValue,
+                        FikiErrorKind.MalformedSignature,
                         "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this Signature header carries something else.");
                 }
             }

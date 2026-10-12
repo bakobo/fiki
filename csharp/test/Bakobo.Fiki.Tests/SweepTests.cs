@@ -409,8 +409,8 @@ namespace Bakobo.Fiki.Tests
         [Fact]
         public void TheFormatsAndBoundsAreExported()
         {
-            Assert.Equal(3, HttpSignatures.VectorsFormat);
-            Assert.Equal(5, HttpSignatures.KeriVectorsFormat);
+            Assert.Equal(4, HttpSignatures.VectorsFormat);
+            Assert.Equal(6, HttpSignatures.KeriVectorsFormat);
             Assert.Equal(8192, HttpSignatures.MaxFieldBytes);
             Assert.Equal(16, HttpSignatures.MaxDictionaryMembers);
             Assert.Equal(64, HttpSignatures.MaxInnerListItems);

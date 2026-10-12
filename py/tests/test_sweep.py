@@ -172,6 +172,33 @@ def test_an_authority_urlsplit_does_not_refuse_is_still_unreadable(netloc, monke
         verify(request, headers)
 
 
+# --- an uppercase V in an IPvFuture is refused before urlsplit sees it (@6u9547gt, tick 7uzt) ---
+
+@pytest.mark.parametrize("target", ["https://[V1.x]/x", "https://[V1.x]:8443/x",
+                                    "https://[VF.a:b]/x?q=1"])
+def test_an_uppercase_v_ipvfuture_is_refused_whatever_urlsplit_says(target, monkeypatch):
+    """N2: urlsplit monkeypatched to accept [V1.x] and to read it as [v1.x], as a lenient or
+    newer CPython might (3.13.16 and 3.14.8 accept it). fiki refuses it anyway, and urlsplit is
+    never asked, so the answer does not turn on the interpreter's patch level."""
+    from urllib.parse import urlsplit as real
+
+    lowered = target.replace("[V", "[v")
+    request, headers = sign(url=lowered)
+    calls = []
+
+    def accepting(url):
+        calls.append(url)
+        return real(url.replace("[V", "[v"))
+
+    monkeypatch.setattr("fiki.base.urlsplit", accepting)
+    with pytest.raises(SignatureMismatch, match="IP-literal"):
+        verify({**request, "url": target}, headers)
+    with pytest.raises(ValueError, match="IP-literal"):
+        authority(target)
+    assert calls == []
+    assert verify({**request, "url": lowered}, headers).aid == KEY.aid
+
+
 @pytest.mark.parametrize("inside", [
     "::1", "::", "1::", "2001:DB8::1", "1:2:3:4:5:6:7:8", "1:2:3:4:5:6:7::", "::ffff:1.2.3.4",
     "1:2:3:4:5:6:1.2.3.4", "fe80::1%25eth0", "v1.x", "vF.a:b", "v12.[",

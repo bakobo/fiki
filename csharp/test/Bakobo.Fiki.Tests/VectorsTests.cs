@@ -85,6 +85,15 @@ namespace Bakobo.Fiki.Tests
         {
             // A seed to its AID and back: the one thing here RFC 9421 knows nothing about.
             var c = Case("aid-lens.json", id);
+            if (c.TryGetProperty("error", out var error))
+            {
+                // vectors_format 4 (this.i @7w7nv94j): an AID that is not well formed, or whose key
+                // is of small order, is refused by the decoder itself, whatever calls it.
+                var caught = Assert.Throws<FikiException>(() => Key.VerifyingKey(c.GetProperty("aid").GetString()!));
+                Assert.Equal(error.GetString(), caught.Kind.ToString());
+                WellFormed(caught);
+                return;
+            }
             var key = Key.FromSeed(Bytes.FromHex(c.GetProperty("seed_hex").GetString()!));
             Assert.Equal(c.GetProperty("aid").GetString(), key.Aid);
             Assert.Equal(c.GetProperty("keyid").GetString(), Bytes.B64Url(Bytes.FromHex(c.GetProperty("public_key_hex").GetString()!)));
@@ -268,12 +277,12 @@ namespace Bakobo.Fiki.Tests
                 c.GetProperty("method").GetString()!, c.GetProperty("url").GetString()!, Headers(c.GetProperty("headers")), Options(c, response));
         }
 
-        // Cases per file at hardening-a, read from the files once and never at test time (tick
+        // Cases per file at vectors_format 4, read from the files once and never at test time (tick
         // 7xbw, review T8): an emptied or truncated file fails here rather than passing on fewer.
         private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
         {
-            { "aid-lens.json", 3 }, { "signature-base.json", 14 }, { "accepts.json", 44 }, { "refusals.json", 144 },
-            { "misuse.json", 10 }, { "signs.json", 16 }, { "responses.json", 13 },
+            { "aid-lens.json", 7 }, { "signature-base.json", 14 }, { "accepts.json", 45 }, { "refusals.json", 157 },
+            { "misuse.json", 14 }, { "signs.json", 18 }, { "responses.json", 16 },
         };
 
         // The data each file's theories run from; xunit runs one case per distinct id.
@@ -335,6 +344,7 @@ namespace Bakobo.Fiki.Tests
                 {
                     var mistake = Assert.ThrowsAny<ArgumentException>(Sign);
                     Assert.IsNotType<FikiException>(mistake);
+                    CallerMessage(id, mistake);
                     return;
                 }
                 var caught = Assert.Throws<FikiException>(Sign);
@@ -346,6 +356,26 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(expected.OrderBy(p => p.Key, StringComparer.Ordinal), Sign().OrderBy(p => p.Key, StringComparer.Ordinal));
         }
 
+        // A caller error whose message this driver pins, where the class alone would let a case pass
+        // on an earlier, unrelated mistake: each 7kle case also covers "content-digest";req over a
+        // request with no body, which was a caller error before vectors_format 4 (this.i @6v00d3tu).
+        private static readonly Dictionary<string, string> CallerMessages = new Dictionary<string, string>
+        {
+            { "request-announces-a-body-it-does-not-carry", "announces a body in its headers" },
+            { "request-announces-a-length-and-carries-an-empty-body", "announces a body in its headers" },
+            { "request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers" },
+            { "request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers" },
+            { "sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers" },
+        };
+
+        private static void CallerMessage(string id, Exception caught)
+        {
+            if (CallerMessages.TryGetValue(id, out var expected))
+            {
+                Assert.Contains(expected, caught.Message, StringComparison.Ordinal);
+            }
+        }
+
         [Theory]
         [MemberData(nameof(Misuses))]
         public void MisuseVectors(string id)
@@ -355,6 +385,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal("caller", c.GetProperty("error").GetString());
             var caught = Assert.ThrowsAny<ArgumentException>(() => Verify(c));
             Assert.IsNotType<FikiException>(caught);
+            CallerMessage(id, caught);
         }
 
         [Theory]

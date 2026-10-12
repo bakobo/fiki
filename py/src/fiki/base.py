@@ -59,8 +59,14 @@ _SF_KEY = re.compile(r"[a-z*][a-z0-9_.*-]*")
 # RFC 8941 section 3.3.1: at most fifteen digits.
 _SF_INTEGER_MAX = 999_999_999_999_999
 _PORT_MAX = 65535
-# RFC 3986 section 3.2.2's IPvFuture, spelled as urlsplit checks it from Python 3.11.4.
+# RFC 3986 section 3.2.2's IPvFuture with a lowercase v (@6u9547gt), as urlsplit checked it from
+# Python 3.11.4 until 3.13.16 and 3.14.8 began accepting an uppercase V.
 _IPVFUTURE = re.compile(r"v[0-9A-Fa-f]+\..+")
+
+
+# A header map as a caller hands it over: each value a string, or a list or tuple of the field's
+# lines, which fiki joins with ", " (@4un2vx4l).
+Headers = Mapping[str, "str | Sequence[str]"]
 
 
 @dataclass(frozen=True)
@@ -69,7 +75,7 @@ class Request:
 
     method: str
     url: str
-    headers: Mapping[str, str] = field(default_factory=dict)
+    headers: Headers = field(default_factory=dict)
     body: bytes | None = None
 
 
@@ -201,7 +207,7 @@ def ascii_lower(text: str) -> str:
     return text.translate(_ASCII_UPPER)
 
 
-def canonical(headers: Mapping[str, str]) -> dict[str, str]:
+def canonical(headers: Headers) -> dict[str, str]:
     """The headers with lowercased names, refusing two names equal case-insensitively.
 
     Field names are case-insensitive and appear lowercased in the base (section 2.1), so
@@ -209,9 +215,28 @@ def canonical(headers: Mapping[str, str]) -> dict[str, str]:
     value be signed or digested and the other reach the application, so it is a ValueError, a
     mistake in the call (@235933km). Values are kept as received: value_of checks them raw and
     only then trims _OWS. Idempotent, so a mapping canonicalized once reads the same everywhere.
+
+    A value given as a list or tuple of strings (exactly, not a subclass), as Node gives set-cookie
+    and Starlette can give a
+    repeated field, is joined with a comma and one space before anything reads it, which is the
+    value RFC 9421 section 2.1 defines for a field sent in several lines (@4un2vx4l). An element
+    that is not a string is a mistake in the call.
     """
     out: dict[str, str] = {}
     for name, value in headers.items():
+        # Exactly a list or a tuple, never a subclass, which could iterate one way for fiki and
+        # another for the caller, so no reading of it is the value the caller holds (hostile pass
+        # on #25). A subclass falls through to the string check below and is a caller error. The
+        # lines are copied once and the copy is checked and joined, so a list another thread
+        # changes in between cannot be checked as one sequence and joined as another.
+        if type(value) in (list, tuple):
+            lines = list(value)
+            if not all(type(line) is str for line in lines):
+                raise TypeError(
+                    f"The header {shown(name)} is given as a list, whose field lines must be each "
+                    "a string; this one holds something else."
+                )
+            value = ", ".join(lines)
         if type(name) is not str or type(value) is not str:
             raise TypeError(
                 f"A header is a name and a value, both strings; this one is {shown(name)}: "
@@ -245,13 +270,13 @@ def check_method(method) -> None:
         )
 
 
-def request_message(method: str, url: str, headers: Mapping[str, str], *,
+def request_message(method: str, url: str, headers: Headers, *,
                     received: bool = False) -> _Message:
     check_method(method)
     return _Message(headers=_lowered(headers), method=method, url=url, received=received)
 
 
-def response_message(status: int, headers: Mapping[str, str], request: Request | None, *,
+def response_message(status: int, headers: Headers, request: Request | None, *,
                      received: bool = False) -> _Message:
     return _Message(
         headers=_lowered(headers),
@@ -307,6 +332,15 @@ def _split(message: _Message):
     if not _ABSOLUTE.match(url):
         raise _unreadable(message, "it is neither origin-form, beginning with a slash, nor an "
                                    "absolute URI with a scheme and an authority.")
+    # An IP-literal is checked here, before urlsplit sees the URL (@6u9547gt): CPython's urlsplit
+    # refused an IPvFuture spelled with an uppercase V until 3.13.16 and 3.14.8, which accept it,
+    # so leaving it to urlsplit would make one fiki release answer two ways. _hostport checks the
+    # same rule again on what urlsplit returns, and on Host.
+    host = re.split(r"[/?]", url.split("://", 1)[1], maxsplit=1)[0].rpartition("@")[2]
+    literal, closed, _ = host[1:].partition("]")
+    if host.startswith("[") and closed and not ip_literal(literal):
+        raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture in "
+                                   "brackets, spelled with a lowercase v.")
     try:
         return urlsplit(url)
     except ValueError as ex:
@@ -334,7 +368,9 @@ def ip_literal(text: str) -> bool:
     """RFC 3986 section 3.2.2: an IPv6 address, with an optional zone, or IPvFuture (@9g24rdns).
 
     What may sit between an IP-literal's brackets. urlsplit checks this itself only from Python
-    3.11.4, so fiki checks it on every Python it supports, with the grammar urlsplit uses.
+    3.11.4, so fiki checks it on every Python it supports, with the grammar urlsplit uses. The v
+    of an IPvFuture is lowercase, and an uppercase V is refused (@6u9547gt), though RFC 3986's
+    ABNF is case-insensitive: every port spells it so, and @authority is compared as spelled.
     """
     if text.startswith("v"):
         return _IPVFUTURE.fullmatch(text) is not None
@@ -494,7 +530,7 @@ def component_lines(
     *,
     method: str,
     url: str,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
 ) -> list[str]:
     """Every line of a request's signature base except the trailing ``@signature-params``.
@@ -562,7 +598,7 @@ def signature_base(
     *,
     method: str,
     url: str,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
     created: int,
     keyid: str,
@@ -594,7 +630,7 @@ def signature_base(
 def response_signature_base(
     *,
     status: int,
-    headers: Mapping[str, str],
+    headers: Headers,
     covered: Sequence[str],
     created: int,
     keyid: str,

@@ -33,13 +33,13 @@ func load(t *testing.T, name string, into any) {
 // hardening-a (tick 7xbw, T8), never at test time: an emptied or shortened cases array fails here
 // rather than passing a driver that loops over nothing.
 var vectorCounts = map[string]int{
-	"aid-lens.json":       3,
+	"aid-lens.json":       7,
 	"signature-base.json": 14,
-	"accepts.json":        44,
-	"refusals.json":       144,
-	"misuse.json":         10,
-	"signs.json":          16,
-	"responses.json":      13,
+	"accepts.json":        45,
+	"refusals.json":       157,
+	"misuse.json":         14,
+	"signs.json":          18,
+	"responses.json":      16,
 }
 
 // pinned asserts that a file holds exactly its pinned number of cases, and returns what each case
@@ -68,6 +68,20 @@ type aidCase struct {
 	PublicKeyHex string `json:"public_key_hex"`
 	AID          string `json:"aid"`
 	Keyid        string `json:"keyid"`
+	// Format 4 (@7w7nv94j): a string that is not an AID, and the kind VerifyingKey refuses it as.
+	Error  string `json:"error"`
+	Note   string `json:"note"`
+	fields []string
+}
+
+func (c *aidCase) UnmarshalJSON(raw []byte) error {
+	type plain aidCase
+	fields, err := fieldsOf(raw)
+	if err != nil {
+		return err
+	}
+	c.fields = fields
+	return json.Unmarshal(raw, (*plain)(c))
 }
 
 type baseCase struct {
@@ -302,6 +316,21 @@ func TestAIDLens(t *testing.T) {
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			ran()
+			if c.Error != "" {
+				// Handed straight to the AID decoder, which refuses it (format 4, @7w7nv94j).
+				checkFields(t, c.ID, c.fields, []string{"id", "aid", "error", "note"})
+				_, err := VerifyingKey(c.AID)
+				var fikiErr *Error
+				if !errors.As(err, &fikiErr) {
+					t.Fatalf("expected the fiki.Error %s, got %v", c.Error, err)
+				}
+				if fikiErr.Kind != c.Error {
+					t.Errorf("kind = %s, want %s", fikiErr.Kind, c.Error)
+				}
+				wellFormed(t, err)
+				return
+			}
+			checkFields(t, c.ID, c.fields, []string{"id", "seed_hex", "public_key_hex", "aid", "keyid", "note"})
 			key, err := FromSeed(mustHex(t, c.SeedHex))
 			if err != nil {
 				t.Fatal(err)

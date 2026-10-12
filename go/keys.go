@@ -31,7 +31,9 @@ func ToAID(raw []byte) string {
 	return code + base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(padded)[1:]
 }
 
-// VerifyingKey recovers the raw Ed25519 public key from a non-transferable AID.
+// VerifyingKey recovers the raw Ed25519 public key from a non-transferable AID. Anything else is
+// MalformedKey: a string that is not the canonical spelling of a B AID, and a key that is not a
+// canonical on-curve point or is of small order.
 func VerifyingKey(aid string) (ed25519.PublicKey, error) {
 	if len(aid) != qb64Len || !strings.HasPrefix(aid, code) {
 		return nil, &Error{
@@ -54,27 +56,15 @@ func VerifyingKey(aid string) (ed25519.PublicKey, error) {
 	if decoded[0] != 0 {
 		return nil, &Error{Kind: KindMalformedKey, Message: "The AID " + brief(aid) + " is not the canonical spelling of its key.", Keyid: aid}
 	}
-	return ed25519.PublicKey(decoded[1:]), nil
+	// A key no honest signer holds is refused here too, so the decoder alone answers whether an
+	// AID names a usable key (@8krqtpsu, @7w7nv94j).
+	public, _, err := usable(ed25519.PublicKey(decoded[1:]), aid, aid)
+	return public, err
 }
 
 // The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
 // Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
 const spelledCodes = "BDE"
-
-// misspelledAID is true when keyid is shaped like a B, D or E AID and is not its canonical
-// spelling: 44 characters under one of those codes whose other 43 are not base64url, or that
-// decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
-// this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
-func misspelledAID(keyid string) bool {
-	if len(keyid) != qb64Len || !strings.Contains(spelledCodes, keyid[:1]) {
-		return false
-	}
-	if !aidShape.MatchString(keyid) {
-		return true
-	}
-	decoded, _ := b64url.DecodeString("A" + keyid[1:]) // the shape check makes this infallible
-	return decoded[0] != 0
-}
 
 // Key is an Ed25519 key pair whose public half is rendered as a non-transferable AID.
 type Key struct {
@@ -117,3 +107,18 @@ func (k *Key) Seed() []byte { return k.private.Seed() }
 func (k *Key) Sign(data []byte) []byte { return ed25519.Sign(k.private, data) }
 
 func b64std(raw []byte) string { return base64.StdEncoding.EncodeToString(raw) }
+
+// wellFormedAID is true when keyid is a well-formed AID under the KERI vectors' keys_rule (this.i
+// @7w7nv94j): 44 characters, a first character of B, D or E, and 43 base64url characters that
+// decode behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back
+// the keyid exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever
+// answers about key state.
+func wellFormedAID(keyid string) bool {
+	if len(keyid) != qb64Len || !strings.Contains(spelledCodes, keyid[:1]) || !aidShape.MatchString(keyid) {
+		return false
+	}
+	// The shape check makes this infallible, and 44 characters are exactly 33 bytes, so no
+	// trailing bits are left over for a second spelling to hide in; only the pad byte can.
+	decoded, _ := b64url.DecodeString("A" + keyid[1:])
+	return decoded[0] == 0
+}

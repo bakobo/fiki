@@ -404,15 +404,19 @@ func TestCanonicalAIDSpellings(t *testing.T) {
 	if _, err := VerifyingKey(paddingBitAlias(seedAID)); kindOf(t, err) != KindMalformedKey {
 		t.Error("a padding-bit alias of an AID is not an AID")
 	}
+	// keys_rule (@7w7nv94j): the canonical B, D or E spelling of 32 bytes, and nothing else.
 	for keyid, want := range map[string]bool{
-		keriAID:                       false,
-		paddingBitAlias(keriAID):      true,
-		"D" + strings.Repeat("!", 43): true,
+		keriAID:                       true,
+		seedAID:                       true,
+		paddingBitAlias(keriAID):      false,
+		"D" + strings.Repeat("!", 43): false,
 		"A" + strings.Repeat("A", 43): false,
+		"E" + strings.Repeat("A", 44): false,
 		"short":                       false,
+		"":                            false,
 	} {
-		if misspelledAID(keyid) != want {
-			t.Errorf("misspelledAID(%q) = %v", keyid, !want)
+		if wellFormedAID(keyid) != want {
+			t.Errorf("wellFormedAID(%q) = %v", keyid, !want)
 		}
 	}
 }

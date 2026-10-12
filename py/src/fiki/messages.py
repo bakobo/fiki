@@ -34,6 +34,7 @@ from .base import (
     CONTENT_DIGEST,
     DEFAULT_COVERED,
     MAX_FIELD_BYTES,
+    Headers,
     Request,
     canonical,
     check_covered,
@@ -71,7 +72,7 @@ from .errors import (
     UnknownKey,
     UnsupportedAlgorithm,
 )
-from .keys import misspelled_aid, public_key, to_aid, verifying_key
+from .keys import public_key, to_aid, verifying_key, well_formed_aid
 
 ALG = "ed25519"
 
@@ -133,7 +134,7 @@ _DEFAULT_REQUEST = _Default("DEFAULT_MINIMUM")
 _DEFAULT_RESPONSE = _Default("RESPONSE_MINIMUM")
 
 # keyid -> the 32 raw bytes of the Ed25519 key it names, or None when it names no key the caller
-# knows. It may raise MalformedKey itself for a keyid that is not a well-formed identifier.
+# knows. fiki hands it only a well-formed AID (@7w7nv94j), so it answers about key state alone.
 Resolver = Callable[[str], "bytes | None"]
 
 
@@ -241,7 +242,7 @@ def sign_request(
     key,
     method: str,
     url: str,
-    headers: Mapping[str, str] | None = None,
+    headers: Headers | None = None,
     body: bytes | None = None,
     covered: Sequence[str] | None = None,
     created: int | None = None,
@@ -300,7 +301,7 @@ def sign_response(
     key,
     status: int,
     request: Request | None = None,
-    headers: Mapping[str, str] | None = None,
+    headers: Headers | None = None,
     body: bytes | None = None,
     covered: Sequence[str] | None = None,
     created: int | None = None,
@@ -320,15 +321,19 @@ def sign_response(
     non-empty is bound by its ``Content-Digest`` (its headers do not count, @7p9s3g9k), and one
     with no digest to bind is refused as :class:`~fiki.errors.UncoveredBody` rather than signed
     into a response every profile client refuses (@2f227n4r). A digest the request body
-    contradicts is refused the same way the verifier would refuse it.
+    contradicts is refused the same way the verifier would refuse it. A ``request`` whose headers
+    announce a body (a Content-Length above zero, or any Transfer-Encoding) and whose body is
+    None, or empty beside a Content-Length, is a ValueError (@6v00d3tu): pass the body, or a
+    Request without those headers.
     """
     check_label(label)
     minimum = _floored(minimum, RESPONSE_MINIMUM)
     sending = canonical(headers or {})
     request = _canonical_request(request)
+    _check_announced_body(request)
     chosen = covered is not None
     # By content alone: both sides hold the whole request by now (profile section 3,
-    # @7p9s3g9k).
+    # @7p9s3g9k), and a Request announcing a body it lacks was refused above (@6v00d3tu).
     had_body = request is not None and bool(request.body)
     if covered is None:
         covered = ["@status"]
@@ -370,7 +375,7 @@ def verify_request(
     *,
     method: str,
     url: str,
-    headers: Mapping[str, str],
+    headers: Headers,
     max_age: int | None,
     body: bytes | None = None,
     expected_aid: str | None = None,
@@ -439,7 +444,7 @@ def verify_request(
 def verify_response(
     *,
     status: int,
-    headers: Mapping[str, str],
+    headers: Headers,
     max_age: int | None,
     request: Request | None = None,
     body: bytes | None = None,
@@ -466,13 +471,15 @@ def verify_response(
     smaller than the profile's is a ValueError, a mistake in the call rather than the message. So
     is a response covering ``"content-digest";req`` verified against a ``request`` whose body is
     None: that digest is recomputed over the request body, and fiki cannot check a body it was
-    not given.
+    not given. So is a ``request`` whose headers announce a body its ``body`` does not carry, None
+    or empty beside a Content-Length (@6v00d3tu), decided before anything in the response is read.
     """
     _check_window(max_age, skew)
     _check_expected_keyid(expected_keyid)
     minimum = _floored(RESPONSE_MINIMUM if minimum is _DEFAULT_RESPONSE else minimum, RESPONSE_MINIMUM)
     headers = canonical(headers)
     request = _canonical_request(request)
+    _check_announced_body(request)
     # An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
     if status == 401 and not headers.get("signature"):
         raise Unauthenticated(
@@ -584,6 +591,33 @@ def _canonical_request(request: Request | None) -> Request | None:
     if request is None:
         return None
     return replace(request, headers=canonical(request.headers))
+
+
+def _check_announced_body(request: Request | None) -> None:
+    """A Request whose headers announce a body it does not carry is a mistake in the call
+    (@6v00d3tu, revising @7p9s3g9k's second half).
+
+    Whether the request had a body is judged by its content, since both sides hold the whole
+    request by the time a response is signed or verified. A Request announcing a body (a
+    Content-Length above zero, or any Transfer-Encoding) with none passed breaks that assumption:
+    the caller threw the body away. So does an empty body beside a Content-Length that is not a
+    plain zero, since a length is exact and no request of zero bytes announces one; an empty body
+    beside a Transfer-Encoding is not, because a chunked request may carry nothing. Decided before
+    any header of the response is read, so no defect in the message can outrank it, and no
+    resolver is asked.
+    """
+    if request is None or request.body:
+        return
+    announced = request.headers
+    if request.body is not None:  # empty: only a length can contradict it
+        announced = {k: v for k, v in announced.items() if k != "transfer-encoding"}
+    if _request_has_body(announced, None):
+        raise ValueError(
+            "The request this response answers announces a body in its headers, by its "
+            "Content-Length or Transfer-Encoding, and Request.body does not carry it, so whether "
+            "the response must bind that body cannot be decided. Pass the request body, or a "
+            "Request without those headers."
+        )
 
 
 def _request_has_body(found: Mapping[str, str], body: bytes | None) -> bool:
@@ -755,10 +789,11 @@ def _read(found: Mapping[str, str], *, require_keyid: bool, require_created: boo
 
     signatures = _parse(raw_signature, "Signature", MalformedSignature)
     for member in signatures.values():
-        # Draft 6 of the KERI profile would call this malformed-signature, since such a header is
-        # neither mode's form; the class stays the one the shared vectors pin (@2f227n4r).
+        # The KERI profile calls a member that is not a byte sequence malformed-signature: the
+        # field is malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is kept
+        # for a byte sequence that cannot be an Ed25519 signature, below.
         if type(getattr(member, "value", None)) is not bytes:
-            raise MalformedSignatureValue(
+            raise MalformedSignature(
                 "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; "
                 "this Signature header carries something else."
             )
@@ -962,10 +997,13 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
             "key to verify it against."
         )
     if resolve is not None:
-        if misspelled_aid(keyid):
+        # A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+        # well-formed AID, whatever its shape, is refused here and never handed to it.
+        if not well_formed_aid(keyid):
             raise MalformedKey(
-                f"The keyid {shown(keyid)} is shaped like an AID and is not its canonical spelling, "
-                "so it is not an AID at all.",
+                f"The keyid {shown(keyid)} is not a well-formed AID: 44 characters, B, D or E, "
+                "then the canonical base64url spelling of 32 bytes. A resolver is asked only "
+                "about an AID.",
                 keyid=keyid,
             )
         return None

@@ -47,14 +47,14 @@ public final class Fiki {
      * a conformance contract has no meaningful minor: an implementation either satisfies the
      * vectors or it does not.
      */
-    public static final int VECTORS_FORMAT = 3;
+    public static final int VECTORS_FORMAT = 4;
 
     /**
      * The KERI profile's vector set this port satisfies, vectors/keri/ (this.i @8vwrexxc). A
      * separate number from {@link #VECTORS_FORMAT}, because the two sets answer to different
      * authorities and move independently.
      */
-    public static final int KERI_VECTORS_FORMAT = 5;
+    public static final int KERI_VECTORS_FORMAT = 6;
 
     /** The only signature algorithm fiki produces or accepts. */
     public static final String ALG = "ed25519";
@@ -214,10 +214,10 @@ public final class Fiki {
      * it names, or null when it names no key the caller knows, which is {@code UnknownKey}.
      *
      * <p>Authoritative: fiki never falls back to decoding the keyid, because a transferable prefix
-     * that embeds a key embeds its INCEPTION key. A resolver may itself throw a
-     * {@link FikiException} of kind {@code MalformedKey} for a keyid that is not a well-formed
-     * identifier, or {@code UnsupportedSigner} for a key state with no single effective signer;
-     * fiki carries either out unchanged.
+     * that embeds a key embeds its INCEPTION key. fiki hands it only a well-formed AID
+     * (@7w7nv94j), so it answers about key state alone; it may throw a {@link FikiException} of
+     * kind {@code UnsupportedSigner} for a key state with no single effective signer, which fiki
+     * carries out unchanged.
      */
     @FunctionalInterface
     public interface Resolver {
@@ -1339,14 +1339,19 @@ public final class Fiki {
      * {@code content-digest} when its content was non-empty, each marked {@code req}. A request
      * with content and no digest to bind is refused as {@code UncoveredBody} rather than signed
      * into a response every profile client refuses, and a digest the request body contradicts is
-     * refused as the verifier would refuse it.
+     * refused as the verifier would refuse it. A request whose headers announce a body (a
+     * Content-Length above zero, or any Transfer-Encoding) and whose body is null, or empty beside
+     * a Content-Length, is an IllegalArgumentException (@6v00d3tu): pass the body, or a Request
+     * without those headers.
      */
     public static Map<String, String> signResponse(
             Key key, int status, Request request, Map<String, String> headers, SignOptions opts) {
         floored(opts.minimum(), RESPONSE_MINIMUM);
+        checkAnnouncedBody(request, request == null ? null : lowered(request.headers()));
         Map<String, String> sending = new LinkedHashMap<>(headers == null ? Map.of() : headers);
         boolean chosen = opts.covered() != null;
-        // By content alone: both sides hold the whole request by now (@7p9s3g9k).
+        // By content alone: both sides hold the whole request by now (@7p9s3g9k), and a Request
+        // announcing a body it lacks was refused above (@6v00d3tu).
         boolean hadBody = request != null && hasContent(request.body());
         List<String> covered = opts.covered();
         if (!chosen) {
@@ -1374,8 +1379,14 @@ public final class Fiki {
         // The check verifyResponse will make, made first: a signer does not vouch for a request
         // digest that the request body it was handed contradicts (bakobo/fiki#4).
         if (request != null && request.body() != null && bindsRequestDigest(items)) {
-            // Through the base-value path, so an absent digest is MissingComponent (@3e7wnyvg).
-            compareDigest(readDigest(valueOf(component(req(CONTENT_DIGEST)), message)), request.body());
+            String digest = message.request().headers().get(CONTENT_DIGEST);
+            if (digest == null) {
+                // Through the base-value path, so an absent digest is MissingComponent (@3e7wnyvg).
+                valueOf(component(req(CONTENT_DIGEST)), message);
+            }
+            // Read as the verifier reads it, not through the base-value check, so a digest that
+            // does not parse, a non-ASCII one included, is MalformedDigest (@4efl0354).
+            compareDigest(readDigest(digest), request.body());
         }
         checkCovered(items, true);
         byte[] base = finish(linesFor(items, message), items, params(key, opts));
@@ -1417,7 +1428,9 @@ public final class Fiki {
      * because a server that refuses before it knows the agent cannot sign the refusal. A response
      * covering {@code "content-digest";req} verified against a request whose body is null is the
      * caller's mistake: that digest is recomputed over the request body, and fiki cannot check a
-     * body it was not given.
+     * body it was not given. So is a request whose headers announce a body its body does not
+     * carry, null or empty beside a Content-Length (@6v00d3tu), decided before anything in the
+     * response is read.
      */
     public static Verdict verifyResponse(
             int status, Map<String, String> headers, Request request, VerifyOptions opts) {
@@ -1434,6 +1447,7 @@ public final class Fiki {
                 "Served authorities are a request policy; a response has no @authority of its own to check.");
         }
         Message message = responseMessage(status, headers, request, true);
+        checkAnnouncedBody(request, request == null ? null : message.request().headers());
         // An empty Signature header signs nothing, so it takes the unsigned path too (@2r05k9g0).
         String signature = message.headers().get("signature");
         if (status == 401 && (signature == null || signature.isEmpty())) {
@@ -1592,6 +1606,34 @@ public final class Fiki {
         return !trimmed.matches("[0-9]+") || !trimmed.matches("0+");
     }
 
+    /**
+     * A Request whose headers announce a body it does not carry is a mistake in the call
+     * (@6v00d3tu, revising the second half of @7p9s3g9k). Whether the request had a body is judged
+     * by its content, since both sides hold the whole request by the time a response is signed or
+     * verified; a Content-Length above zero or any Transfer-Encoding with a null body means the
+     * caller threw the body away. So does an empty body beside a Content-Length that is not a
+     * plain zero, since a length is exact and no request of zero bytes announces one; an empty
+     * body beside a Transfer-Encoding is not, because a chunked request may carry nothing.
+     * Decided before any header of the response is read, so no defect in the message outranks it
+     * and no resolver is asked.
+     */
+    private static void checkAnnouncedBody(Request request, Map<String, String> found) {
+        if (request == null || hasContent(request.body())) {
+            return;
+        }
+        Map<String, String> announced = found;
+        if (request.body() != null) { // empty: only a length can contradict it
+            announced = new LinkedHashMap<>(found);
+            announced.remove("transfer-encoding");
+        }
+        if (requestHasBody(announced, null)) {
+            throw new IllegalArgumentException(
+                "The request this response answers announces a body in its headers, by its Content-Length or "
+                    + "Transfer-Encoding, and Request.body() does not carry it, so whether the response must bind "
+                    + "that body cannot be decided. Pass the request body, or a Request without those headers.");
+        }
+    }
+
     private static void checkMinimum(List<Sfv.Item> items, List<String> minimum, boolean hasBody, boolean requestHadBody) {
         Set<String> have = new HashSet<>();
         for (Sfv.Item item : items) {
@@ -1638,9 +1680,12 @@ public final class Fiki {
 
         List<Sfv.Member> signatures = parse(rawSignature, "Signature", FikiException.Kind.MalformedSignature);
         for (Sfv.Member member : signatures) {
+            // The KERI profile calls a member that is not a byte sequence malformed-signature: the
+            // field is malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is
+            // kept for a byte sequence that cannot be an Ed25519 signature, below.
             if (!(member.value() instanceof byte[])) {
                 throw new FikiException(
-                    FikiException.Kind.MalformedSignatureValue,
+                    FikiException.Kind.MalformedSignature,
                     "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; "
                         + "this Signature header carries something else.");
             }
@@ -1855,11 +1900,13 @@ public final class Fiki {
                     + "key to verify it against.");
         }
         if (resolver != null) {
-            if (Key.misspelledAid(keyid)) {
+            // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+            // well-formed AID, whatever its shape, is refused here and never handed to it.
+            if (!Key.wellFormedAid(keyid)) {
                 throw new FikiException(
                     FikiException.Kind.MalformedKey,
-                    "The keyid " + shown(keyid) + " is shaped like an AID and is not its canonical spelling, "
-                        + "so it is not an AID at all.",
+                    "The keyid " + shown(keyid) + " is not a well-formed AID: 44 characters, B, D or E, then the "
+                        + "canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                     keyid);
             }
             return null;

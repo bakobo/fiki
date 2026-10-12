@@ -1,6 +1,6 @@
 {
   "about": "Complete signed requests every implementation must ACCEPT, and the verdict.",
-  "vectors_format": 3,
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
@@ -1185,6 +1185,32 @@
         "@query"
       ],
       "note": "An @ outside the authority is not userinfo."
+    },
+    {
+      "id": "ipvfuture-with-a-lowercase-v",
+      "method": "GET",
+      "url": "https://[v1.x]/x",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:AMN9wwwQoQ4L879gCJdYKgZXUFvVnC3n2RhWgS3ktVld2/nr/bBVXZ0hiXZb67P7I8rlBwkY+1s8M+AYlONsAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": 1700000000,
+      "minimum": "default",
+      "authorities": [
+        "[v1.x]"
+      ],
+      "expected_aid": null,
+      "aid": "BAOhB7_zzhC-HXDdGOdLwJln5NYwm6UNXx3chmQSVTG4",
+      "keyid": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "covered": [
+        "@method",
+        "@authority",
+        "@path",
+        "@query"
+      ],
+      "note": "An IPvFuture spelled with a lowercase v is an authority."
     },
     {
       "id": "mixed-order-key-the-cofactorless-check-accepts",

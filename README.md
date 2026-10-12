@@ -39,7 +39,7 @@ One badge per language above, each clickable through to that port's workflow —
 
 The JavaScript, Go, and Java runs install nothing: fiki has no runtime dependencies in any of those three. Python fetches `cryptography` and `http-sfv`; Rust fetches `ed25519-dalek`, `sha2`, and `rand_core`, because Rust's standard library has no cryptography at all; C# fetches `BouncyCastle.Cryptography`, because .NET's has no Ed25519 yet, along with xUnit and coverlet for the tests.
 
-A green run means that implementation reproduces every shared conformance vector, 244 cases at vectors format 3 — including RFC 9421's own published Ed25519 signature, byte for byte.
+A green run means that implementation reproduces every shared conformance vector, 269 cases at vectors format 4 — including RFC 9421's own published Ed25519 signature, byte for byte.
 
 ## What is covered, and the one thing that is not
 
@@ -53,7 +53,7 @@ The bound worth stating plainly: **fiki cannot cover a body it was never given.*
 
 ## Status
 
-Six implementations at 0.9.0, conforming to vectors format 3 and to the KERI profile's keri vectors format 5. Format 3 broke every caller of 0.8.0: request and response verifiers fail closed by default, a server states the hosts it serves and a client the AID it expects, and every untrusted value is bounded (`this.i` @524c8qgv). The [user guide](docs/user-guide.md) describes 0.9.0.
+Six implementations at 0.9.0, conforming to vectors format 3 and to the KERI profile's keri vectors format 5. Format 3 broke every caller of 0.8.0: request and response verifiers fail closed by default, a server states the hosts it serves and a client the AID it expects, and every untrusted value is bounded (`this.i` @524c8qgv). The default branch is at vectors format 4 and keri vectors format 6, unreleased: a response's request that announces a body it does not carry is a caller error, a Signature member that is not a byte sequence is `MalformedSignature` as the KERI profile says, fiki refuses a keyid that is not a well-formed AID before any resolver sees it, and a list-valued header is joined with `", "` (`this.i` @646un6k8). The [user guide](docs/user-guide.md) describes the default branch.
 
 The APIs are not frozen; this is 0.x. Each port is published to the registry its ecosystem expects, by a tag-triggered workflow that needs no long-lived credential ([docs/releasing.md](docs/releasing.md)), except the Java port, which is not yet on Maven Central and is built from source:
 

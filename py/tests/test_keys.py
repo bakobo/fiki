@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from fiki import Key, verifying_key
-from fiki.keys import misspelled_aid
+from fiki.keys import well_formed_aid
 from fiki.errors import MalformedKey
 
 # heti derives this same AID from this same seed through keripy's Signer, which is what keeps the
@@ -134,4 +134,4 @@ def test_verifying_key_refuses_a_well_shaped_aid_with_non_ascii_characters(aid):
 @pytest.mark.parametrize("aid", NON_ASCII_AIDS)
 def test_a_well_shaped_aid_with_non_ascii_characters_is_a_misspelling(aid):
     """So a resolver never sees it: it is refused as MalformedKey before resolution."""
-    assert misspelled_aid(aid)
+    assert not well_formed_aid(aid)
