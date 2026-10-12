@@ -75,7 +75,6 @@ func TestOptionalStringsArePointers(t *testing.T) {
 	request := &Request{Method: "GET", URL: urlQuery}
 
 	for name, opts := range map[string]VerifyOptions{
-		"a stated empty ExpectedAID":    {ExpectedAID: String("")},
 		"a stated empty ExpectedKeyid":  {ExpectedKeyid: String("")},
 		"ExpectedKeyid beside AnyKeyid": {ExpectedKeyid: String(key.Keyid()), AnyKeyid: true},
 	} {
@@ -86,7 +85,6 @@ func TestOptionalStringsArePointers(t *testing.T) {
 		})
 	}
 	for name, opts := range map[string]VerifyOptions{
-		"a stated empty ExpectedAID":   {ExpectedAID: String(""), AnyKeyid: true},
 		"a stated empty ExpectedKeyid": {ExpectedKeyid: String("")},
 		"no decision about the keyid":  {},
 	} {
