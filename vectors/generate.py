@@ -644,9 +644,10 @@ def refusals():
              "says (format 4, @0zq820dl); before format 4 it was MalformedSignatureValue.")
 
     no_keyid = signed()
-    no_keyid["Signature-Input"] = (
-        no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
-    )
+    # The keyid is the last parameter fiki emits, so cutting it leaves alg in place once
+    # (format 4, @5hyzg8j9: these two cases wrote alg twice before).
+    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0]
+    assert no_keyid["Signature-Input"].count(";alg=") == 1
     add("no-keyid-and-no-preregistered-aid", "MissingKey", headers=no_keyid)
 
     def digest_signed(digest):
@@ -1002,7 +1003,8 @@ def refusals():
         body_text=None, headers=get_default, authorities=["other.example"], max_age=10,
         now=1700001000)
     no_keyid = signed(method="GET", body=None)
-    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0] + ';alg="ed25519"'
+    no_keyid["Signature-Input"] = no_keyid["Signature-Input"].split(";keyid=")[0]
+    assert no_keyid["Signature-Input"].count(";alg=") == 1
     add("keyid-required-beside-expected-aid-under-the-default", "MissingKey", method="GET",
         body_text=None, headers=no_keyid, expected_aid=key.aid,
         note="Any minimum requires keyid even when the verifier names the key (@7y9lfnzq).")
@@ -1269,6 +1271,22 @@ def refusals():
         headers={**signed(method="GET", body=None, url="/x", headers={"Host": "[v1.x]"}),
                  "Host": "[V1.x]"},
         note="Host is validated like any authority, so the same spelling is refused there.")
+
+    # Outcomes all six ports already agree on, pinned (@5hyzg8j9). A Date member is
+    # MalformedSignature, since no port parses RFC 9651's additions (@7vdhfv3q).
+    add("signature-member-is-a-date", "MalformedSignature", method="GET", body_text=None,
+        headers={**shaped, "Signature": "sig=@1659578233"},
+        note="RFC 9651's Date is not in RFC 8941, which RFC 9421 references (@7vdhfv3q).")
+    # An exactly empty signature header is absent (@8v8z3m6c), unlike one of whitespace, which
+    # signature-header-of-spaces pins as malformed: several HTTP stacks report a header they never
+    # received as "", and none reports one as spaces.
+    empty = signed(method="GET", body=None)
+    add("signature-header-is-empty", "MissingSignature", method="GET", body_text=None,
+        headers={**empty, "Signature": ""},
+        note="Go's Header.Get, for one, gives an absent header as the empty string.")
+    add("signature-input-header-is-empty", "MissingSignatureInput", method="GET", body_text=None,
+        headers={**empty, "Signature-Input": ""},
+        note="The same rule for Signature-Input, found after Signature in section 9's order.")
 
     return {
         **HEADER,

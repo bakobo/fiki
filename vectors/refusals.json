@@ -259,7 +259,7 @@
       "method": "POST",
       "url": "https://api.example.com/things?limit=1&sort=name",
       "headers": {
-        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\";alg=\"ed25519\"",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\" \"content-digest\");created=1700000000;alg=\"ed25519\"",
         "Signature": "sig=:6UMHqmqtelDnGuoFRS5I8xIp4kD7ENn0tfEWTYfMGILq3fOiIch8O8aK8OwCAjaR6m/fIpEJvf7Rd1wTUTYjCg==:",
         "Content-Digest": "sha-256=:X48E9qOokqqrvdts8nOJRJN3OWDUoyWxBf7kbu9DBPE=:"
       },
@@ -1723,7 +1723,7 @@
       "method": "GET",
       "url": "https://api.example.com/things?limit=1&sort=name",
       "headers": {
-        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";alg=\"ed25519\"",
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\"",
         "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
       },
       "body": null,
@@ -2764,6 +2764,57 @@
       "expected_aid": null,
       "error": "SignatureMismatch",
       "note": "Host is validated like any authority, so the same spelling is refused there."
+    },
+    {
+      "id": "signature-member-is-a-date",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=@1659578233"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MalformedSignature",
+      "note": "RFC 9651's Date is not in RFC 8941, which RFC 9421 references (@7vdhfv3q)."
+    },
+    {
+      "id": "signature-header-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "sig=(\"@method\" \"@authority\" \"@path\" \"@query\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": ""
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingSignature",
+      "note": "Go's Header.Get, for one, gives an absent header as the empty string."
+    },
+    {
+      "id": "signature-input-header-is-empty",
+      "method": "GET",
+      "url": "https://api.example.com/things?limit=1&sort=name",
+      "headers": {
+        "Signature-Input": "",
+        "Signature": "sig=:hr39+tg2bj/RG997u3MSa+b2EMt7XTALzhn5ua4Dtb5rQ1BN2h26BtT4U63kIaMuxv45lcStGPI4dat//ltpAw==:"
+      },
+      "body": null,
+      "max_age": null,
+      "now": null,
+      "minimum": "default",
+      "authorities": null,
+      "expected_aid": null,
+      "error": "MissingSignatureInput",
+      "note": "The same rule for Signature-Input, found after Signature in section 9's order."
     }
   ]
 }
