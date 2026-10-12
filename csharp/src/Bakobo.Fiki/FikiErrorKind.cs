@@ -39,7 +39,10 @@ namespace Bakobo.Fiki
 
         // --- something the message carries cannot be read ---
 
-        /// <summary>The <c>Signature</c> header could not be parsed as an RFC 8941 dictionary.</summary>
+        /// <summary>
+        /// The <c>Signature</c> header could not be parsed as an RFC 8941 dictionary, or a member of it
+        /// is not a byte sequence (this.i @0zq820dl).
+        /// </summary>
         MalformedSignature,
 
         /// <summary>The <c>Signature-Input</c> header could not be parsed, or a member of it is not one fiki can read.</summary>
@@ -48,7 +51,7 @@ namespace Bakobo.Fiki
         /// <summary>The signature headers carry other than exactly one label.</summary>
         MalformedSignatureLabel,
 
-        /// <summary>The <c>Signature</c> value is not a 64-byte RFC 8941 byte sequence.</summary>
+        /// <summary>The <c>Signature</c> value is a byte sequence, and not one of 64 bytes.</summary>
         MalformedSignatureValue,
 
         /// <summary>A key, keyid, or AID is not a well-formed 32-byte Ed25519 public key.</summary>

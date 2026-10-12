@@ -310,6 +310,9 @@ namespace Bakobo.Fiki.Tests
         {
             var message = Signed();
             message.Headers["Signature"] = "sig=\"this is a string, not a byte sequence\"";
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
+            // A byte sequence that cannot be an Ed25519 signature keeps its own kind (@0zq820dl).
+            message.Headers["Signature"] = "sig=:AAAA:";
             Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
         }
 

@@ -389,13 +389,15 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void ASignatureMemberThatIsAnInnerListOrABareKeyIsAMalformedValue()
+        public void ASignatureMemberThatIsAnInnerListOrABareKeyIsAMalformedSignature()
         {
+            // The KERI profile's malformed-signature (@0zq820dl): the field is malformed, not the
+            // signature in it.
             var message = Sign();
             message.Headers["Signature"] = "sig=(:AAAA:)";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
             message.Headers["Signature"] = "sig";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
         }
 
         // --- the section 9 order ---
@@ -858,7 +860,7 @@ namespace Bakobo.Fiki.Tests
             var message = Sign();
             message.Headers["Signature-Input"] += ", other=" + message.Headers["Signature-Input"].Substring(4);
             message.Headers["Signature"] = "sig=\"not bytes\"";
-            Assert.Equal(FikiErrorKind.MalformedSignatureValue, message.Refused().Kind);
+            Assert.Equal(FikiErrorKind.MalformedSignature, message.Refused().Kind);
         }
 
         [Fact]
