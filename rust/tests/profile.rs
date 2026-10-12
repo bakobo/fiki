@@ -367,22 +367,81 @@ fn a_keyid_the_resolver_does_not_know_is_an_unknown_key() {
 }
 
 #[test]
-fn a_resolver_may_refuse_a_malformed_keyid_or_a_key_state_itself() {
-    for refused in [Kind::MalformedKey, Kind::UnsupportedSigner] {
+fn a_resolver_may_refuse_a_key_state_itself() {
+    // A resolver answers about key state alone (@7w7nv94j): fiki hands it only a well-formed AID.
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        Err(Error::detailed(
+            Kind::UnsupportedSigner,
+            format!("{keyid} is refused."),
+            keyid,
+        ))
+    });
+    let err = signed(under_aid())
+        .verify(resolving(resolver))
+        .unwrap_err();
+    assert_eq!(err.kind, Kind::UnsupportedSigner);
+    assert_eq!(err.detail, Some(aid()));
+}
+
+/// A resolver that records every keyid it is asked about and answers with `key()`'s raw bytes.
+fn recording() -> (Resolver, Arc<std::sync::Mutex<Vec<String>>>) {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let k = raw(&key());
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        seen.lock().unwrap().push(keyid.to_string());
+        Ok(Some(k))
+    });
+    (resolver, calls)
+}
+
+#[test]
+fn a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved() {
+    // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j):
+    // 44 characters, B, D or E, then 43 base64url characters decoding behind one pad character to
+    // 32 bytes with a zero pad byte. N3 of the format-4 plan.
+    let aid = aid();
+    let not_aids = [
+        ("not-an-aid", "not-an-aid".to_string()),
+        ("one-short", aid[..43].to_string()),
+        ("one-long", format!("{aid}A")),
+        ("wrong-code", format!("A{}", &aid[1..])),
+        ("lowercase-code", format!("e{}", &aid[1..])),
+        ("outside-base64url", format!("E{}", "!".repeat(43))),
+        ("standard-alphabet", format!("E{}", "+".repeat(43))),
+        ("padded", format!("{}=", &aid[..43])),
+        ("padding-bit-alias", padding_bit_alias(&aid)),
+        ("raw-keyid", encode(&raw(&key()), B64URL, false)),
+    ];
+    for (name, keyid) in not_aids {
+        let (resolver, calls) = recording();
+        let sent = signed(under_aid()).mangle(
+            &format!("keyid=\"{aid}\""),
+            &format!("keyid=\"{keyid}\""),
+        );
+        let err = sent.verify(resolving(resolver)).unwrap_err();
+        assert_eq!(err.kind, Kind::MalformedKey, "{name}: {err}");
+        assert_eq!(err.detail.as_deref(), Some(keyid.as_str()), "{name}");
+        assert!(calls.lock().unwrap().is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn a_well_formed_unknown_aid_is_resolved_once() {
+    for code in ['B', 'D', 'E'] {
+        let keyid = cesr(code, &Sha256::digest(b"unknown"));
+        let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = calls.clone();
         let resolver: Resolver = Arc::new(move |keyid: &str| {
-            Err(Error::detailed(
-                refused,
-                format!("{keyid} is refused."),
-                keyid,
-            ))
+            seen.lock().unwrap().push(keyid.to_string());
+            Ok(None)
         });
         let sent = signed(SignOptions {
-            keyid: Some("not-an-aid".into()),
+            keyid: Some(keyid.clone()),
             ..Default::default()
         });
-        let err = sent.verify(resolving(resolver)).unwrap_err();
-        assert_eq!(err.kind, refused);
-        assert_eq!(err.detail.as_deref(), Some("not-an-aid"));
+        assert_eq!(sent.kind(resolving(resolver)), Kind::UnknownKey, "{code}");
+        assert_eq!(*calls.lock().unwrap(), vec![keyid]);
     }
 }
 
@@ -1713,7 +1772,7 @@ fn a_malformed_spec_in_a_minimum_is_an_unsupported_component() {
     );
 }
 
-// --- an AID-shaped keyid is spelled canonically before any resolver sees it (bakobo/fiki#4) ---
+// --- a keyid is a well-formed AID before any resolver sees it (bakobo/fiki#4, @7w7nv94j) ---
 
 #[test]
 fn a_padding_bit_alias_is_malformed_even_through_a_resolver() {
@@ -1741,15 +1800,16 @@ fn an_aid_shaped_keyid_outside_the_alphabet_is_malformed_through_a_resolver() {
 }
 
 #[test]
-fn a_keyid_of_another_shape_reaches_the_resolver_unchanged() {
-    // Only B, D and E qb64 are checked for spelling; anything else is the resolver's to judge.
+fn a_keyid_of_another_shape_is_malformed_and_never_reaches_the_resolver() {
+    // Before format 4 only B, D and E qb64 were checked for spelling and anything else was the
+    // resolver's to judge; now every keyid that is not a well-formed AID is fiki's (@7w7nv94j).
     let sent = signed(SignOptions {
         keyid: Some(format!("A{}", "!".repeat(43))),
         ..Default::default()
     });
-    let seen: Resolver =
-        Arc::new(|keyid: &str| Ok((keyid == format!("A{}", "!".repeat(43))).then(|| raw(&key()))));
-    assert!(sent.verify(resolving(seen)).is_ok());
+    let (seen, calls) = recording();
+    assert_eq!(sent.kind(resolving(seen)), Kind::MalformedKey);
+    assert!(calls.lock().unwrap().is_empty());
 }
 
 #[test]

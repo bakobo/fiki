@@ -25,7 +25,7 @@ use crate::base::{
     CONTENT_DIGEST, DEFAULT_COVERED, MAX_FIELD_BYTES,
 };
 use crate::errors::{Error, Kind, Result};
-use crate::keys::{aid_of, b64std, misspelled_aid, public_key, raw_keyid, verifying_key, Key};
+use crate::keys::{aid_of, b64std, public_key, raw_keyid, verifying_key, well_formed_aid, Key};
 use crate::sfv::{parse_dictionary, serialize_inner_list, InnerList, Item, Member, Value};
 
 /// The only signature algorithm fiki produces or accepts.
@@ -195,10 +195,11 @@ pub const MAX_PARAMETERS: usize = 16;
 /// Maps a keyid to the 32 raw bytes of the Ed25519 key it names, or `None` when it names no key
 /// the caller knows (`this.i` @6g9zjsv9, @5e2phpjy).
 ///
-/// Authoritative: fiki never falls back to decoding the keyid when one is supplied. It may refuse
-/// a keyid itself — `MalformedKey` for one that is not a well-formed identifier, `UnsupportedSigner`
-/// for a key state with no single key that satisfies its threshold — and fiki carries that refusal
-/// out unchanged.
+/// Authoritative: fiki never falls back to decoding the keyid when one is supplied. fiki hands it
+/// only a well-formed AID (`this.i` @7w7nv94j), refusing any other keyid as `MalformedKey` first,
+/// so it answers about key state alone. It may refuse a key state itself — `UnsupportedSigner` for
+/// one with no single key that satisfies its threshold — and fiki carries that refusal out
+/// unchanged.
 pub type Resolver = Arc<dyn Fn(&str) -> Result<Option<[u8; 32]>> + Send + Sync>;
 
 /// The RFC 9530 `Content-Digest` header value for a body.
@@ -1185,10 +1186,12 @@ fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Loca
     })?;
     let malformed = |why: String| Error::detailed(Kind::MalformedKey, why, keyid);
     if let Some(resolver) = &opts.resolve {
-        if misspelled_aid(keyid) {
+        // A resolver answers only about key state (`this.i` @7w7nv94j), so a keyid that is not a
+        // well-formed AID, whatever its shape, is refused here and never handed to it.
+        if !well_formed_aid(keyid) {
             return Err(malformed(format!(
-                "The keyid {} is shaped like an AID and is not its canonical spelling, so it is not \
-                 an AID at all.",
+                "The keyid {} is not a well-formed AID: 44 characters, B, D or E, then the \
+                 canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                 shown(keyid)
             )));
         }
