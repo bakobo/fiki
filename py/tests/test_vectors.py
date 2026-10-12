@@ -35,8 +35,8 @@ def load(name: str) -> dict:
 COUNTS = {
     "aid-lens.json": 7,
     "signature-base.json": 14,
-    "accepts.json": 44,
-    "refusals.json": 152,
+    "accepts.json": 45,
+    "refusals.json": 154,
     "misuse.json": 13,
     "signs.json": 18,
     "responses.json": 15,

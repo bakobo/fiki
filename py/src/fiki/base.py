@@ -59,7 +59,8 @@ _SF_KEY = re.compile(r"[a-z*][a-z0-9_.*-]*")
 # RFC 8941 section 3.3.1: at most fifteen digits.
 _SF_INTEGER_MAX = 999_999_999_999_999
 _PORT_MAX = 65535
-# RFC 3986 section 3.2.2's IPvFuture, spelled as urlsplit checks it from Python 3.11.4.
+# RFC 3986 section 3.2.2's IPvFuture with a lowercase v (@6u9547gt), as urlsplit checked it from
+# Python 3.11.4 until 3.13.16 and 3.14.8 began accepting an uppercase V.
 _IPVFUTURE = re.compile(r"v[0-9A-Fa-f]+\..+")
 
 
@@ -324,6 +325,15 @@ def _split(message: _Message):
     if not _ABSOLUTE.match(url):
         raise _unreadable(message, "it is neither origin-form, beginning with a slash, nor an "
                                    "absolute URI with a scheme and an authority.")
+    # An IP-literal is checked here, before urlsplit sees the URL (@6u9547gt): CPython's urlsplit
+    # refused an IPvFuture spelled with an uppercase V until 3.13.16 and 3.14.8, which accept it,
+    # so leaving it to urlsplit would make one fiki release answer two ways. _hostport checks the
+    # same rule again on what urlsplit returns, and on Host.
+    host = re.split(r"[/?]", url.split("://", 1)[1], maxsplit=1)[0].rpartition("@")[2]
+    literal, closed, _ = host[1:].partition("]")
+    if host.startswith("[") and closed and not ip_literal(literal):
+        raise _unreadable(message, "its IP-literal is not an IPv6 address or IPvFuture in "
+                                   "brackets, spelled with a lowercase v.")
     try:
         return urlsplit(url)
     except ValueError as ex:
@@ -351,7 +361,9 @@ def ip_literal(text: str) -> bool:
     """RFC 3986 section 3.2.2: an IPv6 address, with an optional zone, or IPvFuture (@9g24rdns).
 
     What may sit between an IP-literal's brackets. urlsplit checks this itself only from Python
-    3.11.4, so fiki checks it on every Python it supports, with the grammar urlsplit uses.
+    3.11.4, so fiki checks it on every Python it supports, with the grammar urlsplit uses. The v
+    of an IPvFuture is lowercase, and an uppercase V is refused (@6u9547gt), though RFC 3986's
+    ABNF is case-insensitive: every port spells it so, and @authority is compared as spelled.
     """
     if text.startswith("v"):
         return _IPVFUTURE.fullmatch(text) is not None

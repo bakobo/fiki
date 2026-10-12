@@ -1256,6 +1256,20 @@ def refusals():
         note="The 3,000 generated differential cases never set expected_aid to the empty "
              "string, which is how Go's ErrInvalidOptions went unnoticed (@7j58rwu2).")
 
+    # An IPvFuture's v is lowercase, and an uppercase V is an authority that cannot be read, in
+    # a URL and in Host, whatever the interpreter (@6u9547gt). Each is signed over the lowercase
+    # spelling, so a port that folds the V verifies it.
+    lower_v = signed(method="GET", body=None, url="https://[v1.x]/x")
+    add("ipvfuture-with-an-uppercase-v-in-the-url", "SignatureMismatch", method="GET",
+        body_text=None, target="https://[V1.x]/x", headers=lower_v, authorities=["[v1.x]"],
+        note="RFC 3986's ABNF is case-insensitive, but fiki spells IPvFuture with a lowercase v "
+             "everywhere; CPython's urlsplit accepts [V1.x] only from 3.13.16 and 3.14.8.")
+    add("ipvfuture-with-an-uppercase-v-in-host", "SignatureMismatch", method="GET",
+        body_text=None, target="/x",
+        headers={**signed(method="GET", body=None, url="/x", headers={"Host": "[v1.x]"}),
+                 "Host": "[V1.x]"},
+        note="Host is validated like any authority, so the same spelling is refused there.")
+
     return {
         **HEADER,
         "about": "Requests every implementation must REFUSE, and the error each refusal carries.",
@@ -1486,6 +1500,9 @@ def accepts():
         note="A field nothing covers is never read, so it is not refused.")
     add("at-sign-in-path-and-query", method="GET", url="https://api.example.com/a@b?c=@d",
         note="An @ outside the authority is not userinfo.")
+    # format 4 (@6u9547gt): the control beside the two uppercase-V refusals.
+    add("ipvfuture-with-a-lowercase-v", method="GET", url="https://[v1.x]/x",
+        authorities=["[v1.x]"], note="An IPvFuture spelled with a lowercase v is an authority.")
     for case_id, signer_seed, crafted_headers, note in mixed_order_accepts(signed_at):
         add(case_id, method="GET", url="https://api.example.com/x", presigned=crafted_headers,
             note=note)
