@@ -82,16 +82,18 @@ function canonicalPoint(raw) {
 
 /** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo). */
 export function checkKey(raw, keyid) {
+  // An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
+  const subject = keyid ? `The key for ${quoted(keyid)}` : 'The key given';
   if (!canonicalPoint(raw)) {
     throw new MalformedKey(
-      `The key for ${quoted(keyid)} is not the canonical encoding of a point on the Ed25519 curve, so ` +
+      `${subject} is not the canonical encoding of a point on the Ed25519 curve, so ` +
         'it is not a key fiki will verify with.',
       { keyid },
     );
   }
   if (smallOrder(raw)) {
     throw new MalformedKey(
-      `The key for ${quoted(keyid)} is a small-order Ed25519 point, under which a signature can be ` +
+      `${subject} is a small-order Ed25519 point, under which a signature can be ` +
         'forged for any message, so it is not a key fiki will verify with.',
       { keyid },
     );

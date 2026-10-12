@@ -42,3 +42,5 @@ export {
   verifyRequest,
   verifyResponse,
 } from './messages.js';
+
+export { aidFrom } from './formats.js';
