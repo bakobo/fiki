@@ -26,7 +26,6 @@ from fiki.errors import (
     MalformedSignature,
     MalformedSignatureInput,
     MalformedSignatureLabel,
-    MalformedSignatureValue,
     MissingKey,
     MissingSignature,
     MissingSignatureInput,

@@ -381,11 +381,11 @@ def aid_lens():
         ("wrong-code", "A" + real[1:], "A is not the Ed25519N code B."),
         ("padding-bit-alias-of-a-b-aid",
          real[0] + alphabet[alphabet.index(real[1]) ^ 16] + real[2:],
-         "The same 32 bytes with a non-zero bit in the pad byte the code replaced: a second "
-         "spelling of the key, which is not the AID."),
+         ("The same 32 bytes with a non-zero bit in the pad byte the code replaced: a second "
+          "spelling of the key, which is not the AID.")),
         ("small-order-b-aid", aid_of_raw(b"\x01" + bytes(31)),
-         "Well formed, but its key is the identity point, under which a signature verifies over "
-         "any message (@37wdchu5)."),
+         ("Well formed, but its key is the identity point, under which a signature verifies "
+          "over any message (@37wdchu5).")),
     ]:
         assert text != real
         cases.append({"id": case_id, "aid": text, "error": "MalformedKey", "note": note})

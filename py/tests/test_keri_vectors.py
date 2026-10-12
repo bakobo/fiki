@@ -126,8 +126,8 @@ def as_request(message: dict) -> Request:
 
 def verify(request: dict, response: dict | None = None, *, now: int, policy: dict, keys: list):
     """Verify as a KERI verifier would, under a policy object as the files spell one."""
-    common = dict(max_age=policy["max_age"], skew=policy["skew"], now=now,
-                  resolve=resolver(keys), expected_keyid=policy.get("expected_keyid"))
+    common = {"max_age": policy["max_age"], "skew": policy["skew"], "now": now,
+              "resolve": resolver(keys), "expected_keyid": policy.get("expected_keyid")}
     if response is not None:
         return verify_response(status=response["status"], headers=response["headers"],
                                body=body_of(response), request=as_request(request),
@@ -146,9 +146,9 @@ def expected_base(request: dict, response: dict | None, keys: list) -> tuple[str
     parsed.parse(message["headers"]["Signature-Input"].encode("utf-8"))
     ((_, inner),) = parsed.items()
     params = dict(inner.params)
-    kwargs = dict(covered=list(inner), created=params["created"], keyid=params["keyid"],
-                  alg=params.get("alg"), expires=params.get("expires"),
-                  nonce=params.get("nonce"), tag=params.get("tag"))
+    kwargs = {"covered": list(inner), "created": params["created"], "keyid": params["keyid"],
+              "alg": params.get("alg"), "expires": params.get("expires"),
+              "nonce": params.get("nonce"), "tag": params.get("tag")}
     if response is not None:
         base = response_signature_base(status=response["status"], headers=response["headers"],
                                        request=as_request(request), **kwargs)
