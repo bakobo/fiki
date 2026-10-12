@@ -160,9 +160,9 @@ class VectorsTest {
     private static final int SIGNATURE_BASE_CASES = 14;
     private static final int ACCEPTS_CASES = 45;
     private static final int REFUSALS_CASES = 157;
-    private static final int RESPONSES_CASES = 15;
+    private static final int RESPONSES_CASES = 16;
     private static final int SIGNS_CASES = 18;
-    private static final int MISUSE_CASES = 13;
+    private static final int MISUSE_CASES = 14;
 
     /*
      * The message fragment each caller-error vector must carry (tick 7xbw, T3), since a vector names
@@ -183,6 +183,7 @@ class VectorsTest {
         Map.entry("response-expected-keyid-empty", "expected keyid is empty, which names no AID"),
         Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"),
         Map.entry("request-announces-a-body-it-does-not-carry", "announces a body in its headers"),
+        Map.entry("request-announces-a-length-and-carries-an-empty-body", "announces a body in its headers"),
         Map.entry("request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers"),
         Map.entry("request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers"),
         Map.entry("sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers"));

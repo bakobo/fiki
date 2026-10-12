@@ -1340,8 +1340,9 @@ public final class Fiki {
      * with content and no digest to bind is refused as {@code UncoveredBody} rather than signed
      * into a response every profile client refuses, and a digest the request body contradicts is
      * refused as the verifier would refuse it. A request whose headers announce a body (a
-     * Content-Length above zero, or any Transfer-Encoding) and whose body is null is an
-     * IllegalArgumentException (@6v00d3tu): pass the body, or a Request without those headers.
+     * Content-Length above zero, or any Transfer-Encoding) and whose body is null, or empty beside
+     * a Content-Length, is an IllegalArgumentException (@6v00d3tu): pass the body, or a Request
+     * without those headers.
      */
     public static Map<String, String> signResponse(
             Key key, int status, Request request, Map<String, String> headers, SignOptions opts) {
@@ -1427,8 +1428,9 @@ public final class Fiki {
      * because a server that refuses before it knows the agent cannot sign the refusal. A response
      * covering {@code "content-digest";req} verified against a request whose body is null is the
      * caller's mistake: that digest is recomputed over the request body, and fiki cannot check a
-     * body it was not given. So is a request whose headers announce a body its null body does not
-     * carry (@6v00d3tu), decided before anything in the response is read.
+     * body it was not given. So is a request whose headers announce a body its body does not
+     * carry, null or empty beside a Content-Length (@6v00d3tu), decided before anything in the
+     * response is read.
      */
     public static Verdict verifyResponse(
             int status, Map<String, String> headers, Request request, VerifyOptions opts) {
@@ -1609,15 +1611,26 @@ public final class Fiki {
      * (@6v00d3tu, revising the second half of @7p9s3g9k). Whether the request had a body is judged
      * by its content, since both sides hold the whole request by the time a response is signed or
      * verified; a Content-Length above zero or any Transfer-Encoding with a null body means the
-     * caller threw the body away. Decided before any header of the response is read, so no defect
-     * in the message outranks it and no resolver is asked.
+     * caller threw the body away. So does an empty body beside a Content-Length that is not a
+     * plain zero, since a length is exact and no request of zero bytes announces one; an empty
+     * body beside a Transfer-Encoding is not, because a chunked request may carry nothing.
+     * Decided before any header of the response is read, so no defect in the message outranks it
+     * and no resolver is asked.
      */
     private static void checkAnnouncedBody(Request request, Map<String, String> found) {
-        if (request != null && request.body() == null && requestHasBody(found, null)) {
+        if (request == null || hasContent(request.body())) {
+            return;
+        }
+        Map<String, String> announced = found;
+        if (request.body() != null) { // empty: only a length can contradict it
+            announced = new LinkedHashMap<>(found);
+            announced.remove("transfer-encoding");
+        }
+        if (requestHasBody(announced, null)) {
             throw new IllegalArgumentException(
                 "The request this response answers announces a body in its headers, by its Content-Length or "
-                    + "Transfer-Encoding, and Request.body() is null, so whether the response must bind that body "
-                    + "cannot be decided. Pass the request body, or a Request without those headers.");
+                    + "Transfer-Encoding, and Request.body() does not carry it, so whether the response must bind "
+                    + "that body cannot be decided. Pass the request body, or a Request without those headers.");
         }
     }
 

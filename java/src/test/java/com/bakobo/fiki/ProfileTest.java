@@ -1201,6 +1201,22 @@ class ProfileTest {
         Caller.refused(ANNOUNCED, () -> respond(opts -> opts, 200, stripped, Map.of()));
     }
 
+    /**
+     * An empty body beside a Content-Length that is not a plain zero is a body thrown away, as null
+     * is: a length is exact. Beside a Transfer-Encoding alone it is judged by content, since a
+     * chunked request may carry nothing (aResponseJudgesItsRequestsBodyByContentNotHeaders).
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Content-Length:18", "content-length:abc", "Content-Length:18;Transfer-Encoding:chunked"})
+    void anEmptyBodyBesideALengthIsACallerError(String extra) {
+        Fiki.Request[] pair = announcing(field(extra));
+        Fiki.Request empty = new Fiki.Request("POST", URL, pair[0].headers(), new byte[0]);
+        Map<String, String> headers = respond(opts -> opts, 200, pair[0], Map.of());
+        Caller.refused(ANNOUNCED, () -> check(headers, 200, RESPONSE_BODY, empty,
+            opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)));
+        Caller.refused(ANNOUNCED, () -> respond(opts -> opts, 200, empty, Map.of()));
+    }
+
     /** V1b and N4: a malformed Signature, or none, never outranks the call's own mistake. */
     @Test
     void theCallerErrorIsDecidedBeforeAnySignatureHeaderIsRead() {
