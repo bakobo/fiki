@@ -262,4 +262,46 @@ class SurrogateTest {
         refused(FikiException.Kind.SignatureMismatch, "does not serve", () -> Fiki.verifyRequest("POST", URL, good,
             OptedOut.decliningFreshness().withAuthorities(Set.of("ex" + lone))));
     }
+
+    /* ----------------------------------------------- other spellings of a key (@0mvgkwnl) */
+
+    /** {@code base} with {@code lone} inserted before, and in place of, the char at {@code at}. */
+    private static List<String> spliced(String base, String lone, int at) {
+        List<String> out = new java.util.ArrayList<>();
+        out.add(base.substring(0, at) + lone + base.substring(at));
+        if (at < base.length()) {
+            out.add(base.substring(0, at) + lone + base.substring(at + 1));
+        }
+        return out;
+    }
+
+    private static String keyFile(String name) throws java.io.IOException {
+        return java.nio.file.Files.readString(java.nio.file.Path.of("../vectors/keys/openssh/" + name),
+            StandardCharsets.UTF_8);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\uD800", "\uDC00"})
+    void aSurrogateAnywhereInAPublicKeyIsMalformedKey(String lone) throws Exception {
+        // py: no spelling's shape admits a non-ASCII character, so each is "not an Ed25519 public
+        // key in any spelling", counted in code points, where a lone surrogate is one.
+        String pub = keyFile("ed25519.pub");
+        List<String> bases = List.of(KEY.aid(), KEY.keyid(),
+            "did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+            "did:peer:0z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK",
+            pub.substring(0, pub.length() - 1));
+        for (String base : bases) {
+            Key.aidFrom(base);
+            for (int at : new int[] {0, base.length() / 2, base.length() - 1, base.length()}) {
+                for (String text : spliced(base, lone, at)) {
+                    int length = text.codePointCount(0, text.length());
+                    FikiException e = assertThrows(FikiException.class, () -> Key.aidFrom(text));
+                    assertEquals(FikiException.Kind.MalformedKey, e.kind(), e.getMessage());
+                    assertEquals("", e.detail());
+                    assertTrue(e.getMessage().startsWith("The text, " + length
+                        + " characters, is not an Ed25519 public key in any spelling fiki reads"), e.getMessage());
+                }
+            }
+        }
+    }
 }

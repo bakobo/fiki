@@ -161,6 +161,27 @@ public final class Key {
         return CODE + URL.encodeToString(padded).substring(1);
     }
 
+    /**
+     * The canonical AID of the Ed25519 public key {@code text} spells (this.i @0mvgkwnl).
+     *
+     * <p>{@code text} is an AID, the raw key as 43 characters of unpadded base64url (a JWK's "x"),
+     * a base58btc did:key, a did:peer with numalgo 0, or an OpenSSH public line: "ssh-ed25519", one
+     * space, the blob, and optionally one space and a printable-ASCII comment that neither begins
+     * nor ends with a space. Length, not the first character, tells raw from AID: 43 against 44.
+     * Nothing around {@code text} is stripped; that is the caller's, so that one input never has
+     * two readings. Call it when registrations are loaded rather than per request.
+     *
+     * <p>Anything else is a {@code MalformedKey} refusal, including a transferable or digest AID,
+     * whose key is not the identifier's to give, and a key that is a small-order or non-canonical
+     * point. The message never quotes {@code text} and the detail is empty, because what is handed
+     * here by mistake can be a private key: the {@code .key} file instead of the {@code .pub}, or a
+     * seed, which in base64url is 43 characters like a raw key. A null is the caller's mistake, an
+     * {@link IllegalArgumentException}.
+     */
+    public static String aidFrom(String text) {
+        return Formats.aidFrom(text);
+    }
+
     /** Recover the Ed25519 public key from a non-transferable AID. */
     public static PublicKey verifyingKey(String aid) {
         return decodePublic(verifyingKeyBytes(aid));
@@ -295,17 +316,19 @@ public final class Key {
      * lens itself.
      */
     static byte[] trusted(byte[] raw, String keyid) {
+        // An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
+        String subject = keyid.isEmpty() ? "The key given" : "The key for " + keyid;
         if (smallOrder(raw)) {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
-                "The key for " + keyid + " is a small-order point, under which a signature can verify "
+                subject + " is a small-order point, under which a signature can verify "
                     + "over any message, so it is not a key at all.",
                 keyid);
         }
         if (!canonicalPoint(raw)) {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
-                "The key for " + keyid + " is not the canonical encoding of a point on the Ed25519 curve.",
+                subject + " is not the canonical encoding of a point on the Ed25519 curve.",
                 keyid);
         }
         return raw;
