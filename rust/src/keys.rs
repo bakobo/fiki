@@ -231,6 +231,27 @@ impl Key {
         })
     }
 
+    /// Load an unencrypted OpenSSH Ed25519 private key, as ssh-keygen writes it (`this.i` @0mvgkwnl).
+    ///
+    /// `text` is the armored key, LF line endings, with or without the final newline. The key must
+    /// be the only one in the file, its check integers must agree, its padding must be 1, 2, 3, ...,
+    /// and its public key must match in both places it is stored and be the one its seed derives.
+    /// Anything else, including an encrypted key, is `Kind::MalformedKey`, and the error never
+    /// carries any part of the key.
+    ///
+    /// Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross between
+    /// protocols -- every base `sign_request` and `sign_response` build begins with a double quote,
+    /// SSH user authentication signs data beginning with a length-prefixed session identifier
+    /// (RFC 4252 section 7), and SSHSIG signs data beginning "SSHSIG" -- but an agent signs
+    /// whatever bytes it is asked to, so anyone able to use a forwarded agent could sign fiki
+    /// requests with a login key. The separation is a property of `sign_request`, not of the key:
+    /// [`Key::sign`] signs any bytes.
+    pub fn from_openssh(text: &str) -> Result<Self> {
+        Ok(Key {
+            signing: SigningKey::from_bytes(&crate::openssh::read_openssh(text)?),
+        })
+    }
+
     /// The non-transferable AID: 44 characters, `B` prefixed, and also the verifying key.
     pub fn aid(&self) -> String {
         aid_of(self.signing.verifying_key().as_bytes())
