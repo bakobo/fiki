@@ -208,12 +208,54 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
     await assert.rejects(() => verify(signed, { resolve: () => 'not bytes at all' }), errors.MalformedKey);
   });
 
-  it('lets a resolver refuse a malformed keyid itself', async () => {
-    const signed = await sign({ keyid: 'not-an-aid' });
-    const resolve = (keyid) => {
-      throw new errors.MalformedKey(`${keyid} is not an AID.`, { keyid });
+  // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j): 44
+  // characters, B, D or E, then 43 base64url characters decoding behind one pad character to 32
+  // bytes with a zero pad byte. N3 of the format-4 plan.
+  const NOT_AIDS = {
+    'not-an-aid': 'not-an-aid',
+    'one-short': AID.slice(0, -1),
+    'one-long': AID + 'A',
+    'wrong-code': 'A' + AID.slice(1),
+    'lowercase-code': 'e' + AID.slice(1),
+    'another-letter': 'X' + AID.slice(1),
+    'outside-base64url': 'E' + '!'.repeat(43),
+    'standard-alphabet': 'E' + '+'.repeat(43),
+    padded: AID.slice(0, -1) + '=',
+    'padding-bit-alias': paddingBitAlias(AID),
+    "fiki's own raw keyid": Buffer.from(raw(KEY)).toString('base64url'),
+    'a caller-defined name': 'tenant-7/signing-key',
+  };
+  for (const [id, keyid] of Object.entries(NOT_AIDS)) {
+    it(`refuses a keyid that is not an AID (${id}) as malformed, and never resolves it`, async () => {
+      const calls = [];
+      const signed = await sign({ keyid });
+      const resolve = (k) => {
+        calls.push(k);
+        return raw(KEY);
+      };
+      await assert.rejects(() => verify(signed, { resolve }), (e) => e instanceof errors.MalformedKey && e.keyid === keyid);
+      assert.deepEqual(calls, []);
+    });
+  }
+
+  for (const code of ['B', 'D', 'E']) {
+    it(`resolves a well-formed unknown ${code} AID exactly once`, async () => {
+      const keyid = cesr(code, createHash('sha256').update('unknown').digest());
+      const calls = [];
+      await assert.rejects(async () => verify(await sign({ keyid }), { resolve: (k) => calls.push(k) && null }), errors.UnknownKey);
+      assert.deepEqual(calls, [keyid]);
+    });
+  }
+
+  it('resolves a small-order B AID, which is well formed, and refuses the key it returns', async () => {
+    const keyid = 'BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    const calls = [];
+    const resolve = (k) => {
+      calls.push(k);
+      return Buffer.from('A' + k.slice(1), 'base64url').subarray(1);
     };
-    await assert.rejects(() => verify(signed, { resolve }), errors.MalformedKey);
+    await assert.rejects(async () => verify(await sign({ keyid }), { resolve }), errors.MalformedKey);
+    assert.deepEqual(calls, [keyid]);
   });
 
   it('never decodes a D-prefixed keyid as a key when a resolver is supplied', async () => {
@@ -257,11 +299,6 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
   it('refuses an AID-shaped keyid outside the alphabet even through a resolver', async () => {
     const signed = await sign({ keyid: 'E' + '!'.repeat(43) });
     await assert.rejects(() => verify(signed, { resolve: () => raw(KEY) }), errors.MalformedKey);
-  });
-
-  it('lets a non-AID keyid of 44 characters reach the resolver', async () => {
-    const keyid = 'X' + 'A'.repeat(43);
-    assert.equal((await verify(await sign({ keyid }), { resolve: () => raw(KEY) })).aid, keyid);
   });
 
   it('refuses a raw keyid that is not the canonical spelling of a key', async () => {
@@ -314,7 +351,8 @@ describe('a malformed keyid outranks an unexpected one, and an unexpected one is
   it('refuses an unexpected keyid without calling the resolver, even one that never answers', async () => {
     await refusesAs(AID, never, errors.UnknownKey);
     await refusesAs(AID, untouched, errors.UnknownKey);
-    await refusesAs('not-an-aid', malformed, errors.UnknownKey);
+    // A keyid that is not an AID is malformed first (@7w7nv94j), and never looked up either.
+    await refusesAs('not-an-aid', untouched, errors.MalformedKey);
     await refusesAs(AID, group, errors.UnknownKey);
   });
 
@@ -323,16 +361,17 @@ describe('a malformed keyid outranks an unexpected one, and an unexpected one is
       const signed = await sign({ keyid });
       await assert.rejects(() => verify(signed, { expectedKeyid: keyid, resolve }), ErrorClass);
     };
-    await check('not-an-aid', malformed, errors.MalformedKey);
+    await check(AID, malformed, errors.MalformedKey);
     await check(AID, () => new Uint8Array(5), errors.MalformedKey);
     await check(AID, group, errors.UnsupportedSigner);
     await check(AID, () => null, errors.UnknownKey);
   });
 
-  it('keeps a caller-defined keyid that is not an AID working', async () => {
+  it('refuses a caller-defined keyid that is not an AID, even the expected one (@7w7nv94j)', async () => {
+    // The node's tradeoff: a resolver is asked only about an AID, so another naming scheme for keys
+    // must be mapped to AIDs before fiki sees it.
     const keyid = 'tenant-7/signing-key';
-    const verdict = await verify(await sign({ keyid }), { expectedKeyid: keyid, resolve: () => raw(KEY) });
-    assert.equal(verdict.keyid, keyid);
+    await assert.rejects(async () => verify(await sign({ keyid }), { expectedKeyid: keyid, resolve: untouched }), errors.MalformedKey);
   });
 });
 
@@ -569,7 +608,8 @@ describe('Signature-Input, as received', () => {
     const value = signed.headers['Signature-Input'].split('=').slice(1).join('=');
     signed.headers['Signature-Input'] += `, other=${value}`;
     signed.headers.Signature = 'sig="not bytes"';
-    await assert.rejects(() => verify(signed), errors.MalformedSignatureValue);
+    // The field is malformed, not the signature in it (@0zq820dl).
+    await assert.rejects(() => verify(signed), errors.MalformedSignature);
   });
 });
 
@@ -730,7 +770,9 @@ describe('the minimum covered set (profile section 3)', () => {
   });
 
   it("judges a response's request body by content, not headers (@7p9s3g9k)", async () => {
-    const chunked = { method: 'POST', url: URL_, headers: { 'Transfer-Encoding': 'chunked', 'Content-Digest': await contentDigest(BODY) } };
+    // A request whose headers announce a body it carries is judged by that content; one carrying an
+    // empty body binds none. One announcing a body it lacks is a caller error (@6v00d3tu, below).
+    const chunked = { method: 'POST', url: URL_, headers: { 'Transfer-Encoding': 'chunked' }, body: new Uint8Array(0) };
     const headers = await respond({ request: chunked, covered: [...RESPONSE_MINIMUM, 'content-digest'] });
     assert.equal((await check(headers, { request: chunked, minimum: RESPONSE_MINIMUM })).aid, KEY.aid);
   });
@@ -759,8 +801,9 @@ describe('the minimum covered set (profile section 3)', () => {
 });
 
 describe('the default response covered set (@2f227n4r, @7p9s3g9k)', () => {
-  it('does not bind a request body only its headers announce', async () => {
-    const asked = { method: 'POST', url: URL_, headers: { 'Content-Length': '18', 'Content-Digest': await contentDigest(BODY) } };
+  it('binds no digest of a request whose body is empty', async () => {
+    const empty = new Uint8Array(0);
+    const asked = { method: 'POST', url: URL_, headers: { 'Content-Digest': await contentDigest(empty) }, body: empty };
     const verdict = await check(await respond({ request: asked }), { request: asked, minimum: RESPONSE_MINIMUM });
     assert.ok(!verdict.covered.includes(req('content-digest')));
   });
@@ -780,6 +823,59 @@ describe('the default response covered set (@2f227n4r, @7p9s3g9k)', () => {
     const verdict = await check(headers, { request: head, body: null, minimum: RESPONSE_MINIMUM });
     assert.ok(!verdict.covered.includes('content-digest'));
   });
+});
+
+describe('a request that announces a body it does not carry (@6v00d3tu)', () => {
+  const ANNOUNCED = 'announces a body in its headers';
+
+  /** A request signed for with its body, then handed over without it. */
+  async function announcing(extra) {
+    const given = { method: 'POST', url: URL_, headers: { ...extra, 'Content-Digest': await contentDigest(BODY) }, body: BODY };
+    return [given, { ...given, body: null }];
+  }
+
+  for (const extra of [
+    { 'Content-Length': '18' },
+    { 'Transfer-Encoding': 'chunked' },
+    { 'Content-Length': '18', 'Transfer-Encoding': 'chunked' },
+    { 'content-length': 'abc' },
+  ]) {
+    it(`is a caller error to verifyResponse, announced by ${JSON.stringify(extra)}`, async () => {
+      const [given, stripped] = await announcing(extra);
+      const headers = await respond({ request: given });
+      await assert.rejects(() => check(headers, { request: stripped, minimum: RESPONSE_MINIMUM }), callerError(ANNOUNCED));
+    });
+  }
+
+  for (const extra of [{ 'Content-Length': '18' }, { 'Transfer-Encoding': 'gzip' }]) {
+    it(`is a caller error to signResponse, announced by ${JSON.stringify(extra)}`, async () => {
+      const [, stripped] = await announcing(extra);
+      await assert.rejects(() => respond({ request: stripped }), callerError(ANNOUNCED));
+    });
+  }
+
+  it('is decided before any signature header is read, and before any resolver is asked', async () => {
+    const [given, stripped] = await announcing({ 'Content-Length': '18' });
+    const calls = [];
+    const resolve = (keyid) => {
+      calls.push(keyid);
+      return raw(KEY);
+    };
+    for (const headers of [{ ...(await respond({ request: given })), Signature: 'sig=123' }, {}, { Signature: '' }]) {
+      for (const status of [200, 401]) {
+        await assert.rejects(() => check(headers, { status, request: stripped, resolve }), callerError(ANNOUNCED));
+      }
+    }
+    assert.deepEqual(calls, []);
+  });
+
+  for (const length of ['0', '000', ' 0 ']) {
+    it(`judges a request announcing no body (Content-Length ${JSON.stringify(length)}) and carrying none as before`, async () => {
+      const asked = { method: 'GET', url: URL_, headers: { 'Content-Length': length } };
+      const headers = await respond({ request: asked });
+      assert.equal((await check(headers, { request: asked, minimum: RESPONSE_MINIMUM })).aid, KEY.aid);
+    });
+  }
 });
 
 describe('signers given a minimum (@2f227n4r)', () => {

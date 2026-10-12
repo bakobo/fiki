@@ -341,12 +341,28 @@ function authority(message) {
  * Field names are case-insensitive, so `X-Role` beside `x-role` is two values for one field, and
  * keeping either would let a signer cover one while the application reads the other. Only a caller
  * can build such an object, so it is a TypeError. Values are kept exactly as given.
+ *
+ * A value given as an array of strings, as Node's IncomingMessage gives set-cookie, is joined with a
+ * comma and one space before anything reads it, which is the value RFC 9421 section 2.1 defines for
+ * a field sent in several lines (@4un2vx4l). An element that is not a string is a mistake in the
+ * call.
  */
 export function canonicalHeaders(headers, name = 'headers') {
   // Null-prototype, so a field named "__proto__" is an own property like any other rather than an
   // assignment to the prototype that silently drops it (PR #5 hostile review, H1).
   const out = Object.create(null);
-  for (const [field, value] of Object.entries(headers ?? {})) {
+  for (const [field, given] of Object.entries(headers ?? {})) {
+    let value = given;
+    if (Array.isArray(given)) {
+      // Spread, so a hole in a sparse array is undefined and refused rather than skipped.
+      if (![...given].every((line) => typeof line === 'string')) {
+        throw new TypeError(
+          `The header ${quoted(field)} is given as a list, whose field lines must be each a string; ` +
+            'this one holds something else.',
+        );
+      }
+      value = given.join(', ');
+    }
     // A name is always a string here, since an object's keys are; a value has to be checked
     // (@5zrf8gjk), or null would be signed as the string "null".
     if (typeof value !== 'string') {

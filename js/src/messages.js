@@ -54,7 +54,7 @@ import {
   UnknownKey,
   UnsupportedAlgorithm,
 } from './errors.js';
-import { checkKey, misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
+import { checkKey, toAid, verifyWithRaw, verifyingKey, wellFormedAid } from './keys.js';
 import { MAX_FIELD_BYTES, parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
@@ -124,6 +124,24 @@ const normalRequest = (request) =>
   request === null || request === undefined
     ? null
     : { ...request, headers: canonicalHeaders(request.headers, 'request.headers'), body: bodyBytes(request.body, 'request.body') };
+
+/** A request whose headers announce a body it does not carry is a mistake in the call (@6v00d3tu).
+ *
+ * Whether the request had a body is judged by its content, since both sides hold the whole request
+ * by the time a response is signed or verified (@7p9s3g9k). A request announcing a body (a
+ * Content-Length above zero, or any Transfer-Encoding) whose body is null breaks that assumption:
+ * the caller threw the body away. Decided before any header of the response is read, so no defect
+ * in the message can outrank it, and no resolver is asked.
+ */
+function checkAnnouncedBody(request) {
+  if (request !== null && request.body === null && requestHasBody(lowered(request.headers), null)) {
+    throw new TypeError(
+      'The request this response answers announces a body in its headers, by its Content-Length or ' +
+        'Transfer-Encoding, and request.body is null, so whether the response must bind that body ' +
+        'cannot be decided. Pass the request body, or a request without those headers.',
+    );
+  }
+}
 
 /** The RFC 9530 `Content-Digest` header value for a body. */
 export async function contentDigest(body) {
@@ -268,7 +286,9 @@ export async function signRequest({
  * is bound by its `Content-Digest` (its headers do not count, @7p9s3g9k), and one with no digest
  * to bind is refused as UncoveredBody rather than signed into a response every profile client
  * refuses (@2f227n4r). A digest the request body contradicts is refused the way the verifier
- * would refuse it.
+ * would refuse it. A `request` whose headers announce a body (a Content-Length above zero, or any
+ * Transfer-Encoding) and whose body is null is a TypeError (@6v00d3tu): pass the body, or a request
+ * without those headers.
  */
 export async function signResponse({
   key,
@@ -292,10 +312,12 @@ export async function signResponse({
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
+  checkAnnouncedBody(request);
   headers = canonicalHeaders(headers);
   const sending = Object.assign(Object.create(null), headers);
   const chosen = covered !== null && covered !== undefined;
-  // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+  // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k), and
+  // a request announcing a body it lacks was refused above (@6v00d3tu).
   const hadBody = request !== null && hasContent(request.body);
   const specs = chosen ? covered : ['@status', ...(request === null ? [] : [req('@method'), req('@path'), req('@query')])];
   const items = specs.map(component);
@@ -344,7 +366,9 @@ export async function signResponse({
  * `expectedAid` is authoritative when supplied, the preregistration case. `resolve` is the other
  * way to be authoritative (@6g9zjsv9): a function from the keyid to the 32 raw bytes of the key it
  * names, or null when it names none, returning either directly or as a promise. Pass one or
- * neither.
+ * neither. fiki hands a resolver only a well-formed AID (@7w7nv94j): any other keyid, fiki's own
+ * 43-character raw keyid included, is MalformedKey before the resolver is called, so a resolver
+ * answers about key state alone.
  *
  * `minimum` is the verifier's covered-set policy. Left out, it is DEFAULT_MINIMUM, fiki's own
  * signing default (@524c8qgv); given, it is REQUEST_MINIMUM or a superset of it (a smaller one is a
@@ -441,7 +465,9 @@ function checkAuthorities(authorities) {
  * accept any signer and read it from the verdict; an empty string is a TypeError. An unsigned 401 is Unauthenticated,
  * checked before anything else, because a server that refuses before it knows the agent cannot
  * sign the refusal (@2f227n4r). A response covering `"content-digest";req` verified against a
- * request whose body is null is a TypeError: fiki cannot check a body it was not given.
+ * request whose body is null is a TypeError: fiki cannot check a body it was not given. So is a
+ * `request` whose headers announce a body its null body does not carry (@6v00d3tu), decided before
+ * anything in the response is read.
  */
 export async function verifyResponse({
   status,
@@ -469,6 +495,7 @@ export async function verifyResponse({
   const floor = floored(minimum, RESPONSE_MINIMUM);
   body = bodyBytes(body);
   request = normalRequest(request);
+  checkAnnouncedBody(request);
   headers = canonicalHeaders(headers);
   // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
   if (status === 401 && !headers.signature) {
@@ -709,10 +736,11 @@ function read(found, { requireKeyid, requireCreated }) {
 
   const signatures = parse(rawSignature, 'Signature', MalformedSignature);
   for (const member of signatures.values()) {
-    // Draft 6 of the KERI profile would call this malformed-signature, since such a header is
-    // neither mode's form; the class stays the one the shared vectors pin (@2f227n4r).
+    // The KERI profile calls a member that is not a byte sequence malformed-signature: the field is
+    // malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is kept for a byte
+    // sequence that cannot be an Ed25519 signature, below.
     if (!(member.value instanceof Uint8Array)) {
-      throw new MalformedSignatureValue(
+      throw new MalformedSignature(
         'RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this ' +
           'Signature header carries something else.',
       );
@@ -859,10 +887,12 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
     );
   }
   if (resolve !== null) {
-    if (misspelledAid(keyid)) {
+    // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a well-formed
+    // AID, whatever its shape, is refused here and never handed to it.
+    if (!wellFormedAid(keyid)) {
       throw new MalformedKey(
-        `The keyid ${quoted(keyid)} is shaped like an AID and is not its canonical spelling, so it is ` +
-          'not an AID at all.',
+        `The keyid ${quoted(keyid)} is not a well-formed AID: 44 characters, B, D or E, then the ` +
+          'canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.',
         { keyid },
       );
     }
