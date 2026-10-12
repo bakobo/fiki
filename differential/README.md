@@ -6,7 +6,7 @@
 
 - `generate.py` writes `cases.json`. It takes the requests in `vectors/accepts.json` and `vectors/refusals.json` and mutates the Signature-Input, Signature and Content-Digest fields, the URL, and the Host header. It is deterministic (seed 9421, stdlib only), so `cases.json` is not committed: every CI runner job generates it first, and so must anyone running the differential locally.
 - One runner per port: `run_py.py`, `run_js.mjs`, `go/`, `rust/`, `java/Runner.java` and `csharp/`. Each one reads `cases.json`, calls that port's `verify_request` with exactly the decisions the case states, and writes a JSON map from case id to outcome. Each runner builds against the port in this repository from outside the port's tree, and uses nothing the port's own tests do not already use.
-- `compare.py` reads the six maps and exits non-zero if any case has more than one outcome, if any outcome is a crash, or if a map is missing or incomplete.
+- `compare.py` reads the six maps and exits non-zero if any case has more than one outcome, if any outcome is a crash, or if a map is missing or does not hold exactly the cases in `cases.json`. It takes the case ids from `cases.json` rather than from the maps, so runners that all skip the same cases still fail.
 
 ## Cases
 

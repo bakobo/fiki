@@ -1,9 +1,11 @@
 """Fail if the six ports gave different answers to any case in differential/cases.json.
 
-`python3 differential/compare.py [out-dir]` reads <port>.json for each of the six ports from
-out-dir (differential/out by default), each a map from case id to the outcome that port's runner
-recorded, and exits non-zero if any case has more than one distinct outcome across the ports, if any
-outcome is a crash, or if any port's map is missing, has a case another lacks, or is empty.
+`python3 differential/compare.py [out-dir] [cases.json]` reads <port>.json for each of the six ports
+from out-dir (differential/out by default), each a map from case id to the outcome that port's
+runner recorded, and exits non-zero if any case has more than one distinct outcome across the ports,
+if any outcome is a crash, or if any port's map is missing or does not hold exactly the cases in
+cases.json (differential/cases.json by default). The case ids come from cases.json, never from the
+maps, so six runners that skip the same cases cannot agree their way past the check.
 
 There is no allowlist. A disagreement is a broken promise (`this.i` @5zrf8gjk), and the place to
 settle it is the port that is wrong, or the vectors if the promise needs stating, never here.
@@ -31,6 +33,11 @@ def compared(outcome: str) -> str:
 
 def main() -> int:
     out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "out"
+    cases_path = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE / "cases.json"
+    ids = {case["id"] for case in json.loads(cases_path.read_text(encoding="utf-8"))["cases"]}
+    if not ids:
+        print(f"{cases_path} holds no cases, so nothing would be compared.")
+        return 1
     maps = {}
     for port in PORTS:
         path = out_dir / f"{port}.json"
@@ -38,16 +45,17 @@ def main() -> int:
             print(f"{port}: no outcome map at {path}")
             return 1
         maps[port] = json.loads(path.read_text(encoding="utf-8"))
-    ids = set().union(*maps.values())
-    if not ids:
-        print("Every outcome map is empty, so nothing was compared.")
-        return 1
     failed = False
     for port, outcomes in maps.items():
         missing = ids - set(outcomes)
         if missing:
             failed = True
             print(f"{port}: no outcome for {len(missing)} case(s), such as {sorted(missing)[0]}")
+        extra = set(outcomes) - ids
+        if extra:
+            failed = True
+            print(f"{port}: an outcome for {len(extra)} case(s) not in {cases_path.name}, such as "
+                  f"{sorted(extra)[0]}")
 
     disagreements = crashes = 0
     for case_id in sorted(ids):

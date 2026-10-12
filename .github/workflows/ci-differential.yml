@@ -168,5 +168,9 @@ jobs:
           pattern: differential-*
           path: differential/out/
           merge-multiple: true
+      - name: Generate the cases
+        # compare.py takes the case ids from cases.json, not from the maps, so a case every
+        # runner skipped still fails.
+        run: python3 differential/generate.py
       - name: Fail on any case the ports answer differently
-        run: python3 differential/compare.py differential/out
+        run: python3 differential/compare.py differential/out differential/cases.json
