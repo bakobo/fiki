@@ -54,7 +54,7 @@ import {
   UnknownKey,
   UnsupportedAlgorithm,
 } from './errors.js';
-import { checkKey, misspelledAid, toAid, verifyWithRaw, verifyingKey } from './keys.js';
+import { checkKey, toAid, verifyWithRaw, verifyingKey, wellFormedAid } from './keys.js';
 import { MAX_FIELD_BYTES, parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
@@ -366,7 +366,9 @@ export async function signResponse({
  * `expectedAid` is authoritative when supplied, the preregistration case. `resolve` is the other
  * way to be authoritative (@6g9zjsv9): a function from the keyid to the 32 raw bytes of the key it
  * names, or null when it names none, returning either directly or as a promise. Pass one or
- * neither.
+ * neither. fiki hands a resolver only a well-formed AID (@7w7nv94j): any other keyid, fiki's own
+ * 43-character raw keyid included, is MalformedKey before the resolver is called, so a resolver
+ * answers about key state alone.
  *
  * `minimum` is the verifier's covered-set policy. Left out, it is DEFAULT_MINIMUM, fiki's own
  * signing default (@524c8qgv); given, it is REQUEST_MINIMUM or a superset of it (a smaller one is a
@@ -885,10 +887,12 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
     );
   }
   if (resolve !== null) {
-    if (misspelledAid(keyid)) {
+    // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a well-formed
+    // AID, whatever its shape, is refused here and never handed to it.
+    if (!wellFormedAid(keyid)) {
       throw new MalformedKey(
-        `The keyid ${quoted(keyid)} is shaped like an AID and is not its canonical spelling, so it is ` +
-          'not an AID at all.',
+        `The keyid ${quoted(keyid)} is not a well-formed AID: 44 characters, B, D or E, then the ` +
+          'canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.',
         { keyid },
       );
     }

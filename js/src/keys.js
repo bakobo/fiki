@@ -132,16 +132,18 @@ export function verifyingKey(aid) {
 // Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
 const SPELLED_CODES = 'BDE';
 
-/** True when `keyid` is shaped like a B, D or E AID and is not its canonical spelling.
+/** True when `keyid` is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j).
  *
- * That is, 44 characters under one of those codes whose remaining 43 are not base64url, or which
- * decode with a non-zero pad byte and so name the same 32 bytes as another spelling. fiki checks
- * this before any resolver sees the keyid, so a resolver never has to (bakobo/fiki#4).
+ * 44 characters, a first character of B, D or E, and 43 base64url characters that decode behind
+ * one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the keyid
+ * exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever answers about
+ * key state. The character class excludes "=", so 43 valid characters always decode to 33 bytes,
+ * and a zero pad byte is the whole of canonical re-encoding.
  */
-export function misspelledAid(keyid) {
+export function wellFormedAid(keyid) {
   if (keyid.length !== QB64_LEN || !SPELLED_CODES.includes(keyid[0])) return false;
-  if (!/^[A-Za-z0-9\-_]{43}$/.test(keyid.slice(1))) return true;
-  return fromBase64Url('A' + keyid.slice(1))[0] !== 0;
+  if (!/^[A-Za-z0-9\-_]{43}$/.test(keyid.slice(1))) return false;
+  return fromBase64Url('A' + keyid.slice(1))[0] === 0;
 }
 
 /** An Ed25519 key pair whose public half is rendered as a non-transferable AID. */

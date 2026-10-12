@@ -4,14 +4,15 @@
 // profile's neutral section 9 codes rather than fiki's class names. The files are read in place
 // from the repository root, never copied, so this port and fiki-py are held to the same bytes.
 //
-// fiki-py's driver imports the generator's resolver, well-formedness rule and policy-applying
-// verifier from vectors/keri/generate.py (@4tkkp50h). A JavaScript driver cannot import Python,
-// so the class-to-code table is read out of the generator's own text rather than copied, and the
-// resolver is rebuilt here from the keys_rule each file states. That resolver is authoritative: it
-// derives a non-transferable B keyid's key from the prefix, looks every transferable keyid up in
-// the table, answers null for a well-formed AID it has no key state for, raises UnsupportedSigner
-// for a key state with no single effective signer, and refuses a keyid that is not an AID at all.
-// It never decodes a D keyid as a key, which is exactly what one of the vectors is there to catch.
+// The class-to-code table is read out of the generator's own text rather than copied, and the
+// resolver is written here from the files alone. That resolver is authoritative (@6g9zjsv9) and
+// knows key state alone (@7w7nv94j): it hands back a non-transferable B keyid's 32 prefix bytes
+// unexamined, looks every transferable keyid up in the table, answers null for a keyid it has no
+// key state for, and raises UnsupportedSigner for a key state with no single effective signer. It
+// never decodes a D keyid as a key, which is exactly what one of the vectors is there to catch,
+// and it carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's
+// to refuse, so the refusal vectors for them test the library rather than this file. The
+// well-formedness rule below checks the files' own keys tables, never a keyid under test.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -73,13 +74,12 @@ const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 /** The same 32 key bytes, spelled with a non-zero bit in the pad byte the code replaces. */
 const paddingBitAlias = (aid) => aid[0] + ALPHABET[ALPHABET.indexOf(aid[1]) ^ 0b010000] + aid.slice(2);
 
-/** What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode. */
+/** A KERI verifier's key lookup over a file's keys table: key state, and nothing else. */
 function resolver(keys) {
   const table = new Map(keys.filter((e) => e.kind === 'transferable').map((e) => [e.keyid, e]));
   // Async on purpose: a real resolver reads key state from storage, and verify awaits it.
   return async (keyid) => {
-    if (!wellFormedAid(keyid)) throw new errors.MalformedKey(`"${keyid}" is not a well-formed AID.`, { keyid });
-    if (keyid.startsWith('B')) return verifyingKey(keyid);
+    if (keyid.startsWith('B')) return fromB64Url('A' + keyid.slice(1)).slice(1);
     const entry = table.get(keyid);
     if (entry === undefined) return null;
     if (entry.effective_key === null) {

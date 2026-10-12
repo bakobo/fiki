@@ -79,7 +79,7 @@ The safe shape is the default and the portable one is explicit, because the two 
 
 Everything is async. WebCrypto's `sign`, `verify`, `digest` and `importKey` all return promises, so `signRequest`, `signResponse`, `verifyRequest`, `verifyResponse` and the `Key` constructors do too, where the Python versions are synchronous. Names are otherwise the same in camelCase — `signatureBase`, `responseSignatureBase`, `verifyingKey`, `Key.fromSeed`, `key.aid`, `expectedKeyid` — so the two read as one library. Three more differences are deliberate (`this.i` @9enyfktu):
 
-- A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network.
+- A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network. fiki hands it only a well-formed AID — 44 characters, `B`, `D` or `E`, then the canonical base64url of 32 bytes — and refuses any other keyid, its own 43-character raw keyid included, as `MalformedKey` before the resolver is called (`this.i` @7w7nv94j).
 - The request a response answers is a plain object, `{ method, url, headers, body }`, rather than an exported `Request` class.
 - A mistake in the call rather than the message — `expectedAid` together with `resolve`, a `minimum` smaller than the profile's, a missing or non-positive `maxAge`, missing or malformed `authorities`, a response binding the request's digest verified without the request body, and everything the signer refuses above — is a `TypeError`. Python raises `TypeError` for some of these and `ValueError` for others; JavaScript has no `ValueError`. None of them is a `FikiError`.
 
