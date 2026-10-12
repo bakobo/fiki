@@ -15,10 +15,10 @@ namespace Bakobo.Fiki.Tests
     /// <remarks>
     /// A separate contract from the shared vectors: its own format number, and refusals named by the
     /// profile's neutral section 9 codes rather than fiki's kind names. The only thing this driver
-    /// adds is what py's imports from vectors/keri/generate.py: the class-to-code table, the
-    /// well-formedness rule, the resolver a KERI verifier would back with key event logs, and the
-    /// policy-applying verifier. They are ported below, and the code table is checked against the
-    /// generator's own text so the two cannot drift.
+    /// adds is the class-to-code table, which py imports from vectors/keri/generate.py and which is
+    /// checked here against the generator's own text so the two cannot drift; the well-formedness
+    /// rule the keys table is checked against; and the resolver a KERI verifier would back with key
+    /// event logs, with the policy-applying verifier, written from the files alone.
     /// </remarks>
     public class KeriVectorsTests
     {
@@ -129,20 +129,24 @@ namespace Bakobo.Fiki.Tests
 
         private static string Qb64(char code, byte[] raw) => code + Bytes.B64Url(new byte[] { 0 }.Concat(raw).ToArray()).Substring(1);
 
-        /// <summary>What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode.</summary>
+        /// <summary>
+        /// What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode, and
+        /// knowing key state alone (keri_vectors_format 6, this.i @7w7nv94j). It hands back a
+        /// non-transferable B keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
+        /// the table, answers null for a keyid it has no key state for, and says UnsupportedSigner for
+        /// a key state with no single effective signer. It carries no well-formedness check: a keyid
+        /// that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
+        /// test the library rather than this file.
+        /// </summary>
         internal static Func<string, byte[]?> Resolver(JsonElement keys)
         {
             var table = keys.EnumerateArray().Where(e => e.GetProperty("kind").GetString() == "transferable")
                 .ToDictionary(e => e.GetProperty("keyid").GetString()!, e => e);
             return keyId =>
             {
-                if (!WellFormedAid(keyId))
-                {
-                    throw new FikiException(FikiErrorKind.MalformedKey, $"\"{keyId}\" is not a well-formed AID.", keyId: keyId);
-                }
                 if (keyId[0] == 'B')
                 {
-                    return Key.VerifyingKey(keyId).ToBytes();
+                    return Bytes.FromB64Url("A" + keyId.Substring(1)).Skip(1).ToArray();
                 }
                 if (!table.TryGetValue(keyId, out var entry))
                 {

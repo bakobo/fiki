@@ -585,11 +585,14 @@ namespace Bakobo.Fiki
             }
             if (resolve != null)
             {
-                if (Aids.Misspelled(keyId!))
+                // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
+                // well-formed AID, whatever its shape, is refused here and never handed to it.
+                if (!Aids.WellFormed(keyId!))
                 {
                     throw new FikiException(
                         FikiErrorKind.MalformedKey,
-                        $"The keyid {PyText.Shown(keyId!)} is shaped like an AID and is not its canonical spelling, so it is not an AID at all.",
+                        $"The keyid {PyText.Shown(keyId!)} is not a well-formed AID: 44 characters, B, D or E, then the canonical " +
+                        "base64url spelling of 32 bytes. A resolver is asked only about an AID.",
                         keyId: keyId);
                 }
                 aid = keyId!;

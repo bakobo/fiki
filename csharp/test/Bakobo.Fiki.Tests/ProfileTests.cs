@@ -181,13 +181,84 @@ namespace Bakobo.Fiki.Tests
         public void AResolverReturningSomethingOtherThan32BytesIsAMalformedKey() =>
             Assert.Equal(FikiErrorKind.MalformedKey, Sign(keyId: Aid).Refused(o => o.WithResolver(_ => Bytes.Utf8("short"))).Kind);
 
-        [Fact]
-        public void AResolverMayRefuseAMalformedKeyidItself()
+        // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j):
+        // 44 characters, B, D or E, then 43 base64url characters decoding behind one pad character to
+        // 32 bytes with a zero pad byte. N3 of the format-4 plan.
+        public static IEnumerable<object[]> NotAids() => new[]
         {
-            var caught = Sign(keyId: "not-an-aid").Refused(o => o.WithResolver(k =>
-                throw new FikiException(FikiErrorKind.MalformedKey, $"{k} is not an AID.", keyId: k)));
+            new object[] { "not-an-aid" },
+            new object[] { Aid.Substring(0, 43) },
+            new object[] { Aid + "A" },
+            new object[] { "A" + Aid.Substring(1) },
+            new object[] { "e" + Aid.Substring(1) },
+            new object[] { "E" + new string('!', 43) },
+            new object[] { "E" + new string('+', 43) },
+            new object[] { Aid.Substring(0, 43) + "=" },
+            new object[] { KeysTests.PaddingBitAlias(Aid) },
+            // fiki's own default keyid, the 43-character raw key: a verifier with a resolver never
+            // reads a key inline (@6g9zjsv9), so it is not an AID either.
+            new object[] { Bytes.B64Url(Key.VerifyingKey(Key.FromSeed(Bytes.Range(0, 32)).Aid).ToBytes()) },
+        };
+
+        [Theory]
+        [MemberData(nameof(NotAids))]
+        public void AKeyidThatIsNotAnAidIsMalformedAndNeverResolved(string keyId)
+        {
+            var calls = new List<string>();
+            var message = Sign(keyId: Aid).Mangle($"keyid=\"{Aid}\"", $"keyid=\"{keyId}\"");
+            var caught = message.Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Raw(TheKey);
+            }));
             Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
-            Assert.Equal("not-an-aid", caught.KeyId);
+            Assert.Equal(keyId, caught.KeyId);
+            Assert.Empty(calls);
+        }
+
+        [Theory]
+        [InlineData('B')]
+        [InlineData('D')]
+        [InlineData('E')]
+        public void AWellFormedUnknownAidIsResolvedOnce(char code)
+        {
+            var keyId = Cesr(code, Sha256(Bytes.Utf8("unknown")));
+            var calls = new List<string>();
+            var caught = Sign(keyId: keyId).Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return null;
+            }));
+            Assert.Equal(FikiErrorKind.UnknownKey, caught.Kind);
+            Assert.Equal(new[] { keyId }, calls);
+        }
+
+        [Fact]
+        public void ASmallOrderBAidIsWellFormedSoItIsResolvedAndItsKeyRefused()
+        {
+            // The resolver is asked, since the keyid is an AID, and the key it returns is refused.
+            var keyId = "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+            var calls = new List<string>();
+            var caught = Sign(keyId: keyId).Refused(o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Bytes.FromB64Url("A" + k.Substring(1)).Skip(1).ToArray();
+            }));
+            Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
+            Assert.Equal(new[] { keyId }, calls);
+        }
+
+        [Fact]
+        public void AResponseKeyidThatIsNotAnAidIsNeverResolvedEither()
+        {
+            var calls = new List<string>();
+            var caught = CheckRefused(Respond(keyId: "not-an-aid"), with: o => o.WithResolver(k =>
+            {
+                calls.Add(k);
+                return Raw(TheKey);
+            }));
+            Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
+            Assert.Empty(calls);
         }
 
         [Fact]
