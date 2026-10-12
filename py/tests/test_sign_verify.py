@@ -593,21 +593,17 @@ def test_a_one_element_list_is_the_string_itself():
     assert _verify_get({**headers, "X-Tag": ["a=1"], "Set-Cookie": ("s=1",)}).covered == tuple(LISTED)
 
 
-def test_a_header_list_is_read_once():
-    """Hostile pass on #25: fiki iterated the list to check it and again to join it, so a list
-    subclass could pass the check with one set of lines and be verified with another."""
+def test_a_header_list_subclass_is_a_caller_error():
+    """Hostile pass on #25: a list subclass can iterate one way for fiki and another for the caller,
+    so no reading of it is the value the caller holds. Only a list or a tuple itself is joined."""
 
     class Flaky(list):
-        passes = 0
-
         def __iter__(self):
-            Flaky.passes += 1
-            return iter(["a=1", "b=2"] if Flaky.passes == 1 else ["role=admin"])
+            return iter(["a=1", "b=2"])
 
     _, headers = _signed_over_joined()
-    listed = {**headers, "X-Tag": Flaky(["role=admin"]), "Set-Cookie": ["s=1", "t=2"]}
-    assert _verify_get(listed).covered == tuple(LISTED)
-    assert Flaky.passes == 1
+    with pytest.raises(TypeError, match="A header is a name and a value, both strings"):
+        _verify_get({**headers, "X-Tag": Flaky(["role=admin"]), "Set-Cookie": ["s=1", "t=2"]})
 
 
 def test_a_list_joined_with_a_bare_comma_does_not_verify():

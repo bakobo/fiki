@@ -162,6 +162,14 @@ describe('a header value given as a list is joined with ", " (@4un2vx4l)', () =>
     await assert.rejects(() => verify({ ...signed, 'X-Tag': wrong, 'Set-Cookie': ['s=1', 't=2'] }), errors.SignatureMismatch);
   });
 
+  it('stops at the first hole of a sparse array rather than reading every slot', async () => {
+    // Hostile pass on #25: the check ran after copying every index, so a declared length of
+    // billions allocated before the refusal. 2**32 - 1 slots would not finish if copied.
+    const sparse = ['a=1'];
+    sparse.length = 2 ** 32 - 1;
+    await assert.rejects(() => sign({ 'X-Tag': sparse }), callerError(EACH));
+  });
+
   for (const value of [['a=1', 2], ['a=1', new TextEncoder().encode('b=2')], [null], ['a=1', ['b=2']], ['a=1', , 'b=2']]) {
     it(`is a caller error when it holds a non-string, as in ${JSON.stringify(value)}`, async () => {
       const signed = await joined();

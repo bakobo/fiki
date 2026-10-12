@@ -354,16 +354,20 @@ export function canonicalHeaders(headers, name = 'headers') {
   for (const [field, given] of Object.entries(headers ?? {})) {
     let value = given;
     if (Array.isArray(given)) {
-      // Each line read once, by index, into a plain array that is then checked and joined: the
-      // given array's own iterator or join could answer differently from what was checked
-      // (hostile pass on #25). Reading by index also makes a hole undefined, refused below.
+      // Each line read once, by index, and checked as it is read, into a plain array that is then
+      // joined: the given array's own iterator or join could answer differently from what was
+      // checked, and checking as it reads stops at the first hole of a sparse array rather than
+      // copying every empty slot first (hostile pass on #25).
       const lines = [];
-      for (let i = 0, n = given.length; i < n; i += 1) lines.push(given[i]);
-      if (!lines.every((line) => typeof line === 'string')) {
-        throw new TypeError(
-          `The header ${quoted(field)} is given as a list, whose field lines must be each a string; ` +
-            'this one holds something else.',
-        );
+      for (let i = 0, n = given.length; i < n; i += 1) {
+        const line = given[i];
+        if (typeof line !== 'string') {
+          throw new TypeError(
+            `The header ${quoted(field)} is given as a list, whose field lines must be each a string; ` +
+              'this one holds something else.',
+          );
+        }
+        lines.push(line);
       }
       value = lines.join(', ');
     }

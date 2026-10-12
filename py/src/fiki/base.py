@@ -216,17 +216,18 @@ def canonical(headers: Headers) -> dict[str, str]:
     mistake in the call (@235933km). Values are kept as received: value_of checks them raw and
     only then trims _OWS. Idempotent, so a mapping canonicalized once reads the same everywhere.
 
-    A value given as a list or tuple of strings, as Node gives set-cookie and Starlette can give a
+    A value given as a list or tuple of strings (exactly, not a subclass), as Node gives set-cookie
+    and Starlette can give a
     repeated field, is joined with a comma and one space before anything reads it, which is the
     value RFC 9421 section 2.1 defines for a field sent in several lines (@4un2vx4l). An element
     that is not a string is a mistake in the call.
     """
     out: dict[str, str] = {}
     for name, value in headers.items():
-        if isinstance(value, (list, tuple)):
-            # Read once, into a plain list: a subclass could iterate differently the second time,
-            # and the value fiki checks must be the value it verifies (hostile pass on #25).
-            value = list(value)
+        # Exactly a list or a tuple, never a subclass, which could iterate one way for fiki and
+        # another for the caller, so no reading of it is the value the caller holds (hostile pass
+        # on #25). A subclass falls through to the string check below and is a caller error.
+        if type(value) in (list, tuple):
             if not all(type(line) is str for line in value):
                 raise TypeError(
                     f"The header {shown(name)} is given as a list, whose field lines must be each "
