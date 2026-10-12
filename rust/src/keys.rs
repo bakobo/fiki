@@ -16,7 +16,8 @@ const CODE: u8 = b'B';
 const RAW_LEN: usize = 32;
 const QB64_LEN: usize = 44;
 
-const URL_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+pub(crate) const URL_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const STD_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 /// Base64 with an explicit alphabet and no padding, written out rather than pulled in: the port
@@ -188,7 +189,7 @@ pub(crate) fn public_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
 
 /// Whether the little-endian y in an encoded point, sign bit cleared, is below p = 2^255 - 19.
 /// Only 19 values are not: 0x7f, then thirty 0xff, then a low byte of 0xed or more.
-fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
+pub(crate) fn y_below_prime(raw: &[u8; RAW_LEN]) -> bool {
     !(raw[31] & 0x7f == 0x7f && raw[1..31].iter().all(|b| *b == 0xff) && raw[0] >= 0xed)
 }
 
@@ -227,6 +228,27 @@ impl Key {
         })?;
         Ok(Key {
             signing: SigningKey::from_bytes(&bytes),
+        })
+    }
+
+    /// Load an unencrypted OpenSSH Ed25519 private key, as ssh-keygen writes it (`this.i` @0mvgkwnl).
+    ///
+    /// `text` is the armored key, LF line endings, with or without the final newline. The key must
+    /// be the only one in the file, its check integers must agree, its padding must be 1, 2, 3, ...,
+    /// and its public key must match in both places it is stored and be the one its seed derives.
+    /// Anything else, including an encrypted key, is `Kind::MalformedKey`, and the error never
+    /// carries any part of the key.
+    ///
+    /// Use a key dedicated to fiki and never loaded into ssh-agent. Signatures do not cross between
+    /// protocols -- every base `sign_request` and `sign_response` build begins with a double quote,
+    /// SSH user authentication signs data beginning with a length-prefixed session identifier
+    /// (RFC 4252 section 7), and SSHSIG signs data beginning "SSHSIG" -- but an agent signs
+    /// whatever bytes it is asked to, so anyone able to use a forwarded agent could sign fiki
+    /// requests with a login key. The separation is a property of `sign_request`, not of the key:
+    /// [`Key::sign`] signs any bytes.
+    pub fn from_openssh(text: &str) -> Result<Self> {
+        Ok(Key {
+            signing: SigningKey::from_bytes(&crate::openssh::read_openssh(text)?),
         })
     }
 
