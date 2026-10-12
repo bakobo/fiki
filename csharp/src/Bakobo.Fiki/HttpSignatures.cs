@@ -13,14 +13,14 @@ namespace Bakobo.Fiki
         /// The conformance contract this port satisfies (this.i @4fhrre0m): two artifacts interoperate
         /// when their declared vectors format matches, whatever their own version numbers say.
         /// </summary>
-        public const int VectorsFormat = 3;
+        public const int VectorsFormat = 4;
 
         /// <summary>
         /// The KERI profile's vector set this port satisfies, <c>vectors/keri/</c> (this.i
         /// @8vwrexxc). A separate number from <see cref="VectorsFormat"/>, because the two sets answer
         /// to different authorities and move independently.
         /// </summary>
-        public const int KeriVectorsFormat = 5;
+        public const int KeriVectorsFormat = 6;
 
         /// <summary>
         /// The most bytes, UTF-8 and as received before any trimming, that fiki reads from any

@@ -74,11 +74,11 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> LegacyCases() => Ids("legacy.json");
 
-        // Cases per file at hardening-a, read from the files once and never at test time (tick
+        // Cases per file at keri_vectors_format 6, read from the files once and never at test time (tick
         // 7xbw, review T8). rfc9421.json's one case is the RFC's own, run by name below.
         private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
         {
-            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 64 }, { "legacy.json", 4 },
+            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 65 }, { "legacy.json", 4 },
         };
 
         private static readonly Dictionary<string, Func<IEnumerable<object[]>>> Sources = new Dictionary<string, Func<IEnumerable<object[]>>>
