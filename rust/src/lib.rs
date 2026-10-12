@@ -27,6 +27,13 @@ pub const VECTORS_FORMAT: u32 = 4;
 /// not own.
 pub const KERI_VECTORS_FORMAT: u32 = 6;
 
+/// The key-spelling vectors' conformance contract this port satisfies, `vectors/keys/`'s
+/// `key_vectors_format` (`this.i` @0mvgkwnl).
+///
+/// A third number, because a port ships [`aid_from`] and [`Key::from_openssh`] on its own schedule
+/// and adding them must not move [`VECTORS_FORMAT`].
+pub const KEY_VECTORS_FORMAT: u32 = 1;
+
 mod base;
 #[cfg(test)]
 mod corpus_tests;
