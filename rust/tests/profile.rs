@@ -901,11 +901,8 @@ fn a_signature_member_that_is_not_a_byte_sequence_is_found_before_the_labels() {
         let both = format!("{}, other={value}", sent.headers["Signature-Input"]);
         sent.headers.insert("Signature-Input".into(), both);
         sent.headers.insert("Signature".into(), member.into());
-        assert_eq!(
-            sent.kind(opted_out()),
-            Kind::MalformedSignatureValue,
-            "{member}"
-        );
+        // MalformedSignature since format 4 (@0zq820dl), and still ahead of the label count.
+        assert_eq!(sent.kind(opted_out()), Kind::MalformedSignature, "{member}");
     }
 }
 

@@ -947,9 +947,13 @@ fn read(
                 value: Value::Bytes(raw),
                 ..
             }) => values.push((label, raw)),
+            // The KERI profile calls a member that is not a byte sequence malformed-signature:
+            // the field is malformed, not the signature in it (`this.i` @0zq820dl).
+            // MalformedSignatureValue is kept for a byte sequence that cannot be an Ed25519
+            // signature, below.
             _ => {
                 return Err(Error::new(
-                    Kind::MalformedSignatureValue,
+                    Kind::MalformedSignature,
                     "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in \
                      colons; this Signature header carries something else.",
                 ))
