@@ -1091,13 +1091,84 @@ class ProfileTest {
         assertEquals("\"content-digest\";req", e.detail());
     }
 
+    /**
+     * Both sides hold the whole request by the time a response is signed or verified (@7p9s3g9k).
+     * A request whose headers announce a body it carries is judged by that content; one carrying
+     * an empty body binds none.
+     */
     @Test
     void aResponseJudgesItsRequestsBodyByContentNotHeaders() {
-        Fiki.Request chunked = new Fiki.Request("POST", URL,
-            Map.of("Transfer-Encoding", "chunked", "Content-Digest", Fiki.contentDigest(BODY)), null);
+        Fiki.Request chunked = new Fiki.Request("POST", URL, Map.of("Transfer-Encoding", "chunked"), new byte[0]);
         Map<String, String> headers = respond(opts -> opts.withCovered(plus(Fiki.RESPONSE_MINIMUM, "content-digest")),
             200, chunked, Map.of());
         assertEquals(KEY.aid(), check(headers, 200, RESPONSE_BODY, chunked,
+            opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)).aid());
+    }
+
+    /* ----------- a Request announcing a body it does not carry is a caller error (@6v00d3tu) */
+
+    private static final String ANNOUNCED = "announces a body in its headers";
+
+    /** A request signed for with its body: the first is as given, the second handed over without it. */
+    private static Fiki.Request[] announcing(Map<String, String> extra) {
+        Map<String, String> headers = new LinkedHashMap<>(extra);
+        headers.put("Content-Digest", Fiki.contentDigest(BODY));
+        return new Fiki.Request[] {
+            new Fiki.Request("POST", URL, headers, BODY), new Fiki.Request("POST", URL, headers, null)};
+    }
+
+    private static Map<String, String> field(String spec) {
+        Map<String, String> out = new LinkedHashMap<>();
+        for (String pair : spec.split(";")) {
+            String[] parts = pair.split(":", 2);
+            out.put(parts[0], parts[1]);
+        }
+        return out;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Content-Length:18", "Transfer-Encoding:chunked", "Content-Length:18;Transfer-Encoding:chunked",
+        "content-length:abc"})
+    void verifyingAResponseToARequestAnnouncingABodyItLacksIsACallerError(String extra) {
+        Fiki.Request[] pair = announcing(field(extra));
+        Map<String, String> headers = respond(opts -> opts, 200, pair[0], Map.of());
+        Caller.refused(ANNOUNCED, () -> check(headers, 200, RESPONSE_BODY, pair[1],
+            opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Content-Length:18", "Transfer-Encoding:gzip"})
+    void signingAResponseToARequestAnnouncingABodyItLacksIsACallerError(String extra) {
+        Fiki.Request stripped = announcing(field(extra))[1];
+        Caller.refused(ANNOUNCED, () -> respond(opts -> opts, 200, stripped, Map.of()));
+    }
+
+    /** V1b and N4: a malformed Signature, or none, never outranks the call's own mistake. */
+    @Test
+    void theCallerErrorIsDecidedBeforeAnySignatureHeaderIsRead() {
+        Fiki.Request[] pair = announcing(Map.of("Content-Length", "18"));
+        Map<String, String> malformed = respond(opts -> opts.withKeyid(AID), 200, pair[0], Map.of());
+        malformed.put("Signature", "sig=123");
+        List<String> calls = new ArrayList<>();
+        Fiki.Resolver resolver = keyid -> {
+            calls.add(keyid);
+            return raw(KEY);
+        };
+        for (Map<String, String> headers : List.of(malformed, Map.<String, String>of(), Map.of("Signature", ""))) {
+            for (int status : new int[] {200, 401}) {
+                Caller.refused(ANNOUNCED, () -> check(headers, status, RESPONSE_BODY, pair[1],
+                    opts -> opts.withResolver(resolver)));
+            }
+        }
+        assertEquals(List.of(), calls);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "000", " 0 "})
+    void aRequestAnnouncingNoBodyAndCarryingNoneIsJudgedAsBefore(String length) {
+        Fiki.Request asked = new Fiki.Request("GET", URL, Map.of("Content-Length", length), null);
+        Map<String, String> headers = respond(opts -> opts, 200, asked, Map.of());
+        assertEquals(KEY.aid(), check(headers, 200, RESPONSE_BODY, asked,
             opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM)).aid());
     }
 
@@ -1111,10 +1182,11 @@ class ProfileTest {
 
     /* ------------------------------------------- the first review and draft 6 (@2f227n4r) */
 
+    /** By content alone (@7p9s3g9k): a Request whose body is empty binds no digest. */
     @Test
-    void aDefaultResponseDoesNotBindARequestBodyOnlyItsHeadersAnnounce() {
-        Fiki.Request asked = new Fiki.Request("POST", URL,
-            Map.of("Content-Length", "18", "Content-Digest", Fiki.contentDigest(BODY)), null);
+    void aDefaultResponseToARequestWithAnEmptyBodyBindsNoDigest() {
+        Fiki.Request asked = new Fiki.Request("POST", URL, Map.of("Content-Digest", Fiki.contentDigest(new byte[0])),
+            new byte[0]);
         Map<String, String> headers = respond(opts -> opts, 200, asked, Map.of());
         assertFalse(check(headers, 200, RESPONSE_BODY, asked, opts -> opts.withMinimum(Fiki.RESPONSE_MINIMUM))
             .covered().contains(Fiki.req("content-digest")));

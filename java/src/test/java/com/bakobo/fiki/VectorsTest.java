@@ -181,7 +181,11 @@ class VectorsTest {
         Map.entry("response-expected-keyid-omitted", "State the AID this client expects the response to be signed by"),
         Map.entry("response-minimum-below-the-profiles", "A minimum covered set must include the profile's own"),
         Map.entry("response-expected-keyid-empty", "expected keyid is empty, which names no AID"),
-        Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"));
+        Map.entry("url-over-8192-bytes", "cannot be read: it is over 8192 bytes"),
+        Map.entry("request-announces-a-body-it-does-not-carry", "announces a body in its headers"),
+        Map.entry("request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers"),
+        Map.entry("request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers"),
+        Map.entry("sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers"));
 
     @TestFactory
     Stream<DynamicTest> vectorsFormat() {
