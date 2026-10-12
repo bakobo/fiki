@@ -1661,9 +1661,12 @@ public final class Fiki {
 
         List<Sfv.Member> signatures = parse(rawSignature, "Signature", FikiException.Kind.MalformedSignature);
         for (Sfv.Member member : signatures) {
+            // The KERI profile calls a member that is not a byte sequence malformed-signature: the
+            // field is malformed, not the signature in it (@0zq820dl). MalformedSignatureValue is
+            // kept for a byte sequence that cannot be an Ed25519 signature, below.
             if (!(member.value() instanceof byte[])) {
                 throw new FikiException(
-                    FikiException.Kind.MalformedSignatureValue,
+                    FikiException.Kind.MalformedSignature,
                     "RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; "
                         + "this Signature header carries something else.");
             }

@@ -950,13 +950,15 @@ class ProfileTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"sig=\"not bytes\"", "sig=token", "sig=(:AAAA:)", "sig=1.5"})
+    @ValueSource(strings = {"sig=\"not bytes\"", "sig=token", "sig=(:AAAA:)", "sig=1.5", "sig=7", "sig=?1"})
     void aSignatureMemberThatIsNotAByteSequenceIsFoundBeforeTheLabels(String signature) {
         Signed s = sign();
         String value = s.headers().get("Signature-Input").split("=", 2)[1];
         s.headers().put("Signature-Input", s.headers().get("Signature-Input") + ", other=" + value);
         s.headers().put("Signature", signature);
-        assertEquals(FikiException.Kind.MalformedSignatureValue, kindOf(() -> verify(s)));
+        // MalformedSignature since format 4, as the KERI profile names it (@0zq820dl), and still
+        // ahead of the label count.
+        assertEquals(FikiException.Kind.MalformedSignature, kindOf(() -> verify(s)));
     }
 
     /* ---------------------------------------------------------------- the section 9 order */
