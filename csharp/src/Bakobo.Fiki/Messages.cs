@@ -449,17 +449,30 @@ namespace Bakobo.Fiki
         /// by its content, since both sides hold the whole request by the time a response is signed
         /// or verified; a Request announcing a body (a Content-Length above zero, or any
         /// Transfer-Encoding) with none passed breaks that assumption, because the caller threw the
-        /// body away. Decided before any header of the response is read, so no defect in the message
-        /// can outrank it, and no resolver is asked.
+        /// body away. So does an empty body beside a Content-Length that is not a plain zero, since a
+        /// length is exact and no request of zero bytes announces one; an empty body beside a
+        /// Transfer-Encoding is not, because a chunked request may carry nothing. Decided before any
+        /// header of the response is read, so no defect in the message can outrank it, and no
+        /// resolver is asked.
         /// </summary>
         private static void CheckAnnouncedBody(Request? request)
         {
-            if (request != null && request.BodyRef == null && RequestHasBody(Lowered(request.Headers), null))
+            if (request == null || HasContent(request.BodyRef))
+            {
+                return;
+            }
+            var announced = Lowered(request.Headers);
+            if (request.BodyRef != null)
+            {
+                // Empty: only a length can contradict it.
+                announced.Remove("transfer-encoding");
+            }
+            if (RequestHasBody(announced, null))
             {
                 throw new ArgumentException(
                     "The request this response answers announces a body in its headers, by its Content-Length or " +
-                    "Transfer-Encoding, and Request.Body is null, so whether the response must bind that body cannot be " +
-                    "decided. Pass the request body, or a Request without those headers.");
+                    "Transfer-Encoding, and Request.Body does not carry it, so whether the response must bind that body " +
+                    "cannot be decided. Pass the request body, or a Request without those headers.");
             }
         }
 

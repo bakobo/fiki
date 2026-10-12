@@ -664,6 +664,36 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Theory]
+        [InlineData("18", null)]
+        [InlineData("abc", null)]
+        [InlineData("18", "chunked")]
+        public void AnEmptyBodyBesideAContentLengthIsACallerError(string length, string? coding)
+        {
+            // A length is exact, so no request of zero bytes announces one that is not a plain zero.
+            var headers = new Dictionary<string, string> { { "Content-Length", length } };
+            if (coding != null)
+            {
+                headers["Transfer-Encoding"] = coding;
+            }
+            var empty = new Request("POST", Url, headers, new byte[0]);
+            var caught = Assert.Throws<ArgumentException>(() => Respond(request: empty));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+            var (given, _) = Announcing(("Content-Length", "18"));
+            var signed = Respond(request: given);
+            caught = Assert.Throws<ArgumentException>(() =>
+                Check(signed, request: empty, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum)));
+            Assert.Contains(Announced, caught.Message, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void AnEmptyBodyBesideAZeroLengthIsNoBody()
+        {
+            var empty = new Request("POST", Url, new Dictionary<string, string> { { "Content-Length", "0" } }, new byte[0]);
+            var headers = Respond(request: empty);
+            Assert.Equal(TheKey.Aid, Check(headers, request: empty, with: o => o.WithMinimum(HttpSignatures.ResponseMinimum)).Aid);
+        }
+
+        [Theory]
         [InlineData("Content-Length", "18")]
         [InlineData("Transfer-Encoding", "gzip")]
         public void SigningAResponseToARequestAnnouncingABodyItLacksIsACallerError(string name, string value)

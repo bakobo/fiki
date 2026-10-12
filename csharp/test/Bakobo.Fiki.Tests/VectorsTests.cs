@@ -282,7 +282,7 @@ namespace Bakobo.Fiki.Tests
         private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
         {
             { "aid-lens.json", 7 }, { "signature-base.json", 14 }, { "accepts.json", 45 }, { "refusals.json", 157 },
-            { "misuse.json", 13 }, { "signs.json", 18 }, { "responses.json", 15 },
+            { "misuse.json", 14 }, { "signs.json", 18 }, { "responses.json", 16 },
         };
 
         // The data each file's theories run from; xunit runs one case per distinct id.
@@ -362,6 +362,7 @@ namespace Bakobo.Fiki.Tests
         private static readonly Dictionary<string, string> CallerMessages = new Dictionary<string, string>
         {
             { "request-announces-a-body-it-does-not-carry", "announces a body in its headers" },
+            { "request-announces-a-length-and-carries-an-empty-body", "announces a body in its headers" },
             { "request-announces-a-body-and-the-response-signature-is-malformed", "announces a body in its headers" },
             { "request-announces-a-chunked-body-it-does-not-carry", "announces a body in its headers" },
             { "sign-response-to-a-request-announcing-a-body-it-does-not-carry", "announces a body in its headers" },
