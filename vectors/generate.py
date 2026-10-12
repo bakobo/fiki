@@ -1584,6 +1584,17 @@ def signs():
                  "headers": {"Content-Length": "18"}, "body": None}, error="caller",
         note="The request's headers announce 18 bytes and no body is given, so whether the "
              "response must bind it cannot be decided.")
+    # format 4 (@4efl0354): a signer handed a request whose covered Content-Digest is not ASCII
+    # reports the digest as malformed. The body is given; with none, ports refuse earlier, at the
+    # base-value check, and that ordering is not pinned.
+    add("sign-response-with-a-non-ascii-request-digest", kind="response", status=200,
+        body_text='{"done": true}', method=None, url=None,
+        request={"method": "POST", "url": "https://api.example.com/things",
+                 "headers": {"Content-Digest": "sha-256=:caf\u00e9:"}, "body": body},
+        covered=["@status", '"@method";req', '"@path";req', '"@query";req', "content-digest",
+                 '"content-digest";req'],
+        error="MalformedDigest",
+        note="A signer has no signature to mismatch; the request's digest header is malformed.")
     return {**HEADER, "about": "What every implementation's signer must emit, byte for byte.",
             "cases": cases}
 

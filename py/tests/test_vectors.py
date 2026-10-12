@@ -38,7 +38,7 @@ COUNTS = {
     "accepts.json": 44,
     "refusals.json": 152,
     "misuse.json": 13,
-    "signs.json": 17,
+    "signs.json": 18,
     "responses.json": 15,
 }
 

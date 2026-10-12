@@ -468,6 +468,41 @@
       "label": "sig",
       "error": "caller",
       "note": "The request's headers announce 18 bytes and no body is given, so whether the response must bind it cannot be decided."
+    },
+    {
+      "id": "sign-response-with-a-non-ascii-request-digest",
+      "kind": "response",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "method": null,
+      "url": null,
+      "headers": {},
+      "body": "{\"done\": true}",
+      "covered": [
+        "@status",
+        "\"@method\";req",
+        "\"@path\";req",
+        "\"@query\";req",
+        "content-digest",
+        "\"content-digest\";req"
+      ],
+      "created": 1700000000,
+      "expires": null,
+      "nonce": null,
+      "tag": null,
+      "minimum": null,
+      "status": 200,
+      "request": {
+        "method": "POST",
+        "url": "https://api.example.com/things",
+        "headers": {
+          "Content-Digest": "sha-256=:caf\u00e9:"
+        },
+        "body": "{\"hello\": \"world\"}"
+      },
+      "keyid": null,
+      "label": "sig",
+      "error": "MalformedDigest",
+      "note": "A signer has no signature to mismatch; the request's digest header is malformed."
     }
   ]
 }
