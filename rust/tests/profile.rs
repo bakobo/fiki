@@ -1227,6 +1227,46 @@ fn signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error(
 }
 
 #[test]
+fn an_empty_body_beside_a_length_is_a_caller_error_and_beside_a_coding_is_no_body() {
+    let empty = |extra: &[(&str, &str)]| Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(extra),
+        body: Some(Vec::new()),
+    };
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Content-Length", "abc")],
+        &[("Content-Length", "18"), ("Transfer-Encoding", "chunked")],
+    ] {
+        let asked = empty(extra);
+        announced(respond_to(Some(&asked), &[], SignOptions::default()));
+        let bodiless = Request {
+            headers: BTreeMap::new(),
+            ..asked.clone()
+        };
+        let signed = respond_to(Some(&bodiless), &[], SignOptions::default()).unwrap();
+        announced(check_as(
+            200,
+            &signed,
+            Some(&asked),
+            None,
+            minimum(&RESPONSE_MINIMUM),
+        ));
+    }
+    for extra in [
+        &[("Transfer-Encoding", "chunked")][..],
+        &[("Content-Length", "0"), ("Transfer-Encoding", "chunked")],
+    ] {
+        let asked = empty(extra);
+        let signed = respond_to(Some(&asked), &[], SignOptions::default()).unwrap();
+        let verdict =
+            check_as(200, &signed, Some(&asked), None, minimum(&RESPONSE_MINIMUM)).unwrap();
+        assert!(!verdict.covered.contains(&req("content-digest")));
+    }
+}
+
+#[test]
 fn the_caller_error_is_decided_before_any_signature_header_is_read() {
     // V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and the
     // resolver is never asked.

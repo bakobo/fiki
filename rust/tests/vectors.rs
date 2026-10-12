@@ -168,9 +168,9 @@ const CASE_COUNTS: [(&str, usize); 7] = [
     ("signature-base.json", 14),
     ("accepts.json", 45),
     ("refusals.json", 157),
-    ("misuse.json", 13),
+    ("misuse.json", 14),
     ("signs.json", 18),
-    ("responses.json", 15),
+    ("responses.json", 16),
 ];
 
 fn pinned(name: &str) -> usize {

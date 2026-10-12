@@ -540,8 +540,9 @@ pub fn sign_request(
 /// `content-digest` when it had content, each marked `req`. A request with content and no digest to
 /// bind is refused as `UncoveredBody`, and a request digest the request's body contradicts is
 /// refused the way the verifier would refuse it. A `request` whose headers announce a body (a
-/// `Content-Length` above zero, or any `Transfer-Encoding`) and whose body is `None` is
-/// `InvalidArgument` (`this.i` @6v00d3tu): pass the body, or a `Request` without those headers.
+/// `Content-Length` above zero, or any `Transfer-Encoding`) and whose body is `None`, or empty
+/// beside a `Content-Length`, is `InvalidArgument` (`this.i` @6v00d3tu): pass the body, or a
+/// `Request` without those headers.
 pub fn sign_response(
     key: &Key,
     status: u16,
@@ -652,8 +653,8 @@ pub fn verify_request(
 /// [`Minimum::Off`] is the explicit opt-out. A response covering
 /// `"content-digest";req` verified against a `request` whose body is `None` is `InvalidArgument`:
 /// that digest is recomputed over the request body, and fiki cannot check a body it was not given.
-/// So is a `request` whose headers announce a body its `body` of `None` does not carry
-/// (`this.i` @6v00d3tu), decided before anything in the response is read, and so is
+/// So is a `request` whose headers announce a body its `body` does not carry, `None` or empty
+/// beside a `Content-Length` (`this.i` @6v00d3tu), decided before anything in the response is read, and so is
 /// `authorities`, which a response has no use for.
 pub fn verify_response(
     status: u16,
@@ -848,19 +849,33 @@ fn verify(
 /// Whether the request had a body is judged by its content, since both sides hold the whole
 /// request by the time a response is signed or verified. A `Request` announcing a body (a
 /// `Content-Length` above zero, or any `Transfer-Encoding`) with `body: None` breaks that
-/// assumption: the caller threw the body away. Decided before any header of the response is read,
-/// so no defect in the message can outrank it, and no resolver is asked.
+/// assumption: the caller threw the body away. So does an empty body beside a `Content-Length`
+/// that is not a plain zero, since a length is exact and no request of zero bytes announces one;
+/// an empty body beside a `Transfer-Encoding` is not, because a chunked request may carry nothing.
+/// Decided before any header of the response is read, so no defect in the message can outrank it,
+/// and no resolver is asked.
 fn check_announced_body(request: Option<&Asked>) -> Result<()> {
-    match request {
-        Some(r) if r.body.is_none() && request_has_body(&r.headers, None) => Err(Error::new(
+    let Some(r) = request else { return Ok(()) };
+    let announced = match r.body {
+        None => request_has_body(&r.headers, None),
+        // Empty: only a length can contradict it, since a chunked request may carry nothing.
+        Some([]) => {
+            let mut lengths = r.headers.clone();
+            lengths.remove("transfer-encoding");
+            request_has_body(&lengths, None)
+        }
+        Some(_) => false,
+    };
+    if announced {
+        return Err(Error::new(
             Kind::InvalidArgument,
             "The request this response answers announces a body in its headers, by its \
-             Content-Length or Transfer-Encoding, and Request.body is None, so whether the \
-             response must bind that body cannot be decided. Pass the request body, or a Request \
-             without those headers.",
-        )),
-        _ => Ok(()),
+             Content-Length or Transfer-Encoding, and Request.body does not carry it, so whether \
+             the response must bind that body cannot be decided. Pass the request body, or a \
+             Request without those headers.",
+        ));
     }
+    Ok(())
 }
 
 /// The profile's request body test: a length above zero, any transfer coding, or content.
