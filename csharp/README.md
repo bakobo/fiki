@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 3), and every case in the KERI profile's `vectors/keri/` (KERI vectors format 5). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 3), every case in the KERI profile's `vectors/keri/` (KERI vectors format 5), and the httpwg structured-field-tests corpus vendored under `vectors/third_party/` (`this.i` @7fexwu3s). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 
@@ -74,4 +74,4 @@ Headers holding two field names equal case-insensitively, such as `X-Role` and `
 
 A field value is checked as received and only SP and HTAB are trimmed from it (`this.i` @56qu7gyw): a covered value with a CR, LF, NUL or other byte outside visible ASCII around it is a `SignatureMismatch`.
 
-The structured-field parser is strict where http_sfv, fiki-py's parser, is lenient, as fiki-py itself now is (conductor rulings D-SJ55 and D-GYJP). It refuses an integer of 16 digits even at the end of a header, a decimal ending in `.`, an `=` anywhere but as trailing padding in a byte sequence, and RFC 9651's Dates and Display Strings, none of which RFC 8941 allows. A header carrying one is refused as unparsable, with the same kind as any other. `test/Bakobo.Fiki.Tests/SfvTests.cs` names each such input with the section that refuses it.
+The structured-field parser is strict where http_sfv, fiki-py's parser, is lenient, as fiki-py itself now is (conductor rulings D-SJ55 and D-GYJP). It refuses an integer of 16 digits even at the end of a header, a decimal ending in `.`, an `=` anywhere but as trailing padding in a byte sequence, and RFC 9651's Dates and Display Strings, none of which RFC 8941 allows. A header carrying one is refused as unparsable, with the same kind as any other. Where http_sfv is stricter than RFC 8941, this port follows the RFC: a field of nothing but spaces is an empty dictionary, as the httpwg corpus expects, and a Signature or Signature-Input header of spaces is refused as that header's malformed kind, as before. `test/Bakobo.Fiki.Tests/SfvTests.cs` names each such input with the section that refuses it.

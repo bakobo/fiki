@@ -67,6 +67,17 @@ namespace Bakobo.Fiki.Tests
             { "a=(1 2.5 tok ?0 :QQ==: @1 %\"d\")", NoDate + "; and " + NoDisplay },
         };
 
+        /// <summary>
+        /// The inputs http_sfv refuses and RFC 8941 accepts, which this port accepts: section 4.2.2
+        /// parses a field of nothing but spaces as an empty dictionary, and so does the httpwg
+        /// corpus's "empty dictionary" (this.i @7fexwu3s), where http_sfv raises.
+        /// </summary>
+        internal static readonly Dictionary<string, string> Strictnesses = new Dictionary<string, string>
+        {
+            { "", "RFC 8941 section 4.2.2: an empty field is an empty dictionary" },
+            { " ", "RFC 8941 section 4.2.2: leading spaces are discarded, leaving an empty dictionary" },
+        };
+
         public static IEnumerable<object?[]> Dictionaries() =>
             Oracle.GetProperty("dictionaries").EnumerateArray()
                 .Select(c => new object?[] { c.GetProperty("input").GetString(), c.GetProperty("parsed").GetString() });
@@ -86,7 +97,12 @@ namespace Bakobo.Fiki.Tests
         [MemberData(nameof(Dictionaries))]
         public void ADictionaryParsesExactlyWhenHttpSfvParsesItUnlessRfc8941RefusesIt(string input, string? expected)
         {
-            if (expected == null || Leniencies.ContainsKey(input))
+            if (Strictnesses.ContainsKey(input))
+            {
+                Assert.Null(expected);
+                Assert.Empty(Sfv.ParseDictionary(input));
+            }
+            else if (expected == null || Leniencies.ContainsKey(input))
             {
                 Assert.Throws<FormatException>(() => Sfv.ParseDictionary(input));
             }
@@ -227,6 +243,32 @@ namespace Bakobo.Fiki.Tests
             var x = Components.Identity(Sfv.ParseItem("\"c\";p=" + left));
             var y = Components.Identity(Sfv.ParseItem("\"c\";p=" + right));
             Assert.Equal(equal, x == y);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void AnEmptyFieldIsAnEmptyDictionaryAndAnEmptyList(string field)
+        {
+            Assert.Empty(Sfv.ParseDictionary(field));
+            Assert.Empty(Sfv.ParseList(field));
+            Assert.Empty(Messages.Parse(field, "Content-Digest", FikiErrorKind.MalformedDigest));
+        }
+
+        [Theory]
+        [InlineData("Signature", FikiErrorKind.MalformedSignature)]
+        [InlineData("Signature-Input", FikiErrorKind.MalformedSignatureInput)]
+        public void AHeaderOfSpacesKeepsItsMalformedKindThoughItParsesAsEmpty(string name, FikiErrorKind kind)
+        {
+            // Parsing it empty must not move its refusal: before, the parser refused it as the
+            // header's malformed kind, and so does fiki-py, whose http_sfv refuses it outright.
+            var key = SignVerifyTests.TheKey;
+            var url = "https://api.example.com/x";
+            var headers = HttpSignatures.SignRequest(key, "POST", url, body: new byte[] { 1 }).ToDictionary(p => p.Key, p => p.Value);
+            headers[name] = "   ";
+            var caught = Assert.Throws<FikiException>(() => HttpSignatures.VerifyRequest("POST", url, headers,
+                Verifying.DecliningFreshness().WithBody(new byte[] { 1 })));
+            Assert.Equal(kind, caught.Kind);
         }
     }
 }

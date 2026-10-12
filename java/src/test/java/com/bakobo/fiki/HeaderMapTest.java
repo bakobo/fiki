@@ -21,7 +21,7 @@ class HeaderMapTest {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("host", null);
         headers.put("Host", "example.com");
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", "/p", headers,
+        Caller.refused("A header name or value is null", () -> Fiki.signRequest(KEY, "GET", "/p", headers,
             Fiki.SignOptions.none().withCreated(1)));
     }
 
@@ -32,11 +32,11 @@ class HeaderMapTest {
         Map<String, String> nullName = new HashMap<>();
         nullName.put(null, "v");
         for (Map<String, String> headers : java.util.List.of(nullValue, nullName)) {
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "GET", URL, headers,
+            Caller.refused("A header name or value is null", () -> Fiki.signRequest(KEY, "GET", URL, headers,
                 Fiki.SignOptions.none().withCreated(1)));
-            assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", URL, headers,
+            Caller.refused("A header name or value is null", () -> Fiki.verifyRequest("GET", URL, headers,
                 OptedOut.decliningFreshness()));
-            assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("GET", URL, headers, null));
+            Caller.refused("A header name or value is null", () -> new Fiki.Request("GET", URL, headers, null));
         }
     }
 

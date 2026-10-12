@@ -26,19 +26,19 @@ class SignSideRefusalTest {
     @ValueSource(strings = {"a\r\nb", "a\nb", "tab\there", "café", "\u0000", "del\u007f"})
     void aStringParameterThatIsNotAnSfStringIsTheCallersMistake(String bad) {
         Fiki.SignOptions base = Fiki.SignOptions.none().withCreated(1);
-        assertThrows(IllegalArgumentException.class, () -> sign(base.withKeyid(bad)));
-        assertThrows(IllegalArgumentException.class, () -> sign(base.withNonce(bad)));
-        assertThrows(IllegalArgumentException.class, () -> sign(base.withTag(bad)));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", URL, Map.of(),
+        Caller.refused("The signature parameter keyid contains a character outside visible ASCII", () -> sign(base.withKeyid(bad)));
+        Caller.refused("The signature parameter nonce contains a character outside visible ASCII", () -> sign(base.withNonce(bad)));
+        Caller.refused("The signature parameter tag contains a character outside visible ASCII", () -> sign(base.withTag(bad)));
+        Caller.refused("The signature parameter keyid contains a character outside visible ASCII", () -> Fiki.signatureBase("GET", URL, Map.of(),
             List.of("@method"), new Fiki.Params(1L, bad, null, null, null, null)));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signResponse(KEY, 200, null, Map.of(),
+        Caller.refused("The signature parameter nonce contains a character outside visible ASCII", () -> Fiki.signResponse(KEY, 200, null, Map.of(),
             base.withNonce(bad)));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"a\r\nb", "Sig", "1sig", "", "a b", "sig=x"})
     void aLabelThatIsNotAnSfKeyIsTheCallersMistake(String bad) {
-        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withLabel(bad)));
+        Caller.refused("is not an RFC 8941 key", () -> sign(Fiki.SignOptions.none().withCreated(1).withLabel(bad)));
     }
 
     @Test
@@ -51,11 +51,11 @@ class SignSideRefusalTest {
     @Test
     void anIntegerBeyondFifteenDigitsIsTheCallersMistake() {
         long big = 1_000_000_000_000_000L;
-        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(big)));
-        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(big)));
-        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(-big)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign(Fiki.SignOptions.none().withCreated(big)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(big)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign(Fiki.SignOptions.none().withCreated(-big)));
         // Not negative either (@5zrf8gjk, B16): the range is 0 to fifteen nines.
-        assertThrows(IllegalArgumentException.class, () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(-1)));
+        Caller.refused("fiki signs a timestamp from 0 to 999999999999999", () -> sign(Fiki.SignOptions.none().withCreated(1).withExpires(-1)));
         Map<String, String> edge = sign(Fiki.SignOptions.none().withCreated(999_999_999_999_999L)
             .withExpires(0));
         assertEquals(KEY.aid(), Fiki.verifyRequest("GET", URL, edge, OptedOut.decliningFreshness()

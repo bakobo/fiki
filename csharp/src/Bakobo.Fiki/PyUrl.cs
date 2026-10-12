@@ -181,7 +181,7 @@ namespace Bakobo.Fiki
                 return;
             }
             var n = netloc.Replace("@", "").Replace(":", "").Replace("#", "").Replace("?", "");
-            var normalized = n.Normalize(NormalizationForm.FormKC);
+            var normalized = PyText.NormalizeKC(n);
             if (n != normalized && normalized.IndexOfAny("/?#@:".ToCharArray()) >= 0)
             {
                 throw new ArgumentException($"netloc {PyText.Shown(netloc)} contains invalid characters under NFKC normalization");
@@ -444,12 +444,67 @@ namespace Bakobo.Fiki
             return lowered.ToString();
         }
 
+        /// <summary>
+        /// Python's <c>str.isprintable()</c> for the character at <paramref name="index"/>, a pair
+        /// read as one code point: false for the categories Cc, Cf, Cs, Co, Cn, Zl and Zp, and for
+        /// every Zs but the space, which is exactly what <c>repr()</c> escapes (tick 7us4). A lone
+        /// surrogate is Cs. Unicode's tables are the runtime's, so a code point assigned after them
+        /// reads as unassigned and is escaped, the safe direction.
+        /// </summary>
+        internal static bool IsPrintable(string text, int index)
+        {
+            if (text[index] == ' ')
+            {
+                return true;
+            }
+            switch (CharUnicodeInfo.GetUnicodeCategory(text, index))
+            {
+                case UnicodeCategory.Control:
+                case UnicodeCategory.Format:
+                case UnicodeCategory.Surrogate:
+                case UnicodeCategory.PrivateUse:
+                case UnicodeCategory.OtherNotAssigned:
+                case UnicodeCategory.LineSeparator:
+                case UnicodeCategory.ParagraphSeparator:
+                case UnicodeCategory.SpaceSeparator:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        /// <summary>
+        /// NFKC as Python's <c>unicodedata.normalize</c> computes it, which leaves a lone surrogate
+        /// in place where <see cref="string.Normalize(NormalizationForm)"/> throws (tick 7us4). A
+        /// surrogate code point decomposes to nothing and combines with nothing, so normalizing the
+        /// runs between lone surrogates and keeping each surrogate is the same answer.
+        /// </summary>
+        internal static string NormalizeKC(string text)
+        {
+            var output = new StringBuilder();
+            var start = 0;
+            for (var i = 0; i < text.Length; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    i++;
+                }
+                else if (char.IsSurrogate(text[i]))
+                {
+                    output.Append(text.Substring(start, i - start).Normalize(NormalizationForm.FormKC)).Append(text[i]);
+                    start = i + 1;
+                }
+            }
+            return output.Append(text.Substring(start).Normalize(NormalizationForm.FormKC)).ToString();
+        }
+
         /// <summary>The longest stretch of an untrusted value an error message quotes (this.i @524c8qgv).</summary>
         internal const int ShownLength = 64;
 
         /// <summary>
         /// An untrusted value as an error message may quote it, as fiki-py's <c>shown</c> does: in
-        /// quotes, with a control character, a quote or a backslash escaped, and cut at
+        /// quotes, with every character repr() escapes (<see cref="IsPrintable"/>), a quote and a
+        /// backslash escaped, and cut at
         /// <see cref="ShownLength"/> characters with a note of how long it was, so a 5 MB URL cannot
         /// make a 10 MB message nor a control character reach a log raw (review A9, B9).
         /// </summary>
@@ -471,14 +526,19 @@ namespace Bakobo.Fiki
             for (var i = 0; i < length; i++)
             {
                 var c = text[i];
-                if (c < ' ' || c == '\x7f')
+                var pair = char.IsHighSurrogate(c) && i + 1 < length && char.IsLowSurrogate(text[i + 1]);
+                var code = pair ? char.ConvertToUtf32(c, text[i + 1]) : c;
+                if (!IsPrintable(text, i))
                 {
-                    quoted.Append("\\x").Append(((int)c).ToString("x2", CultureInfo.InvariantCulture));
+                    // repr's spelling by width: \xhh, \uhhhh, or \Uhhhhhhhh past the BMP.
+                    quoted.Append(code < 0x100 ? "\\x" : code < 0x10000 ? "\\u" : "\\U")
+                        .Append(code.ToString(code < 0x100 ? "x2" : code < 0x10000 ? "x4" : "x8", CultureInfo.InvariantCulture));
                 }
                 else
                 {
-                    quoted.Append(c == '"' || c == '\\' ? "\\" : "").Append(c);
+                    quoted.Append(c == '"' || c == '\\' ? "\\" : "").Append(text, i, pair ? 2 : 1);
                 }
+                i += pair ? 1 : 0;
             }
             var shown = quoted.Append('"').ToString();
             return cut ? shown + " (cut from " + text.Length.ToString(CultureInfo.InvariantCulture) + " characters)" : shown;

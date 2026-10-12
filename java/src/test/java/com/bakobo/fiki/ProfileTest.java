@@ -319,7 +319,7 @@ class ProfileTest {
     @Test
     void expectedAidAndAResolverTogetherAreAProgrammingError() {
         Signed s = sign();
-        assertThrows(IllegalArgumentException.class, () ->
+        Caller.refused("Pass an expected AID or a resolver, not both", () ->
             verify(s, opts -> opts.withResolver(k -> null).withExpectedAid(KEY.aid())));
     }
 
@@ -483,15 +483,15 @@ class ProfileTest {
     @Test
     void anEmptyOrMissingMethodIsTheCallersMistake() {
         for (String method : new String[] {"", null}) {
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, method, URL, Map.of(),
+            Caller.refused("A request needs a method as it will be sent", () -> Fiki.signRequest(KEY, method, URL, Map.of(),
                 Fiki.SignOptions.none().withCreated(AT)));
-            assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest(method, URL, sign().headers(),
+            Caller.refused("A request needs a method as it will be sent", () -> Fiki.verifyRequest(method, URL, sign().headers(),
                 OptedOut.decliningFreshness()));
-            assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase(method, URL, Map.of(),
+            Caller.refused("A request needs a method as it will be sent", () -> Fiki.signatureBase(method, URL, Map.of(),
                 List.of("@path"), Fiki.Params.of(AT, "k")));
-            assertThrows(IllegalArgumentException.class, () -> new Fiki.Request(method, URL, Map.of(), null));
+            Caller.refused("A request needs a method as it will be sent", () -> new Fiki.Request(method, URL, Map.of(), null));
         }
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("GET", null, Map.of(), null));
+        Caller.refused("A request needs a URL.", () -> new Fiki.Request("GET", null, Map.of(), null));
     }
 
     @Test
@@ -647,17 +647,17 @@ class ProfileTest {
 
     @Test
     void aHeaderMapThatNamesAFieldTwiceIsTheCallersMistake() {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signRequest(KEY, "POST", URL, twoSpellings(),
+        Caller.refused("The headers name content-digest more than once", () -> Fiki.signRequest(KEY, "POST", URL, twoSpellings(),
             Fiki.SignOptions.none().withBody(BODY).withCreated(AT)));
         Map<String, String> received = new LinkedHashMap<>(sign().headers());
         received.put("content-digest", "sha-256=:AAAA:");
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("POST", URL, received,
+        Caller.refused("The headers name content-digest more than once", () -> Fiki.verifyRequest("POST", URL, received,
             OptedOut.decliningFreshness().withBody(BODY)));
-        assertThrows(IllegalArgumentException.class, () -> new Fiki.Request("POST", URL, twoSpellings(), BODY));
+        Caller.refused("The headers name content-digest more than once", () -> new Fiki.Request("POST", URL, twoSpellings(), BODY));
         Map<String, String> answered = new LinkedHashMap<>(respond());
         answered.put("content-digest", "sha-256=:AAAA:");
-        assertThrows(IllegalArgumentException.class, () -> check(answered));
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", URL, twoSpellings(),
+        Caller.refused("The headers name content-digest more than once", () -> check(answered));
+        Caller.refused("The headers name content-digest more than once", () -> Fiki.signatureBase("GET", URL, twoSpellings(),
             List.of("@method"), Fiki.Params.of(AT, "k")));
     }
 
@@ -672,20 +672,28 @@ class ProfileTest {
 
     @Test
     void parsingIsLinearInRepeatedAndDistinctParametersAndMembers() {
-        int n = 200_000;
-        StringBuilder repeated = new StringBuilder("a=1");
-        StringBuilder distinct = new StringBuilder("a=1");
-        StringBuilder members = new StringBuilder("m0=1");
-        for (int i = 0; i < n; i++) {
-            repeated.append(";p=").append(i % 10);
-            distinct.append(";p").append(i).append("=1");
-            members.append(", m").append(i % 1000).append("=").append(i % 10);
-        }
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
-            assertEquals(1, Sfv.parseDictionary(repeated.toString()).get(0).params().size());
-            assertEquals(n, Sfv.parseDictionary(distinct.toString()).get(0).params().size());
-            assertEquals(1000, Sfv.parseDictionary(members.toString()).size());
-        });
+        // Growth, not a time limit, so a loaded machine cannot fail it (tick 7xbw).
+        Linear.assertLinear("repeated parameters", 2_000, n -> {
+            StringBuilder repeated = new StringBuilder("a=1");
+            for (int i = 0; i < n; i++) {
+                repeated.append(";p=").append(i % 10);
+            }
+            return repeated.toString();
+        }, text -> assertEquals(1, Sfv.parseDictionary(text).get(0).params().size()));
+        Linear.assertLinear("distinct parameters", 2_000, n -> {
+            StringBuilder distinct = new StringBuilder("a=1");
+            for (int i = 0; i < n; i++) {
+                distinct.append(";p").append(i).append("=1");
+            }
+            return distinct.toString();
+        }, text -> assertTrue(Sfv.parseDictionary(text).get(0).params().size() >= 2_000));
+        Linear.assertLinear("repeated members", 2_000, n -> {
+            StringBuilder members = new StringBuilder("m0=1");
+            for (int i = 0; i < n; i++) {
+                members.append(", m").append(i % 1000).append("=").append(i % 10);
+            }
+            return members.toString();
+        }, text -> assertEquals(1000, Sfv.parseDictionary(text).size()));
     }
 
     @Test
@@ -697,17 +705,17 @@ class ProfileTest {
 
     @Test
     void textBetweenAnIpv6LiteralAndItsPortIsRefused() {
-        assertThrows(IllegalArgumentException.class, () -> authority("https://[::1]evil:443/"));
+        Caller.refused("has text after its IPv6 literal", () -> authority("https://[::1]evil:443/"));
     }
 
     @Test
     void aSignerRefusesACallersDigestItsBodyContradicts() {
         // The call's mistake, not a message's defect (@5zrf8gjk, A7 and E5).
-        assertThrows(IllegalArgumentException.class, () ->
+        Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () ->
             signWith(Map.of("Content-Digest", Fiki.contentDigest("other".getBytes(StandardCharsets.UTF_8))), opts -> opts));
-        assertThrows(IllegalArgumentException.class, () ->
+        Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () ->
             signWith(Map.of("Content-Digest", "sha-1=:AAAA:"), opts -> opts));
-        assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts, 200, REQUEST,
+        Caller.refused("The Content-Digest supplied with this body is not one a verifier would accept", () -> respond(opts -> opts, 200, REQUEST,
             Map.of("content-digest", Fiki.contentDigest(BODY))));
         // A digest of the caller's own that holds is used as given, and covered.
         assertEquals(KEY.aid(), verify(signWith(Map.of("Content-Digest", Fiki.contentDigest(BODY)), opts -> opts)).aid());
@@ -730,7 +738,7 @@ class ProfileTest {
         Map<String, String> twice = new LinkedHashMap<>();
         twice.put("X-Role", "admin");
         twice.put("x-role", "guest");
-        assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts, 200, REQUEST, twice));
+        Caller.refused("The headers name x-role more than once", () -> respond(opts -> opts, 200, REQUEST, twice));
     }
 
     @Test
@@ -744,14 +752,14 @@ class ProfileTest {
         }
         Signed s = sign().mangle("\"@method\"", "\"@method\"" + covered + " \"x0\"");
         assertEquals(FikiException.Kind.DuplicateComponent, kindOf(() -> verify(s)));
-        int n = 100_000;
-        StringBuilder huge = new StringBuilder("sig=(");
-        for (int i = 0; i < n; i++) {
-            huge.append(" \"x").append(i).append('"');
-        }
-        huge.append(')');
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () ->
-            assertEquals(n, ((Sfv.InnerList) Sfv.parseDictionary(huge.toString()).get(0).value()).items().size()));
+        // Growth, not a time limit, so a loaded machine cannot fail it (tick 7xbw).
+        Linear.assertLinear("inner-list items", 2_000, n -> {
+            StringBuilder huge = new StringBuilder("sig=(");
+            for (int i = 0; i < n; i++) {
+                huge.append(" \"x").append(i).append('"');
+            }
+            return huge.append(')').toString();
+        }, text -> assertTrue(((Sfv.InnerList) Sfv.parseDictionary(text).get(0).value()).items().size() >= 2_000));
     }
 
     /* ------------------------------------------------ the remaining edges of the new surface */
@@ -772,7 +780,7 @@ class ProfileTest {
 
     @Test
     void absentAndEmptyInputsAreRefusedForWhatTheyAre() {
-        assertThrows(IllegalArgumentException.class, () -> Fiki.verifyRequest("GET", null, Map.of(),
+        Caller.refused("A request needs a URL.", () -> Fiki.verifyRequest("GET", null, Map.of(),
             OptedOut.decliningFreshness()));
         assertEquals(FikiException.Kind.MissingSignature, kindOf(() -> Fiki.verifyRequest("GET", URL, null,
             OptedOut.decliningFreshness())));
@@ -813,7 +821,7 @@ class ProfileTest {
     void anAbsoluteUrlWithAnEmptyAuthorityIsRefusedAndOnlyOriginFormTakesTheHostHeader() {
         // Format 3 (@524c8qgv): "https:///f" is neither origin-form nor an absolute URI with an
         // authority, so it no longer falls back to Host; it cannot be read at all.
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https:///f",
+        Caller.refused("is neither origin-form, beginning with a slash, nor an absolute URI", () -> Fiki.signatureBase("GET", "https:///f",
             Map.of("Host", "H.example"), List.of("@authority"), Fiki.Params.of(AT, "k")));
         assertEquals("\"@authority\": h.example", firstLine(Fiki.signatureBase("GET", "/f",
             Map.of("Host", "H.example"), List.of("@authority"), Fiki.Params.of(AT, "k"))));
@@ -1225,7 +1233,7 @@ class ProfileTest {
     void servedAuthoritiesAreARequestPolicyAndAResponseVerifierRefusesThem() {
         // @24tvlxgd: one VerifyOptions serves both directions, and a set option that a direction
         // would silently ignore is the caller's mistake rather than a policy that did not run.
-        assertThrows(IllegalArgumentException.class, () ->
+        Caller.refused("Served authorities are a request policy", () ->
             check(respond(), opts -> opts.withAuthorities(Set.of("keria.example.com"))));
     }
 
@@ -1331,7 +1339,7 @@ class ProfileTest {
     @Test
     void aBoundRequestDigestWithNoRequestBodyToCheckIsACallerError() {
         Fiki.Request bodiless = new Fiki.Request("POST", URL, REQUEST.headers(), null);
-        assertThrows(IllegalArgumentException.class, () -> check(respond(), 200, RESPONSE_BODY, bodiless, opts -> opts));
+        Caller.refused("so the request body it binds must be supplied in the Request", () -> check(respond(), 200, RESPONSE_BODY, bodiless, opts -> opts));
     }
 
     /* ----------------------------- a supplied minimum can only add to the profile's (fiki#4) */
@@ -1340,8 +1348,8 @@ class ProfileTest {
     void aRequestMinimumBelowTheProfilesIsACallerError() {
         for (List<String> minimum : List.of(List.<String>of(), List.of("@method", "@path"), List.of(Fiki.req("@method")))) {
             Signed s = sign();
-            assertThrows(IllegalArgumentException.class, () -> verify(s, opts -> opts.withMinimum(minimum)));
-            assertThrows(IllegalArgumentException.class, () -> sign(opts -> opts.withMinimum(minimum)));
+            Caller.refused("A minimum covered set must include the profile's own", () -> verify(s, opts -> opts.withMinimum(minimum)));
+            Caller.refused("A minimum covered set must include the profile's own", () -> sign(opts -> opts.withMinimum(minimum)));
         }
     }
 
@@ -1349,8 +1357,8 @@ class ProfileTest {
     void aResponseMinimumBelowTheProfilesIsACallerError() {
         for (List<String> minimum : List.of(List.<String>of(), Fiki.REQUEST_MINIMUM, List.of("@status", Fiki.req("@method")))) {
             Map<String, String> headers = respond();
-            assertThrows(IllegalArgumentException.class, () -> check(headers, opts -> opts.withMinimum(minimum)));
-            assertThrows(IllegalArgumentException.class, () -> respond(opts -> opts.withMinimum(minimum)));
+            Caller.refused("A minimum covered set must include the profile's own", () -> check(headers, opts -> opts.withMinimum(minimum)));
+            Caller.refused("A minimum covered set must include the profile's own", () -> respond(opts -> opts.withMinimum(minimum)));
         }
     }
 
@@ -1388,7 +1396,7 @@ class ProfileTest {
         "https://[::1/f", "https://[::1]x/f", "https://example.com:-1/f",
     })
     void anAuthorityWithNoReadablePortIsTheCallersMistake(String url) {
-        assertThrows(IllegalArgumentException.class, () -> authority(url));
+        Caller.unreadableTarget(() -> authority(url));
     }
 
     @Test
@@ -1398,7 +1406,7 @@ class ProfileTest {
         assertEquals("\"@path\": /a/../b%2Fc", lines[0]);
         assertEquals("\"@query\": ?x=%20y", lines[1]);
         // A fragment is no part of a request target, so format 3 refuses it rather than dropping it.
-        assertThrows(IllegalArgumentException.class, () -> Fiki.signatureBase("GET", "https://x.example/a?x=1#frag",
+        Caller.refused("cannot be read: it carries a fragment", () -> Fiki.signatureBase("GET", "https://x.example/a?x=1#frag",
             Map.of(), List.of("@path", "@query"), Fiki.Params.of(AT, "k")));
     }
 
