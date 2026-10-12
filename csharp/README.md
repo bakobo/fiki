@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 4), every case in the KERI profile's `vectors/keri/` (KERI vectors format 6), and the httpwg structured-field-tests corpus vendored under `vectors/third_party/` (`this.i` @7fexwu3s). `HttpSignatures.VectorsFormat` and `HttpSignatures.KeriVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 4), every case in the KERI profile's `vectors/keri/` (KERI vectors format 6), every case in the key-spelling set `vectors/keys/` (key vectors format 1), and the httpwg structured-field-tests corpus vendored under `vectors/third_party/` (`this.i` @7fexwu3s). `HttpSignatures.VectorsFormat`, `HttpSignatures.KeriVectorsFormat` and `HttpSignatures.KeyVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 
@@ -46,6 +46,15 @@ A refusal is a `FikiException` whose `Kind` names the obstacle. The `FikiErrorKi
 Signature, Signature-Input and Content-Digest are bounded before they are parsed: `HttpSignatures.MaxFieldBytes` (8192) bytes each as received, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) items in an inner list and `MaxParameters` (16) parameters on an item. A header over any of them is that header's malformed kind. `Verdict.KeyId` is the keyid exactly as it appeared on the wire, or null; `Verdict.Aid` is the identity that vouched for the key.
 
 Responses are signed and verified the same way, with `HttpSignatures.SignResponse` and `HttpSignatures.VerifyResponse`; `VerifyOptions.WithRequest` names the request a response answers, and `HttpSignatures.Req("@path")` names one of its components. `WithResolver` supplies keys for keyids such as KERI AIDs, and `WithMinimum(HttpSignatures.RequestMinimum)` applies the KERI profile's minimum covered set.
+
+## Other spellings of a key
+
+`Key.AidFrom` converts a public key given as raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.FromOpenSsh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `Key.AidFrom` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`, with an empty `KeyId` and a message that never quotes the input, since what is passed by mistake can be a private key; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers. A null argument is an `ArgumentNullException`. Use a key dedicated to fiki and never loaded into ssh-agent. base58btc is decoded by hand here, so neither function adds a dependency.
+
+```csharp
+var aid = Key.AidFrom("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
+var key = Key.FromOpenSsh(File.ReadAllText("fiki_ed25519"));
+```
 
 ## The BouncyCastle dependency, and why
 
