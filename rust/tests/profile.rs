@@ -376,9 +376,7 @@ fn a_resolver_may_refuse_a_key_state_itself() {
             keyid,
         ))
     });
-    let err = signed(under_aid())
-        .verify(resolving(resolver))
-        .unwrap_err();
+    let err = signed(under_aid()).verify(resolving(resolver)).unwrap_err();
     assert_eq!(err.kind, Kind::UnsupportedSigner);
     assert_eq!(err.detail, Some(aid()));
 }
@@ -415,10 +413,8 @@ fn a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved() {
     ];
     for (name, keyid) in not_aids {
         let (resolver, calls) = recording();
-        let sent = signed(under_aid()).mangle(
-            &format!("keyid=\"{aid}\""),
-            &format!("keyid=\"{keyid}\""),
-        );
+        let sent =
+            signed(under_aid()).mangle(&format!("keyid=\"{aid}\""), &format!("keyid=\"{keyid}\""));
         let err = sent.verify(resolving(resolver)).unwrap_err();
         assert_eq!(err.kind, Kind::MalformedKey, "{name}: {err}");
         assert_eq!(err.detail.as_deref(), Some(keyid.as_str()), "{name}");
@@ -1221,7 +1217,10 @@ fn verifying_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_erro
 
 #[test]
 fn signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error() {
-    for extra in [&[("Content-Length", "18")][..], &[("Transfer-Encoding", "gzip")]] {
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Transfer-Encoding", "gzip")],
+    ] {
         let (_, stripped) = announcing(extra);
         announced(respond_to(Some(&stripped), &[], SignOptions::default()));
     }
@@ -1265,14 +1264,8 @@ fn a_request_announcing_no_body_and_carrying_none_is_judged_as_before() {
             body: None,
         };
         let signed = respond_to(Some(&asked), &[], SignOptions::default()).unwrap();
-        let verdict = check_as(
-            200,
-            &signed,
-            Some(&asked),
-            None,
-            minimum(&RESPONSE_MINIMUM),
-        )
-        .unwrap();
+        let verdict =
+            check_as(200, &signed, Some(&asked), None, minimum(&RESPONSE_MINIMUM)).unwrap();
         assert_eq!(verdict.aid, key().aid());
     }
 }

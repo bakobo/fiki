@@ -277,9 +277,10 @@ fn resolver(keys: &Value) -> Resolver {
         // A B keyid's 32 prefix bytes, handed back unexamined: whether they are a well-formed AID
         // or a usable key is fiki's to decide (@7w7nv94j), so a library that skipped either check
         // fails the vectors that pin it.
-        if keyid.starts_with('B') {
-            let decoded = b64_decode(&format!("A{}", &keyid[1..]), URL)
-                .unwrap_or_else(|| panic!("fiki handed the resolver {keyid:?}, which is not an AID"));
+        if let Some(prefix) = keyid.strip_prefix('B') {
+            let decoded = b64_decode(&format!("A{prefix}"), URL).unwrap_or_else(|| {
+                panic!("fiki handed the resolver {keyid:?}, which is not an AID")
+            });
             return Ok(Some(decoded[1..].try_into().unwrap_or_else(|_| {
                 panic!("fiki handed the resolver {keyid:?}, which is not an AID")
             })));
