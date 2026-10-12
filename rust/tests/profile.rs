@@ -1088,29 +1088,136 @@ fn a_response_to_a_request_with_a_body_must_cover_the_requests_digest() {
 #[test]
 fn a_response_judges_its_requests_body_by_content_not_headers() {
     // Profile section 3: both sides hold the whole request by the time a response is signed or
-    // verified, so the request's headers do not count (@7p9s3g9k).
-    for announced in [("Transfer-Encoding", "chunked"), ("Content-Length", "18")] {
-        let digest = content_digest(BODY);
+    // verified (@7p9s3g9k). A request whose headers announce a body it carries is judged by that
+    // content; one carrying an empty body binds none.
+    let chunked = Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(&[("Transfer-Encoding", "chunked")]),
+        body: Some(Vec::new()),
+    };
+    let mut covered: Vec<&str> = RESPONSE_MINIMUM.to_vec();
+    covered.push("content-digest");
+    let opts = SignOptions {
+        body: Some(RESPONSE_BODY.to_vec()),
+        ..covering(&covered)
+    };
+    let signed = respond_to(Some(&chunked), &[], opts).unwrap();
+    let verdict = check_as(
+        200,
+        &signed,
+        Some(&chunked),
+        Some(RESPONSE_BODY),
+        minimum(&RESPONSE_MINIMUM),
+    )
+    .unwrap();
+    assert_eq!(verdict.aid, key().aid());
+    assert!(!verdict.covered.contains(&req("content-digest")));
+}
+
+// --- a Request that announces a body it does not carry is a caller error (@6v00d3tu) ---
+
+const ANNOUNCED: &str = "announces a body in its headers";
+
+/// A request signed for with its body, then handed over without it.
+fn announcing(extra: &[(&str, &str)]) -> (Request, Request) {
+    let digest = content_digest(BODY);
+    let mut pairs = extra.to_vec();
+    pairs.push(("Content-Digest", &digest));
+    let given = Request {
+        method: "POST".into(),
+        url: URL.into(),
+        headers: headers(&pairs),
+        body: Some(BODY.to_vec()),
+    };
+    let stripped = Request {
+        body: None,
+        ..given.clone()
+    };
+    (given, stripped)
+}
+
+fn announced(result: fiki::Result<impl std::fmt::Debug>) {
+    let err = result.unwrap_err();
+    assert_eq!(err.kind, Kind::InvalidArgument, "{err}");
+    assert!(err.to_string().contains(ANNOUNCED), "{err}");
+}
+
+#[test]
+fn verifying_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error() {
+    for extra in [
+        &[("Content-Length", "18")][..],
+        &[("Transfer-Encoding", "chunked")],
+        &[("Content-Length", "18"), ("Transfer-Encoding", "chunked")],
+        &[("content-length", "abc")],
+    ] {
+        let (given, stripped) = announcing(extra);
+        let signed = respond_to(Some(&given), &[], SignOptions::default()).unwrap();
+        announced(check_as(
+            200,
+            &signed,
+            Some(&stripped),
+            None,
+            minimum(&RESPONSE_MINIMUM),
+        ));
+    }
+}
+
+#[test]
+fn signing_a_response_to_a_request_announcing_a_body_it_lacks_is_a_caller_error() {
+    for extra in [&[("Content-Length", "18")][..], &[("Transfer-Encoding", "gzip")]] {
+        let (_, stripped) = announcing(extra);
+        announced(respond_to(Some(&stripped), &[], SignOptions::default()));
+    }
+}
+
+#[test]
+fn the_caller_error_is_decided_before_any_signature_header_is_read() {
+    // V1b and N4: a malformed Signature, or none, never outranks the call's own mistake, and the
+    // resolver is never asked.
+    let (given, stripped) = announcing(&[("Content-Length", "18")]);
+    let calls = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = calls.clone();
+    let k = raw(&key());
+    let resolver: Resolver = Arc::new(move |keyid: &str| {
+        seen.lock().unwrap().push(keyid.to_string());
+        Ok(Some(k))
+    });
+    let mut malformed = respond_to(Some(&given), &[], SignOptions::default()).unwrap();
+    malformed.insert("Signature".into(), "sig=123".into());
+    for signed in [malformed, BTreeMap::new(), headers(&[("Signature", "")])] {
+        for status in [200, 401] {
+            announced(check_as(
+                status,
+                &signed,
+                Some(&stripped),
+                None,
+                resolving(resolver.clone()),
+            ));
+        }
+    }
+    assert!(calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_request_announcing_no_body_and_carrying_none_is_judged_as_before() {
+    for length in ["0", "000", " 0 "] {
         let asked = Request {
-            method: "POST".into(),
+            method: "GET".into(),
             url: URL.into(),
-            headers: headers(&[announced, ("Content-Digest", &digest)]),
+            headers: headers(&[("Content-Length", length)]),
             body: None,
         };
-        let opts = SignOptions {
-            body: Some(RESPONSE_BODY.to_vec()),
-            ..Default::default()
-        };
-        let signed = respond_to(Some(&asked), &[], opts).unwrap();
+        let signed = respond_to(Some(&asked), &[], SignOptions::default()).unwrap();
         let verdict = check_as(
             200,
             &signed,
             Some(&asked),
-            Some(RESPONSE_BODY),
+            None,
             minimum(&RESPONSE_MINIMUM),
         )
         .unwrap();
-        assert!(!verdict.covered.contains(&req("content-digest")));
+        assert_eq!(verdict.aid, key().aid());
     }
 }
 

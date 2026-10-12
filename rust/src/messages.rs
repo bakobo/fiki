@@ -538,7 +538,9 @@ pub fn sign_request(
 /// `request` it answers is given — that request's method, path and query, plus its
 /// `content-digest` when it had content, each marked `req`. A request with content and no digest to
 /// bind is refused as `UncoveredBody`, and a request digest the request's body contradicts is
-/// refused the way the verifier would refuse it.
+/// refused the way the verifier would refuse it. A `request` whose headers announce a body (a
+/// `Content-Length` above zero, or any `Transfer-Encoding`) and whose body is `None` is
+/// `InvalidArgument` (`this.i` @6v00d3tu): pass the body, or a `Request` without those headers.
 pub fn sign_response(
     key: &Key,
     status: u16,
@@ -551,9 +553,11 @@ pub fn sign_response(
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
     let request = asked.as_ref();
+    check_announced_body(request)?;
     let mut sending = headers.clone();
     let chosen = opts.covered.is_some();
-    // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k).
+    // By content alone: both sides hold the whole request by now (profile section 3, @7p9s3g9k),
+    // and a Request announcing a body it lacks was refused above (@6v00d3tu).
     let had_body = request.is_some_and(|r| has_content(r.body));
     let covered = opts.covered.clone().unwrap_or_else(|| {
         let mut covered = vec!["@status".to_string()];
@@ -647,7 +651,9 @@ pub fn verify_request(
 /// [`Minimum::Off`] is the explicit opt-out. A response covering
 /// `"content-digest";req` verified against a `request` whose body is `None` is `InvalidArgument`:
 /// that digest is recomputed over the request body, and fiki cannot check a body it was not given.
-/// So is `authorities`, which a response has no use for.
+/// So is a `request` whose headers announce a body its `body` of `None` does not carry
+/// (`this.i` @6v00d3tu), decided before anything in the response is read, and so is
+/// `authorities`, which a response has no use for.
 pub fn verify_response(
     status: u16,
     headers: &BTreeMap<String, String>,
@@ -667,6 +673,7 @@ pub fn verify_response(
     let headers = &canonical(headers)?;
     let asked = canonical_request(request)?;
     let request = asked.as_ref();
+    check_announced_body(request)?;
     // An empty Signature is no signature: the same unsigned 401 (@5zrf8gjk).
     if status == 401 && headers.get("signature").map_or(true, String::is_empty) {
         return Err(Error::new(
@@ -832,6 +839,27 @@ fn verify(
         covered: items.iter().map(spec_of).collect(),
         keyid,
     })
+}
+
+/// A `Request` whose headers announce a body it does not carry is a mistake in the call
+/// (`this.i` @6v00d3tu, revising @7p9s3g9k's second half).
+///
+/// Whether the request had a body is judged by its content, since both sides hold the whole
+/// request by the time a response is signed or verified. A `Request` announcing a body (a
+/// `Content-Length` above zero, or any `Transfer-Encoding`) with `body: None` breaks that
+/// assumption: the caller threw the body away. Decided before any header of the response is read,
+/// so no defect in the message can outrank it, and no resolver is asked.
+fn check_announced_body(request: Option<&Asked>) -> Result<()> {
+    match request {
+        Some(r) if r.body.is_none() && request_has_body(&r.headers, None) => Err(Error::new(
+            Kind::InvalidArgument,
+            "The request this response answers announces a body in its headers, by its \
+             Content-Length or Transfer-Encoding, and Request.body is None, so whether the \
+             response must bind that body cannot be decided. Pass the request body, or a Request \
+             without those headers.",
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// The profile's request body test: a length above zero, any transfer coding, or content.
