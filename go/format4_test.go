@@ -99,3 +99,28 @@ func TestARequestAnnouncingNoBodyAndCarryingNoneIsJudgedAsBefore(t *testing.T) {
 		t.Errorf("covered = %v", verdict.Covered)
 	}
 }
+
+// --- a Signature member that is not a byte sequence is MalformedSignature (@0zq820dl) ---
+
+func TestASignatureMemberThatIsNotAByteSequenceIsMalformedSignature(t *testing.T) {
+	headers, _ := sign(t, SignOptions{})
+	for _, value := range []string{`sig="not bytes"`, "sig=1", "sig=tok", "sig=?1", "sig=1.5",
+		"sig=(:AAAA:)", "sig=@1659578233"} {
+		h := merged(headers, map[string]string{"Signature": value})
+		if _, err := verifyOptedOut("POST", urlQuery, h, VerifyOptions{Body: testBody}); kindOf(t, err) != KindMalformedSignature {
+			t.Errorf("%s: kind %s", value, kindOf(t, err))
+		}
+	}
+	// Still ahead of the label count, which two members would otherwise fail.
+	input := headers["Signature-Input"]
+	h := merged(headers, map[string]string{"Signature-Input": input + ", other=" + strings.SplitN(input, "=", 2)[1],
+		"Signature": `sig="not bytes", other="not bytes"`})
+	if _, err := verifyOptedOut("POST", urlQuery, h, VerifyOptions{Body: testBody}); kindOf(t, err) != KindMalformedSignature {
+		t.Error("the member's shape should be found before the label count")
+	}
+	// A byte sequence that cannot be an Ed25519 signature keeps MalformedSignatureValue.
+	h = merged(headers, map[string]string{"Signature": "sig=:AAAA:"})
+	if _, err := verifyOptedOut("POST", urlQuery, h, VerifyOptions{Body: testBody}); kindOf(t, err) != KindMalformedSignatureValue {
+		t.Error("a short byte sequence should stay MalformedSignatureValue")
+	}
+}

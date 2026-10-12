@@ -781,9 +781,10 @@ func read(found map[string]string, requireKeyid, requireCreated bool) (innerList
 	}
 	for _, entry := range signatures {
 		if _, ok := entry.Value.([]byte); !ok {
-			// Draft 6 of the KERI profile would call this malformed-signature, since such a header
-			// is neither mode's form; the kind stays the one the shared vectors pin (@2f227n4r).
-			return empty, nil, errorf(KindMalformedSignatureValue,
+			// The KERI profile calls a member that is not a byte sequence malformed-signature: the
+			// field is malformed, not the signature in it (this.i @0zq820dl). MalformedSignatureValue
+			// is kept for a byte sequence that cannot be an Ed25519 signature, below.
+			return empty, nil, errorf(KindMalformedSignature,
 				"RFC 9421 carries a signature as an RFC 8941 byte sequence, wrapped in colons; this "+
 					"Signature header carries something else.")
 		}
