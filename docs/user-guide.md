@@ -44,7 +44,7 @@ Three consequences worth knowing before you wire it in.
 | C#, .NET 10 or .NET Framework 4.8.1 | `dotnet add package Bakobo.Fiki --version 0.9.0` |
 | Java 17+ | not on Maven Central yet; build it from a clone as [java/README.md](../java/README.md#using-it-from-your-own-project) describes |
 
-This guide describes 0.9.0, which satisfies vectors format 3. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
+This guide describes the default branch, at vectors format 4, which no release satisfies yet; 0.9.0 satisfies vectors format 3, and differs as the [README](../README.md#status) says. A release that satisfies an earlier format behaves differently in ways this guide does not describe; the [README](../README.md#versions-and-which-ones-interoperate) lists which release satisfies which.
 
 ## Signing a request
 
@@ -134,6 +134,8 @@ var headers = HttpSignatures.SignRequest(key, "POST", url, body: body);
 ## Verifying a request
 
 The server side. `url` can be a full URL or just the request target — if it is relative, fiki takes the authority from the `Host` header, which is what RFC 9421 says the authority *is* in HTTP/1.1. That is the shape a server-side handler actually has, so no reconstruction is needed.
+
+Hand the headers over as your framework gives them. A field sent in several lines may arrive as a list, as Node gives `set-cookie`; Python and JavaScript accept one and join it with `", "`, which is how RFC 9421 section 2.1 combines field lines. Go, Rust, Java and C# take one string per name, so join the values with `", "` yourself, as the Go sample below does.
 
 ### Python
 
@@ -419,7 +421,7 @@ A covered list that falls short of the minimum is refused as `InsufficientCovera
 
 The verifier supplies a resolver: a function from a keyid to the 32 raw bytes of that AID's current signing key, taken from the key state it holds, or nothing when it holds none. fiki does not read key event logs, so key state is the caller's to keep. It comes from a KERI implementation that does read them: keripy or KERIA on a server, signify-ts in a browser or Node client, or a witness or watcher you query. fiki needs only the current signing key that implementation reports for the AID.
 
-The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is shaped like an AID and is not its canonical spelling is `MalformedKey` before the resolver sees it. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
+The resolver is authoritative. fiki never falls back to decoding the keyid, because a basic transferable `D…` prefix embeds its *inception* key, which may have been rotated away, and reading it would undo pre-rotation. A resolver that knows no key for the keyid makes the message `UnknownKey`. A keyid that is not a well-formed AID — not 44 characters under `B`, `D` or `E`, or not the canonical spelling of its 32 bytes — is `MalformedKey` before the resolver sees it, so a resolver only ever looks up an AID. That includes fiki's own default keyid, the raw key, which a request signed without a resolver's AID carries: a verifier with a resolver refuses it, because under the profile a keyid is an AID. A resolver may also refuse in fiki's own terms, most usefully as `UnsupportedSigner` for a key state that no single key can sign for, such as a 2-of-3 group, and fiki carries that refusal out unchanged. A resolver and an expected AID each decide the key alone, so passing both is a mistake in the call.
 
 Pass the profile's minimum here. It is smaller than fiki's default, which also requires `@authority`, and naming it replaces the default rather than adding to it, so a profile signer that leaves `@authority` out is admitted. Like the default, it refuses a signature over too little even when the signature is valid, refuses a body that arrived without a covered `content-digest`, and requires `created`. `authorities` lists the `@authority` values this server answers for, so that a request signed for one service cannot be replayed to another.
 
@@ -545,7 +547,7 @@ The verdict's AID is the keyid the resolver vouched for, so the authorization st
 
 ## Signing and verifying a response
 
-The profile signs responses too, and binds each one to the request it answers. By default a signed response covers `@status`, a digest of its own body, and the request's `@method`, `@path` and `@query` marked `req` (RFC 9421 §2.4), plus the request's `content-digest` when the request had content. So an intermediary can neither change the status or the body nor attach the response to a different question. Pass the request with the body it carried: a response that binds `"content-digest";req` is checked against that body, and fiki cannot check a body it was not given, so verifying one against a request with no body is a mistake in the call. A request that had content and no `Content-Digest` to bind is refused as `UncoveredBody` at signing time. To name the covered list yourself, spell a request component with the port's `req` helper, which turns `@path` into `"@path";req`.
+The profile signs responses too, and binds each one to the request it answers. By default a signed response covers `@status`, a digest of its own body, and the request's `@method`, `@path` and `@query` marked `req` (RFC 9421 §2.4), plus the request's `content-digest` when the request had content. So an intermediary can neither change the status or the body nor attach the response to a different question. Pass the request with the body it carried: a response that binds `"content-digest";req` is checked against that body, and fiki cannot check a body it was not given, so verifying one against a request with no body is a mistake in the call. So is a request whose headers announce a body (a `Content-Length` above zero, or any `Transfer-Encoding`) handed over without that body, refused before any signature is examined, whether you are signing the response or verifying it. A request that had content and no `Content-Digest` to bind is refused as `UncoveredBody` at signing time. To name the covered list yourself, spell a request component with the port's `req` helper, which turns `@path` into `"@path";req`.
 
 A client states the AID it expects to be talking to, and a response signed by any other is refused as `UnknownKey`, however valid its signature. From vectors format 3 that is a required decision, as `authorities` is for a server: pass the AID, or decline explicitly to accept any signer and read who it was from the verdict (Python `expected_keyid=None`). An empty string names no AID and is a mistake in the call, not the decline. A response verifier also applies `RESPONSE_MINIMUM` by default, as a request verifier applies `DEFAULT_MINIMUM`: a response that covers less, or has no `created`, is refused, and the default reads the request's components, so pass the request the response answers or it is `MissingComponent`. A response signed without its request covers only its own components, which that default refuses. Opt out of the minimum the same way as for a request.
 
@@ -749,7 +751,8 @@ The ones worth handling separately:
 - `SignatureTooOld` / `SignatureExpired` — the signature is fine and too late. Often a clock problem rather than an attack; worth logging with both timestamps.
 - `DigestMismatch` — the body does not match its digest. The body was replaced in transit.
 - `UncoveredBody` — raised at *signing* time, when you named a covered set that omits `content-digest` while handing over a body. Add it, or do not pass the body.
-- `MissingSignature` / `MissingSignatureInput` — the request is not signed at all, which usually means an unauthenticated caller rather than a broken one.
+- `MissingSignature` / `MissingSignatureInput` — the request is not signed at all, which usually means an unauthenticated caller rather than a broken one. A header sent with an exactly empty value counts as absent, since several HTTP stacks report a header they never received that way; one holding only spaces is malformed.
+- `MalformedSignature` — the `Signature` header does not parse, or a member's value is not a byte sequence. `MalformedSignatureValue` is kept for a byte sequence that cannot be an Ed25519 signature.
 
 The KERI profile added five more, and one older name matters more under it:
 
@@ -762,7 +765,7 @@ The KERI profile added five more, and one older name matters more under it:
 
 The vectors used to pin all of these names, and they no longer do. `vectors/` still pins fiki's names, but `vectors/keri/` names refusals by the profile's neutral codes (`unknown-key`, `insufficient-coverage`, and so on), because signify-ts reads those files too. The names stay aligned across the ports by deliberate parity rather than by a shared oracle, and §9 of the [profile](keri-profile.md#9-refusals) maps each one to its code.
 
-A mistake in the *call*, as opposed to a defect in the message, is not one of these. Passing both an expected AID and a resolver, a minimum smaller than the profile's, or verifying a response that binds the request's digest against a request with no body are bugs in your code, and each port reports them in its own idiom so that catching fiki's refusals cannot swallow them:
+A mistake in the *call*, as opposed to a defect in the message, is not one of these. Passing both an expected AID and a resolver, a minimum smaller than the profile's, or handing over a request that announces a body without the body are bugs in your code, and each port reports them in its own idiom so that catching fiki's refusals cannot swallow them:
 
 | Language | A refusal of the message | A mistake in the call |
 |---|---|---|
