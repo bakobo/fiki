@@ -73,6 +73,17 @@ Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
         .withAuthorities(Set.of("keria.example.com")));
 ```
 
+## Other spellings of a key
+
+`Key.aidFrom` converts a public key given as an AID, raw base64url (a JWK's `x`), a base58btc `did:key`, a `did:peer:0`, or an `ssh-ed25519` line into the AID to register, and `Key.fromOpenssh` signs with an unencrypted OpenSSH private key (`this.i` @0mvgkwnl). Call `aidFrom` when you load registrations rather than per request. Both refuse anything ambiguous as `MalformedKey`, with an empty `detail()` and a message that never quotes the input, since what is handed over by mistake can be a private key; the [user guide](../docs/user-guide.md#registering-a-key-in-another-spelling) lists what that covers. A null is an `IllegalArgumentException`. Use a key dedicated to fiki and never loaded into ssh-agent.
+
+```java
+String aid = Key.aidFrom("did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK");
+Key key = Key.fromOpenssh(Files.readString(Path.of("fiki_ed25519")));
+```
+
+The port runs every case in `vectors/keys/keys.json` in place (`KeyVectorsTest`) and declares `Fiki.KEY_VECTORS_FORMAT = 1`.
+
 ## Differences from the Python port
 
 Behaviour is fiki-py's and the surface is Java's (`this.i` @24tvlxgd). Where the two pull apart:
