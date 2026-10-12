@@ -43,6 +43,8 @@ let verdict = verify_request(method, url, &headers, &VerifyOptions {
 
 `authorities` is a decision of the same kind, and is checked when `verify_request` runs because `..Default::default()` cannot make a field mandatory: `Authorities::served([...])` names the hosts this verifier answers for, `Authorities::Unchecked` declines the check, and leaving it `Unstated` is `Kind::InvalidArgument`. `minimum` defaults to `Minimum::Default`, which applies `DEFAULT_MINIMUM` (method, authority, path and query, plus the body's digest whenever there is a body, with `created` and `keyid` required); `Minimum::Off` is the explicit opt-out and `Minimum::of(..)` a minimum of your own, no smaller than `REQUEST_MINIMUM`: `Minimum::of(REQUEST_MINIMUM)` is the KERI profile's.
 
+`headers` holds one string per field name. A field your framework hands over as several lines, as an `http::HeaderMap` does through `get_all`, is joined with `", "` (a comma and one space) before the call, `set-cookie` included: that is the value RFC 9421 section 2.1 signs, and what fiki-py and fiki-js do with a list (`this.i` @4un2vx4l).
+
 `verdict.keyid` is the keyid exactly as it appeared on the wire, or `None` when the signature had none. `verdict.aid` is the identity that vouched for the key: the AID of a raw key, the keyid a resolver vouched for, or the AID of `expected_aid`.
 
 ## Responses, KERI identifiers, and resolvers
