@@ -238,8 +238,8 @@
       "max_age": null,
       "now": 1700000000,
       "headers": {
-        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
-        "Signature": "sig=:g4cAGThZffKs4ss7D5YIYkauiHYVw8pFOPJS+IqbHf1znHEiPdsnT77ydYcjL0kSzB4OIt7d5YHMjWG2Kn+ZAQ==:",
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
         "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
       },
       "minimum": "default",
@@ -267,7 +267,7 @@
       "max_age": null,
       "now": 1700000000,
       "headers": {
-        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
         "Signature": "sig=123",
         "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
       },
@@ -296,8 +296,8 @@
       "max_age": null,
       "now": 1700000000,
       "headers": {
-        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\" \"content-digest\";req);created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
-        "Signature": "sig=:g4cAGThZffKs4ss7D5YIYkauiHYVw8pFOPJS+IqbHf1znHEiPdsnT77ydYcjL0kSzB4OIt7d5YHMjWG2Kn+ZAQ==:",
+        "Signature-Input": "sig=(\"@status\" \"@method\";req \"@path\";req \"@query\";req \"content-digest\");created=1700000000;alg=\"ed25519\";keyid=\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"",
+        "Signature": "sig=:7KXxJZyElK7dje3jfoa4NAnA+K0GEVWB1KnBkmIPn5cWwaUua1NDnyZvG8toOGpkzhVjcMUndTo4e0hVrZTsCw==:",
         "Content-Digest": "sha-256=:7t4SNaEB27F0UdeTfYsVSyxmmWS759lx1HSAx9DKHtk=:"
       },
       "minimum": "default",

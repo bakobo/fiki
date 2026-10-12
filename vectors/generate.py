@@ -36,6 +36,7 @@ from fiki import (  # noqa: E402
     RESPONSE_MINIMUM,
     Key,
     Request,
+    req,
     response_signature_base,
     sign_request,
     sign_response,
@@ -1793,12 +1794,18 @@ def misuse():
                   "error": "caller", "note": "An empty AID names nothing; it is not the decline."})
 
     # format 4 (@6v00d3tu): a Request that announces a body it does not carry. Each response is
-    # signed over the request WITH its body, so the only thing wrong is the body left out.
+    # signed over the request WITH its body, so the only thing wrong is the body left out. The
+    # covered list leaves out "content-digest";req on purpose: a response binding the request's
+    # digest against a request with no body was already a caller error before format 4, so a
+    # case that covered it would pass on a port that never learned this rule.
     asked_body = b'{"hello": "world"}'
+    without_request_digest = ["@status", req("@method"), req("@path"), req("@query"),
+                              "content-digest"]
 
     def announcing(case_id, extra, note, signature=None):
         asked = {"Content-Digest": content_digest(asked_body), **extra}
         headers = sign_response(key=key, status=200, created=1700000000, body=b'{"done": true}',
+                                covered=without_request_digest,
                                 request=Request(method="POST", url=url, headers=asked,
                                                 body=asked_body))
         if signature is not None:
