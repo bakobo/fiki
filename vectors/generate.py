@@ -57,12 +57,13 @@ SEED_B = bytes(range(1, 33))
 # strict RFC 8941, the input bounds, raw field values, weak keys, and the verdict's keyid. Format 3
 # (`this.i` @524c8qgv) makes the verifier fail closed by default: every accept and refusal case
 # states the verifier's `minimum` ("default", null for the explicit opt-out, or a list) and its
-# `authorities` (null or a list), since authorities is now a required decision. Bump it whenever
+# `authorities` (null or a list), since authorities is now a required decision. Format 4
+# (`this.i` @646un6k8) settles the contract questions the format-3 reviews left open. Bump it whenever
 # the behaviour these files require changes — a covered-set default, an error name, a refusal
 # that becomes an acceptance. Every port exports the format it
 # satisfies and asserts the two agree, so a port running newer vectors fails loudly rather than
 # passing a subset and reporting conformance it does not have.
-VECTORS_FORMAT = 3
+VECTORS_FORMAT = 4
 
 # The verifier's default minimum (@524c8qgv), stated here rather than imported so that these
 # files say what the contract is, not what fiki-py happens to do. Content-digest joins it whenever

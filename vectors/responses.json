@@ -1,6 +1,6 @@
 {
   "about": "Responses every implementation must accept or refuse.",
-  "vectors_format": 3,
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",

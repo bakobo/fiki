@@ -57,7 +57,9 @@ from fiki.messages import content_digest  # noqa: E402
 # The contract's own format number, separate from vectors_format (@8vwrexxc, @4fhrre0m). Format 4
 # is the 0.8.0 cross-port sweep (@5zrf8gjk): the keyid order, the empty-Signature 401,
 # Content-Length's whitespace, weak and aliased B keyids, and the request-digest response case.
-KERI_VECTORS_FORMAT = 5
+# Format 5 is the review's remaining profile cases; format 6 rides with vectors_format 4
+# (@646un6k8): a non-byte-sequence Signature member and a keyid the library must refuse itself.
+KERI_VECTORS_FORMAT = 6
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:

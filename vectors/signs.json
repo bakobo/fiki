@@ -1,6 +1,6 @@
 {
   "about": "What every implementation's signer must emit, byte for byte.",
-  "vectors_format": 3,
+  "vectors_format": 4,
   "generated_by": "vectors/generate.py",
   "default_covered": [
     "@method",
