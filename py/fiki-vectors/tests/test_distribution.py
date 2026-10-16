@@ -157,19 +157,22 @@ def test_load_refuses_a_name_that_is_not_a_plain_path_below_vectors(installed, n
 class Shifty(str):
     """A str whose split() answers differently each time it is asked."""
 
-    calls = 0
+    calls: list[tuple] = []
 
-    def split(self, *args, **kwargs):
-        Shifty.calls += 1
-        return iter(["accepts.json"] if Shifty.calls == 1 else ["..", "..", "py", "pyproject.toml"])
+    def split(self, sep=None, maxsplit=-1):
+        Shifty.calls.append((sep, maxsplit))
+        if len(Shifty.calls) == 1:
+            return iter(["accepts.json"])
+        return iter(["..", "..", "py", "pyproject.toml"])
 
 
 def test_load_reads_a_str_subclass_by_its_value_not_by_its_split(installed):
-    Shifty.calls = 0
+    Shifty.calls = []
     assert installed.load(Shifty("accepts.json")) == installed.load("accepts.json")
-    Shifty.calls = 0
     with pytest.raises(ValueError, match="^e.input.format.vectors.name.f: "):
         installed.load(Shifty("../py/pyproject.toml"))
+    # The override is never consulted, which is what makes the two answers impossible.
+    assert Shifty.calls == []
 
 
 @pytest.mark.parametrize("name", [

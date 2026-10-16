@@ -100,6 +100,51 @@ def test_a_symlink_on_the_way_to_any_file_is_refused_rather_than_followed(repo, 
         hatch_build.force_include(repo, "wheel", MANIFEST)
 
 
+def test_a_vectors_tree_beside_the_project_without_pkg_info_is_refused(repo):
+    # Two candidate trees, and nothing that says which is meant: refuse rather than pick one.
+    for name in MANIFEST:
+        write(repo / "vectors" / name, '"planted"')
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.conflict.vectors.source.f: "):
+        hatch_build.force_include(repo, "wheel", MANIFEST)
+
+
+def test_an_sdist_shape_inside_a_repository_is_refused(repo):
+    # A PKG-INFO and a vectors/ planted in a checkout must not shadow the repository's own.
+    write(repo / "PKG-INFO", "Metadata-Version: 2.4\n")
+    for name in MANIFEST:
+        write(repo / "vectors" / name, '"planted"')
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.conflict.vectors.source.f: "):
+        hatch_build.force_include(repo, "wheel", MANIFEST)
+
+
+def test_a_pkg_info_alone_inside_a_repository_is_refused(repo):
+    # Without a tree of its own it would point at a vectors/ that is not there, and report the
+    # conflict as an absence.
+    write(repo / "PKG-INFO", "Metadata-Version: 2.4\n")
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.conflict.vectors.source.f: "):
+        hatch_build.force_include(repo, "wheel", MANIFEST)
+
+
+def test_an_sdist_ignores_whatever_happens_to_sit_two_levels_above_it(tmp_path):
+    # A frontend unpacks an sdist where it likes; a stray vectors/ above that is not a repository.
+    root = tmp_path / "build" / "fiki_vectors-0.10.0"
+    write(root / "PKG-INFO", "Metadata-Version: 2.4\n")
+    for name in MANIFEST:
+        write(root / "vectors" / name)
+    (tmp_path / "vectors").symlink_to(tmp_path / "dangling")
+    assert sorted(hatch_build.force_include(root, "wheel", MANIFEST)) == sorted(
+        str(root / "vectors" / name) for name in MANIFEST)
+
+
+def test_a_pkg_info_that_is_a_symlink_is_refused(tmp_path):
+    real = write(tmp_path / "elsewhere" / "PKG-INFO", "Metadata-Version: 2.4\n")
+    root = tmp_path / "sdist"
+    root.mkdir()
+    (root / "PKG-INFO").symlink_to(real)
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.rule.vectors.symlink.f: "):
+        hatch_build.force_include(root, "wheel", MANIFEST)
+
+
 def hook(root: Path, target: str) -> hatch_build.VectorsHook:
     return hatch_build.VectorsHook(str(root), {}, None, None, str(root / "dist"), target)
 
