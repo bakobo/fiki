@@ -77,23 +77,24 @@ def source(root: Path) -> Path:
     """Where this build's vectors are: inside an unpacked sdist, else the repository's.
 
     Exactly one tree may be a candidate, and nothing is resolved by guessing which was meant. A
-    project at py/fiki-vectors is in a fiki checkout and reads the repository's vectors/, so a
-    PKG-INFO or a vectors/ planted beside it is refused rather than allowed to shadow them. Anywhere
-    else, a real PKG-INFO marks an unpacked sdist, which reads only the vectors/ it carries and
+    project at py/fiki-vectors with a vectors/ two levels up is in a fiki checkout and reads that,
+    so a PKG-INFO or a vectors/ planted beside it is refused rather than allowed to shadow it.
+    Anywhere else, a real PKG-INFO marks an unpacked sdist, which reads only the vectors/ it carries and
     never looks above itself, where a frontend's temporary directory holds nothing of fiki's.
     """
-    pkg_info, local = root / "PKG-INFO", root / "vectors"
+    pkg_info, local, repo = root / "PKG-INFO", root / "vectors", root.parent.parent / "vectors"
     if pkg_info.is_symlink():
         raise VectorsBuildError(
             f"{SYMLINK}: {pkg_info} is a symlink, so it does not show this is an unpacked sdist.")
     sdist = pkg_info.is_file()
-    in_checkout = root.name == "fiki-vectors" and root.parent.name == "py"
+    in_checkout = (root.name == "fiki-vectors" and root.parent.name == "py"
+                   and (repo.exists() or repo.is_symlink()))
     if (sdist and in_checkout) or (not sdist and (local.exists() or local.is_symlink())):
         raise VectorsBuildError(
             f"{AMBIGUOUS}: {root} has a PKG-INFO or a vectors/ that does not fit where it sits, so"
             " it is unclear which vectors this build should take. In a fiki checkout, remove"
             " py/fiki-vectors/PKG-INFO and py/fiki-vectors/vectors; an unpacked sdist needs both.")
-    return local if sdist else root.parent.parent / "vectors"
+    return local if sdist else repo
 
 
 def force_include(root: Path, target: str, manifest: tuple[str, ...] = MANIFEST) -> dict[str, str]:

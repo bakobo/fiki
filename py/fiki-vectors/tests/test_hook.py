@@ -136,6 +136,16 @@ def test_an_sdist_ignores_whatever_happens_to_sit_two_levels_above_it(tmp_path):
         str(root / "vectors" / name) for name in MANIFEST)
 
 
+def test_an_sdist_unpacked_at_a_checkout_shaped_path_with_no_repository_builds(tmp_path):
+    # The names alone are not a checkout; a repository's vectors/ two levels up is what makes one.
+    root = tmp_path / "py" / "fiki-vectors"
+    write(root / "PKG-INFO", "Metadata-Version: 2.4\n")
+    for name in MANIFEST:
+        write(root / "vectors" / name)
+    assert sorted(hatch_build.force_include(root, "wheel", MANIFEST)) == sorted(
+        str(root / "vectors" / name) for name in MANIFEST)
+
+
 def test_a_pkg_info_that_is_a_symlink_is_refused(tmp_path):
     real = write(tmp_path / "elsewhere" / "PKG-INFO", "Metadata-Version: 2.4\n")
     root = tmp_path / "sdist"
