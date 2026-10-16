@@ -11,6 +11,7 @@ structured-field corpus, with its license, under ``third_party/``.
 from __future__ import annotations
 
 import json
+import re
 from importlib.resources import files as _files
 from importlib.resources.abc import Traversable
 from typing import Any
@@ -24,6 +25,10 @@ KEY_VECTORS_FORMAT = 1
 
 BAD_NAME = "e.input.format.vectors.name.f"
 
+# One path segment as the vector files are named. Anything else -- a drive letter, a backslash, a NUL,
+# whitespace -- is refused rather than handed to a filesystem that might read it as a path.
+_SEGMENT = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
+
 __all__ = ["VECTORS_FORMAT", "KERI_VECTORS_FORMAT", "KEY_VECTORS_FORMAT", "files", "load"]
 
 
@@ -34,9 +39,23 @@ def files() -> Traversable:
 
 def load(name: str) -> Any:
     """Parse one vector file, named by its path below ``vectors/``: ``"keri/requests.json"``."""
-    parts = name.split("/") if isinstance(name, str) else [""]
-    if any(part in ("", ".", "..") or "\\" in part or "\0" in part for part in parts):
+    # The unbound str.split over str.__str__, so a str subclass's own split cannot answer validation
+    # and lookup differently.
+    parts = str.split(str.__str__(name), "/") if isinstance(name, str) else [""]
+    if not all(_SEGMENT.fullmatch(part) for part in parts):
         raise ValueError(
             f"{BAD_NAME}: {name!r} is not a path below vectors/. Name a file with forward slashes"
-            " and no empty, '.' or '..' segments, such as 'keri/requests.json'.")
-    return json.loads(files().joinpath(*parts).read_bytes())
+            " between segments of letters, digits, '.', '_' and '-' that do not start with '.',"
+            " such as 'keri/requests.json'.")
+    # Each segment is matched exactly against the entries the package holds, never handed to the
+    # filesystem to resolve, so no name a platform reads specially (a device, a trailing dot, a
+    # case-folded spelling) reaches anything but the file of that exact name.
+    node = files()
+    for part in parts:
+        node = next((child for child in node.iterdir() if child.name == part), None) \
+            if node.is_dir() else None
+        if node is None:
+            break
+    if node is None or not node.is_file():
+        raise FileNotFoundError(f"There is no file {name!r} below vectors/ in fiki-vectors.")
+    return json.loads(node.read_bytes())

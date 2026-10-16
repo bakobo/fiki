@@ -2,16 +2,19 @@
 
 These run the hook's logic against small trees laid out the two ways a build meets it: the
 repository, where the vectors are two levels up, and an unpacked sdist, which carries its own copy.
-test_distribution.py checks what real builds produce.
+test_distribution.py checks what real builds produce, and that MANIFEST is the committed set.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
 import hatch_build
+
+MANIFEST = ("accepts.json", "keri/requests.json", "keys/openssh/ed25519.pub")
 
 
 def write(path: Path, text: str = "{}") -> Path:
@@ -24,95 +27,85 @@ def write(path: Path, text: str = "{}") -> Path:
 def repo(tmp_path):
     """A repository with vectors/ at its root and the project at py/fiki-vectors."""
     vectors = tmp_path / "vectors"
-    write(vectors / "accepts.json")
+    for name in MANIFEST:
+        write(vectors / name)
     write(vectors / "generate.py", "print()")
-    write(vectors / "__pycache__" / "generate.cpython-314.pyc", "")
-    write(vectors / "keri" / "requests.json")
-    write(vectors / "keys" / "keys.json")
-    write(vectors / "keri" / "generate.py", "print()")
-    write(vectors / "keys" / "openssh" / "ed25519.pub", "ssh-ed25519 AAAA")
-    write(vectors / "third_party" / "structured-field-tests" / "LICENSE.md", "BSD")
+    write(vectors / "stray.json", "{}")
     project = tmp_path / "py" / "fiki-vectors"
     project.mkdir(parents=True)
     return project
 
 
-def test_a_wheel_from_the_repository_takes_every_file_but_the_generators(repo):
+def test_a_wheel_from_the_repository_takes_the_manifest_and_nothing_else(repo):
     vectors = repo.parent.parent / "vectors"
-    assert hatch_build.force_include(repo, "wheel") == {
+    assert hatch_build.force_include(repo, "wheel", MANIFEST) == {
         str(vectors / "accepts.json"): "fiki_vectors/data/accepts.json",
         str(vectors / "keri" / "requests.json"): "fiki_vectors/data/keri/requests.json",
-        str(vectors / "keys" / "keys.json"): "fiki_vectors/data/keys/keys.json",
         str(vectors / "keys" / "openssh" / "ed25519.pub"): "fiki_vectors/data/keys/openssh/ed25519.pub",
-        str(vectors / "third_party" / "structured-field-tests" / "LICENSE.md"):
-            "fiki_vectors/data/third_party/structured-field-tests/LICENSE.md",
     }
 
 
 def test_an_sdist_from_the_repository_carries_the_vectors_at_its_root(repo):
-    mapping = hatch_build.force_include(repo, "sdist")
-    assert sorted(mapping.values()) == [
-        "vectors/accepts.json",
-        "vectors/keri/requests.json",
-        "vectors/keys/keys.json",
-        "vectors/keys/openssh/ed25519.pub",
-        "vectors/third_party/structured-field-tests/LICENSE.md",
-    ]
+    mapping = hatch_build.force_include(repo, "sdist", MANIFEST)
+    assert sorted(mapping.values()) == ["vectors/" + name for name in sorted(MANIFEST)]
 
 
 def test_a_wheel_from_an_sdist_takes_the_copy_the_sdist_carries(tmp_path):
     write(tmp_path / "PKG-INFO", "Metadata-Version: 2.4\n")
-    for name in hatch_build.REQUIRED:
+    for name in MANIFEST:
         write(tmp_path / "vectors" / name)
     # A repository two levels up must not be consulted when the sdist carries its own.
-    assert sorted(hatch_build.force_include(tmp_path, "wheel").values()) == sorted(
-        "fiki_vectors/data/" + name for name in hatch_build.REQUIRED)
+    assert sorted(hatch_build.force_include(tmp_path, "wheel", MANIFEST).values()) == sorted(
+        "fiki_vectors/data/" + name for name in MANIFEST)
 
 
-@pytest.mark.parametrize("missing", hatch_build.REQUIRED)
-def test_a_build_missing_any_set_of_vectors_is_refused(repo, missing):
-    # One file stands for each set, so a partial tree cannot ship formats it has no data for.
+def test_the_default_manifest_is_the_packages_own():
+    assert hatch_build.force_include.__defaults__ == (hatch_build.MANIFEST,)
+
+
+@pytest.mark.parametrize("missing", MANIFEST)
+def test_a_build_missing_any_file_is_refused_rather_than_shipped_short(repo, missing):
     (repo.parent.parent / "vectors" / missing).unlink()
-    with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.missing.vectors.source.f: "):
-        hatch_build.force_include(repo, "wheel")
-
-
-@pytest.mark.parametrize("kind", ["file", "dir"])
-def test_a_symlink_in_the_vectors_is_refused_rather_than_followed(repo, tmp_path, kind):
-    # Following one would copy whatever it points at, from anywhere on the build host, into the
-    # wheel.
-    outside = write(tmp_path / "outside" / "secret.txt", "secret")
-    target = outside if kind == "file" else outside.parent
-    (repo.parent.parent / "vectors" / "keri" / "link").symlink_to(target)
-    with pytest.raises(hatch_build.VectorsBuildError, match="^e.rule.vectors.symlink.f: "):
-        hatch_build.force_include(repo, "wheel")
-
-
-def test_a_vectors_directory_that_is_itself_a_symlink_is_refused(repo, tmp_path):
-    real = tmp_path / "py" / "real-vectors"
-    (tmp_path / "vectors").rename(real)
-    (tmp_path / "vectors").symlink_to(real)
-    with pytest.raises(hatch_build.VectorsBuildError, match="^e.rule.vectors.symlink.f: "):
-        hatch_build.force_include(repo, "wheel")
+    with pytest.raises(hatch_build.VectorsBuildError,
+                       match=f"^e.state.missing.vectors.source.f: .* lack {re.escape(missing)}, "):
+        hatch_build.force_include(repo, "wheel", MANIFEST)
 
 
 def test_a_build_with_no_vectors_is_refused_rather_than_empty(tmp_path):
-    with pytest.raises(hatch_build.VectorsBuildError) as raised:
-        hatch_build.force_include(tmp_path, "wheel")
-    assert str(raised.value).startswith("e.state.missing.vectors.source.f: ")
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.missing.vectors.source.f: "):
+        hatch_build.force_include(tmp_path, "wheel", MANIFEST)
 
 
 def test_an_sdist_without_its_vectors_is_refused(tmp_path):
     write(tmp_path / "PKG-INFO", "Metadata-Version: 2.4\n")
     with pytest.raises(hatch_build.VectorsBuildError, match="^e.state.missing.vectors.source.f: "):
-        hatch_build.force_include(tmp_path, "wheel")
+        hatch_build.force_include(tmp_path, "wheel", MANIFEST)
+
+
+@pytest.mark.parametrize("where", ["file", "directory", "root"])
+def test_a_symlink_on_the_way_to_any_file_is_refused_rather_than_followed(repo, tmp_path, where):
+    # Following one would copy whatever it points at, from anywhere on the build host, into the
+    # wheel.
+    vectors = repo.parent.parent / "vectors"
+    real = tmp_path / "elsewhere"
+    if where == "file":
+        moved = vectors / "keri" / "requests.json"
+    elif where == "directory":
+        moved = vectors / "keri"
+    else:
+        moved = vectors
+    moved.rename(real)
+    moved.symlink_to(real)
+    with pytest.raises(hatch_build.VectorsBuildError, match="^e.rule.vectors.symlink.f: "):
+        hatch_build.force_include(repo, "wheel", MANIFEST)
 
 
 def hook(root: Path, target: str) -> hatch_build.VectorsHook:
     return hatch_build.VectorsHook(str(root), {}, None, None, str(root / "dist"), target)
 
 
-def test_the_hook_adds_the_vectors_to_a_build(repo):
+def test_the_hook_adds_the_vectors_to_a_build(monkeypatch, repo):
+    monkeypatch.setattr(hatch_build.force_include, "__defaults__", (MANIFEST,))
     build_data = {"force_include": {"keep.txt": "keep.txt"}}
     hook(repo, "wheel").initialize("standard", build_data)
     assert build_data["force_include"]["keep.txt"] == "keep.txt"

@@ -40,6 +40,11 @@ def expected() -> dict[str, bytes]:
     }
 
 
+def test_the_build_manifest_is_the_committed_vectors_without_the_generators():
+    import hatch_build
+    assert sorted(hatch_build.MANIFEST) == sorted(expected())
+
+
 def build(route: str, out: Path) -> Path:
     if route == "source":
         run("uv", "build", "--wheel", "--out-dir", out / "wheel", PROJECT)
@@ -142,15 +147,41 @@ def test_load_reads_a_vector_file_by_its_path_below_vectors(installed):
 @pytest.mark.parametrize("name", [
     "", ".", "..", "../py/pyproject.toml", "keri/../accepts.json", "/etc/passwd", "keri//x.json",
     "keri/", "keri\\requests.json", "accepts.json\0", None, 7, b"accepts.json",
+    "D:secret.json", "keri/C:x.json", "c:/windows", "accepts.json ", "keri/requests.json\n",
 ])
 def test_load_refuses_a_name_that_is_not_a_plain_path_below_vectors(installed, name):
     with pytest.raises(ValueError, match="^e.input.format.vectors.name.f: "):
         installed.load(name)
 
 
-def test_load_of_a_file_that_is_not_there_says_so(installed):
+class Shifty(str):
+    """A str whose split() answers differently each time it is asked."""
+
+    calls = 0
+
+    def split(self, *args, **kwargs):
+        Shifty.calls += 1
+        return iter(["accepts.json"] if Shifty.calls == 1 else ["..", "..", "py", "pyproject.toml"])
+
+
+def test_load_reads_a_str_subclass_by_its_value_not_by_its_split(installed):
+    Shifty.calls = 0
+    assert installed.load(Shifty("accepts.json")) == installed.load("accepts.json")
+    Shifty.calls = 0
+    with pytest.raises(ValueError, match="^e.input.format.vectors.name.f: "):
+        installed.load(Shifty("../py/pyproject.toml"))
+
+
+@pytest.mark.parametrize("name", [
+    "no-such-file.json", "keri/no-such-file.json", "nope/requests.json",
+    # Names Windows resolves to a device or to another file; matched exactly, they are no file.
+    "nul", "con.json", "keri/aux", "accepts.json.", "ACCEPTS.JSON",
+    # A file is not a directory, and naming one as such is a missing file, not a crash.
+    "accepts.json/x", "keri",
+])
+def test_load_of_a_file_that_is_not_there_says_so(installed, name):
     with pytest.raises(FileNotFoundError):
-        installed.load("no-such-file.json")
+        installed.load(name)
 
 
 def test_fikis_own_artifacts_carry_no_vectors(tmp_path):
