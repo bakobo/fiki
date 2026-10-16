@@ -14,6 +14,8 @@ uv run pytest
 
 The suite enforces 100% branch coverage; a gap needs an approved `deviation:` node in the repo's `this.i`.
 
+The shared vectors are also packaged for a consumer's own tests, as the separate distribution [`fiki-vectors`](fiki-vectors/README.md).
+
 ## Signing a request
 
 ```python

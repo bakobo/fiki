@@ -49,6 +49,31 @@ jobs:
       - name: Run tests (100% branch coverage gate)
         run: uv run pytest
 
+  # fiki-vectors, the vectors packaged for a consumer's tests (`this.i` @58dr3z98). Its suite
+  # builds the wheel from the source tree and from an sdist, installs each, and compares the
+  # installed files with vectors/ byte for byte, so it runs on the floor and on the ceiling.
+  vectors-package:
+    name: python-vectors-package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.14"]
+    defaults:
+      run:
+        working-directory: py/fiki-vectors
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Sync dependencies
+        run: uv sync --frozen
+      - name: Build, install and compare (100% branch coverage gate)
+        run: uv run pytest
+
   # fiki's dependency budget is a requirement, not an outcome (`this.i` @07wstqk7, @8zw78n0v): the
   # library must install without keripy and without bakobo-errors, or the reason it was carved out
   # of heti evaporates. A test asserting this inside the suite would only check what the suite

@@ -15,7 +15,7 @@ Five of the six publish with no long-lived credential: PyPI, npm, crates.io and 
 
 ## Cutting a release of one port
 
-1. Bump the version in the port's manifest in a pull request: `py/pyproject.toml` (and `py/uv.lock`, by running `uv lock` in `py/`), `js/package.json`, `rust/Cargo.toml` (and `rust/Cargo.lock` and `differential/rust/Cargo.lock`, by running `cargo update -p fiki` in `rust/` and in `differential/rust/`, whose CI job builds with `--locked`), `java/pom.xml`, or `csharp/src/Bakobo.Fiki/Bakobo.Fiki.csproj`. Go has no manifest version, since its version is its tag.
+1. Bump the version in the port's manifest in a pull request: `py/pyproject.toml` (and `py/uv.lock`, by running `uv lock` in `py/`) together with `py/fiki-vectors/pyproject.toml` (and `py/fiki-vectors/uv.lock`, by running `uv lock` in `py/fiki-vectors/`), whose version moves with fiki-py's and a test holds them equal, `js/package.json`, `rust/Cargo.toml` (and `rust/Cargo.lock` and `differential/rust/Cargo.lock`, by running `cargo update -p fiki` in `rust/` and in `differential/rust/`, whose CI job builds with `--locked`), `java/pom.xml`, or `csharp/src/Bakobo.Fiki/Bakobo.Fiki.csproj`. Go has no manifest version, since its version is its tag.
 2. If the change alters what the vectors require, it is also a vectors-format bump (`this.i` @4fhrre0m), and the port's exported constant must move with the vector files.
 3. Merge the pull request.
 4. Tag the merge commit on `main` and push the tag:
@@ -28,6 +28,8 @@ Five of the six publish with no long-lived credential: PyPI, npm, crates.io and 
 
 5. Approve the `release` environment's deployment when GitHub asks. Every workflow except Go's pauses for that approval before its publish job, and the approval is what lets that job mint an OIDC token or read a secret.
 6. Watch the `verify` job. The release is done when it is green, not when the publish job is.
+
+`fiki-vectors`, the vectors packaged for a Python consumer's tests (`py/fiki-vectors/`, `this.i` @58dr3z98), is not published anywhere: a consumer installs it from a git commit, the same one it pins fiki at. Publishing it to PyPI would be a release decision of its own.
 
 A version cannot be published twice on any of these registries. If a release fails after its publish job succeeded, fix forward with the next patch version rather than trying to replace what was published.
 

@@ -84,11 +84,12 @@ vectors/              conformance vectors, shared and normative
   signature-base.json     bases and signatures, byte for byte
   accepts.json            requests every implementation must accept, and the verdict
   refusals.json           requests every implementation must refuse, and the error
-  keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 5;
+  keri/                   the KERI profile of RFC 9421's own set, format keri_vectors_format 6;
                           all six ports run it
   keys/                   the spellings of an Ed25519 key fiki reads, format key_vectors_format 1,
                           with OpenSSH fixtures written by ssh-keygen; all six ports run it
 py/                   the Python implementation
+  fiki-vectors/           vectors/ as a Python test dependency, installed at the commit that pins fiki
 js/                   the JavaScript implementation, for browsers and Node
 go/                   the Go implementation
 rust/                 the Rust implementation
