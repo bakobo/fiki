@@ -141,7 +141,7 @@ def test_load_reads_a_vector_file_by_its_path_below_vectors(installed):
 
 @pytest.mark.parametrize("name", [
     "", ".", "..", "../py/pyproject.toml", "keri/../accepts.json", "/etc/passwd", "keri//x.json",
-    "keri/", "keri\\requests.json",
+    "keri/", "keri\\requests.json", "accepts.json\0", None, 7, b"accepts.json",
 ])
 def test_load_refuses_a_name_that_is_not_a_plain_path_below_vectors(installed, name):
     with pytest.raises(ValueError, match="^e.input.format.vectors.name.f: "):

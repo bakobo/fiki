@@ -16,6 +16,17 @@ from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 NO_VECTORS = "e.state.missing.vectors.source.f"
 EDITABLE = "e.feature.unsupported.vectors.editable.f"
+SYMLINK = "e.rule.vectors.symlink.f"
+
+# One file standing for each set the package exports a format for, plus the corpus license that
+# must travel with the corpus. A tree missing any of them is partial, and a partial package would
+# still export the formats of the sets it lacks.
+REQUIRED = (
+    "accepts.json",
+    "keri/requests.json",
+    "keys/keys.json",
+    "third_party/structured-field-tests/LICENSE.md",
+)
 
 
 class VectorsBuildError(RuntimeError):
@@ -32,15 +43,23 @@ def source(root: Path) -> Path:
 def force_include(root: Path, target: str) -> dict[str, str]:
     """Map each vector file to its place in the ``target`` artifact, a wheel or an sdist."""
     vectors = source(root)
-    if not (vectors / "accepts.json").is_file():
+    missing = [name for name in REQUIRED if not (vectors / name).is_file()]
+    if missing:
         raise VectorsBuildError(
-            f"{NO_VECTORS}: There are no vectors at {vectors}, so fiki-vectors would build empty."
-            " Build it from a fiki checkout, where vectors/ is two directories above this project,"
-            " or from an sdist that carries them.")
+            f"{NO_VECTORS}: The vectors at {vectors} lack {', '.join(missing)}, so fiki-vectors"
+            " would build partial or empty. Build it from a fiki checkout, where vectors/ is two"
+            " directories above this project, or from an sdist that carries them.")
+    found = sorted(vectors.rglob("*"))
+    links = [path for path in [vectors, *found] if path.is_symlink()]
+    if links:
+        # Following a link would copy whatever it names, from anywhere on the build host.
+        raise VectorsBuildError(
+            f"{SYMLINK}: fiki-vectors ships only regular files, and these are symlinks:"
+            f" {', '.join(str(p) for p in links)}. Replace each with what it should be.")
     prefix = "vectors" if target == "sdist" else "fiki_vectors/data"
     return {
         str(path): f"{prefix}/{path.relative_to(vectors).as_posix()}"
-        for path in sorted(vectors.rglob("*"))
+        for path in found
         if path.is_file() and path.suffix not in (".py", ".pyc")
         and "__pycache__" not in path.relative_to(vectors).parts
     }

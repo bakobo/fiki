@@ -34,8 +34,8 @@ def files() -> Traversable:
 
 def load(name: str) -> Any:
     """Parse one vector file, named by its path below ``vectors/``: ``"keri/requests.json"``."""
-    parts = name.split("/")
-    if "\\" in name or any(part in ("", ".", "..") for part in parts):
+    parts = name.split("/") if isinstance(name, str) else [""]
+    if any(part in ("", ".", "..") or "\\" in part or "\0" in part for part in parts):
         raise ValueError(
             f"{BAD_NAME}: {name!r} is not a path below vectors/. Name a file with forward slashes"
             " and no empty, '.' or '..' segments, such as 'keri/requests.json'.")
