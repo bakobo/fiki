@@ -58,6 +58,10 @@ packages = ["src/fiki"]
 # nothing from the annotations at the boundary it maps exceptions across.
 artifacts = ["src/fiki/py.typed"]
 
+[tool.hatch.build.targets.sdist]
+# fiki-vectors is a distribution of its own (`this.i` @58dr3z98); fiki's sdist must not carry it.
+exclude = ["/fiki-vectors"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=fiki --cov-branch --cov-report=term-missing --cov-fail-under=100"

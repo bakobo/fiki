@@ -1,0 +1,70 @@
+[project]
+name = "fiki-vectors"
+# Moves with py/pyproject.toml, so one number names both halves of a pin (`this.i` @58dr3z98). A
+# test holds the two equal.
+version = "0.10.0"
+description = "fiki's committed conformance vectors, as a test dependency installable at the same commit as fiki."
+readme = "README.md"
+requires-python = ">=3.11"
+# fiki's own vectors are Apache-2.0; the vendored httpwg structured-field corpus under
+# third_party/ is BSD-3-Clause, and its LICENSE.md travels inside the package beside it.
+license = "Apache-2.0 AND BSD-3-Clause"
+authors = [{ name = "Bakobo" }]
+keywords = ["rfc9421", "http-message-signatures", "conformance", "test-vectors", "fiki"]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+# None. The vectors are data, and a consumer reads them with whatever it is testing.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/bakobo/fiki"
+Repository = "https://github.com/bakobo/fiki"
+Issues = "https://github.com/bakobo/fiki/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=5",
+    # The build hook's own tests import it.
+    "hatchling",
+    # The formats this package exports must be the ones fiki-py says it satisfies.
+    "fiki",
+]
+
+[tool.uv]
+# The project is never installed into its own environment. An editable install cannot carry the
+# vectors (the build hook refuses one), so the tests build real wheels and import those instead.
+package = false
+
+[tool.uv.sources]
+fiki = { path = "..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Pulls vectors/ into the build; see hatch_build.py.
+[tool.hatch.build.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fiki_vectors"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/hatch_build.py", "/README.md", "/pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--cov --cov-branch --cov-report=term-missing --cov-fail-under=100"
+
+[tool.coverage.run]
+branch = true
+# Measured wherever they are imported from: fiki_vectors from the wheels the tests install, the
+# hook from this directory.
+source = ["fiki_vectors", "hatch_build"]
