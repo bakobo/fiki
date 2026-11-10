@@ -25,7 +25,7 @@ pub const VECTORS_FORMAT: u32 = 4;
 /// A separate number from [`VECTORS_FORMAT`], because the two sets answer to different authorities
 /// and move independently: the shared vectors to fiki's own decisions, these to a profile fiki does
 /// not own.
-pub const KERI_VECTORS_FORMAT: u32 = 6;
+pub const KERI_VECTORS_FORMAT: u32 = 7;
 
 /// The key-spelling vectors' conformance contract this port satisfies, `vectors/keys/`'s
 /// `key_vectors_format` (`this.i` @0mvgkwnl).
