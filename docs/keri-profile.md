@@ -1,6 +1,6 @@
 # KERI profile of RFC 9421 HTTP Message Signatures
 
-Version 1, 2026-09-24.
+Version 1.1, 2026-11-10. Section 12 says how versions are numbered and what changed from version 1.
 
 This document specifies how keripy, KERIA and signify-ts sign and verify HTTP requests and responses once WebOfTrust/keripy#1669 lands. The key words MUST, SHOULD and MAY are used in the RFC 2119 sense.
 
@@ -98,11 +98,11 @@ Each of these uses a field RFC 9421 leaves to the application. None is a syntact
 - R1, `keyid`. The value is the signer's AID in qb64. The verifier decides how to resolve it from the prefix's derivation code, never from its first character alone: a non-transferable code yields the Ed25519 key directly, and every transferable code, including the basic transferable Ed25519 prefix `D…`, resolves to the current key state in the KEL the verifier holds. An AID with a transferable code that the verifier has no KEL for is `unknown-key`, never a raw key. Treating a `D…` keyid as a key would accept a signature from a rotated-away inception key and undo pre-rotation. A server that serves one controller per agent (KERIA) routes on `keyid` in place of the legacy `Signify-Resource` header, which canonical mode does not use; `Signify-Timestamp` is likewise replaced by `created`. A client verifying a response MUST check that `keyid` is the AID it expects to be talking to.
 - R2, `alg`. Derived from the key's CESR code. Ed25519 maps to `ed25519`. `ecdsa-p256-sha256` could later map to secp256r1 keys; secp256k1 has no registered algorithm.
 - R3, key state. The key is the one current at verification time. A request signed just before a rotation fails and the client retries. Legacy Signage could name a key state with `ordinal` and `digest`; canonical mode has no place for it and does not need one for request/response authentication.
-- R4, a single effective signer. A canonical signature carries no key index, so the verifier must know which key signed. The resolved key state qualifies when exactly one of its current signing keys satisfies the signing threshold on its own; that key is the one used. A plain single-key state qualifies. So does the state a Signify controller reaches when its passcode is rotated (keys `[new, prior-next]`, threshold `['1','0']`), where only the first key satisfies the threshold alone. Any other state, such as a 2-of-3 group, or `1` over two keys where either key alone suffices, is refused as `unsupported-signer`. Multiple labels (RFC 9421 §4.3) leave room for multi-key signers later.
+- R4, a single effective signer. A canonical signature carries no key index, so the verifier must know which key signed. The resolved key state qualifies when exactly one of its current signing keys satisfies the signing threshold on its own; that key is the one used. A plain single-key state qualifies. So does the state a Signify controller reaches when its passcode is rotated (keys `[new, prior-next]`, threshold `['1','0']`), where only the first key satisfies the threshold alone. Any other state, such as a 2-of-3 group, or `1` over two keys where either key alone suffices, is refused as `unsupported-signer`. Legacy mode applies the same rule to the controller its `Signify-Resource` names (§8). Multiple labels (RFC 9421 §4.3) leave room for multi-key signers later.
 
 ## 8. Legacy mode, mode selection, and transition
 
-Legacy mode is the scheme in keripy's `ending.siginput`/`signature` and KERIA's `SignedHeaderAuthenticator` today: a non-RFC base (`"@signature-params: …"` quote placement, unquoted identifiers and string parameters), the `Signify-Resource` and `Signify-Timestamp` headers, the `signify` label, and a `Signature` header of the form `indexed="?0";signify="0B…"`. This profile does not change it.
+Legacy mode is the scheme in keripy's `ending.siginput`/`signature` and KERIA's `SignedHeaderAuthenticator` today: a non-RFC base (`"@signature-params: …"` quote placement, unquoted identifiers and string parameters), the `Signify-Resource` and `Signify-Timestamp` headers, the `signify` label, and a `Signature` header of the form `indexed="?0";signify="0B…"`. This profile does not change its wire format or its base.
 
 A verifier chooses the mode from the `Signature` header:
 
@@ -110,11 +110,11 @@ A verifier chooses the mode from the `Signature` header:
 - otherwise, keripy's legacy parser (`ending.designature`) accepts it: legacy;
 - otherwise: refused as `malformed-signature`.
 
-In legacy mode the signer's key is found by looking `Signify-Resource` up in the verifier's key state and taking its first current key, exactly as KERIA does today. An implementation whose resolver can't make that lookup separately uses the resolver it was given as-is, without refusing. §7's resolution rules (derivation-code transferability, R4's single-key requirement) apply to canonical mode only, so legacy traffic from multi-key controllers keeps verifying. The legacy test is the legacy parser, not RFC 8941, because many headers keripy's own `signature()` produces, such as indexed signatures labelled `0`, are not valid RFC 8941 and would otherwise be refused. The two modes are domain-separated because their bases differ in the final line, so a signature produced in one mode never verifies in the other.
+In legacy mode the verifier looks `Signify-Resource` up in its key state and uses that controller's single effective signer under §7 R4: the one current key that satisfies the signing threshold alone. For every Signify and SignifyPy controller that is its first current key, including after a passcode rotation, so the traffic legacy mode exists for keeps verifying. A legacy message from a controller with no single effective signer, such as a 2-of-3 group or `1` over two keys, is refused as `unsupported-signer`. When the effective signer is not the first key, as with threshold `['0','1']`, the second key is the one used, and a signature by the first does not verify. Version 1 took the first current key whatever the threshold said. That ignored the controller's declared threshold: one member of a group could act as the group, and a compromised key rotated to weight 0 would keep authenticating. R1's derivation-code rules still apply to canonical mode only, since legacy mode resolves `Signify-Resource` and never takes a key from a prefix. An implementation whose resolver can't make the legacy lookup separately uses the resolver it was given as-is, without refusing for that reason. The legacy test is the legacy parser, not RFC 8941, because many headers keripy's own `signature()` produces, such as indexed signatures labelled `0`, are not valid RFC 8941 and would otherwise be refused. The two modes are domain-separated because their bases differ in the final line, so a signature produced in one mode never verifies in the other.
 
 A server responds in the mode the request used, and a client refuses a response in the other mode as `mode-mismatch`, in either direction. An upgraded client therefore gets canonical responses and an old client gets legacy ones, with no version header. A client that sent a canonical request MUST refuse a legacy response. The legacy response covers neither status nor body, so accepting one would let an intermediary substitute them.
 
-A client that sent a canonical request also refuses an unsigned response, with one exception: an unsigned 401 is reported to the caller as an authentication failure and its body is not trusted. KERIA cannot sign a refusal it issues before it has resolved the agent. Every other unsigned response is `missing-signature`.
+A client that sent a canonical request also refuses an unsigned response, with one exception: an unsigned 401 is reported to the caller as an authentication failure and its body is not trusted. A response whose `Signature` header is present but empty is unsigned, so an empty `Signature` on a 401 is that exception too. KERIA cannot sign a refusal it issues before it has resolved the agent. Every other unsigned response is `missing-signature`.
 
 A client MUST NOT retry a request in legacy mode because a canonical one was refused. Automatic fallback is a downgrade any intermediary can trigger by forging one 401, and it discards the coverage this profile adds. signify-ts continues to sign in legacy mode by default until a KERIA release verifies canonical mode, because its CI integration-tests against a pinned KERIA image. Canonical signing is opt-in until then, including in `createSignedRequest`. Flipping the default is keyed to a KERIA release. A client talking to an older deployment is configured back to legacy by its operator, not by probing. Having KERIA advertise its supported modes in the unauthenticated agent state would remove that configuration step, and is noted as a follow-up.
 
@@ -126,17 +126,17 @@ Implementations raise errors in their own idiom, but each refusal maps to one of
 
 Headers present and readable: `missing-signature`, `missing-signature-input`, `malformed-signature` (the `Signature` header is neither form of §8), `malformed-signature-input` (does not parse, an uppercase field name, an unknown parameter), `malformed-signature-label` (other than exactly one label), `missing-signature-label` (the two headers name different labels), `malformed-signature-value` (a Byte Sequence that is not 64 bytes). A member that is not a Byte Sequence at all makes the header neither form of §8, which is `malformed-signature`.
 
-Mode, checked immediately after the mode is detected and before any canonical-only check: `mode-mismatch` (a legacy response to a canonical request).
+Mode, checked immediately after the mode is detected and before any canonical-only check: `mode-mismatch` (a legacy response to a canonical request, or a canonical response to a legacy request; §8).
 
 Covered list: `duplicate-component`, `unsupported-component`, then `insufficient-coverage` (the minimum set of §3 is not covered, including a body without `content-digest`).
 
-Key: `malformed-key` (the keyid is not a well-formed AID), `unknown-key` (no KEL for a transferable keyid), `unsupported-signer` (R4), `unsupported-algorithm` (an `alg` other than `ed25519`, or one that disagrees with the key).
+Key: `malformed-key` (the keyid is not a well-formed AID, or is a well-formed non-transferable `B` keyid whose key is a small-order Ed25519 point, which no signature can authenticate; refused before the signature is checked), `unknown-key` (no KEL for a transferable keyid), `unsupported-signer` (R4), `unsupported-algorithm` (an `alg` other than `ed25519`, or one that disagrees with the key).
 
 Base and signature: `missing-component` (a covered field is absent), then `signature-mismatch`. `signature-mismatch` also covers a base that cannot be built (a component value with a newline or a non-ASCII byte), and a covered `@authority` outside the authorities a verifier serves (§3). A response signed by an AID other than the one the client expects is `unknown-key`.
 
 Policy: `signature-stale` (`created` outside the window of §6), `signature-expired`. These run after the signature check, as fiki's do, so an unauthenticated message never learns the verifier's clock policy.
 
-Response only, before any other check: `unauthenticated` (an unsigned 401 answering a canonical request; §8).
+Response only, before any other check: `unauthenticated` (an unsigned 401 answering a canonical request, including one whose `Signature` header is present but empty; §8).
 
 Body: `malformed-digest` (does not parse, or has no recognized algorithm), `digest-mismatch`, `missing-signature` for an unsigned response (§8).
 
@@ -148,10 +148,25 @@ Relation to fiki's classes, which are the names its own vectors use: `MissingSig
 
 - RFC 9421 Appendix B.2.6: signing the Appendix B.2 request with the B.1.4 Ed25519 key reproduces the published base and signature byte for byte.
 - Shared vectors in [`vectors/keri/`](../vectors/keri/), generated by fiki, which is independent of the code under test, covering what the RFC does not: `@query`, `content-digest` (including a header with an extra unknown-algorithm member, and one with two recognized members of which one mismatches), response binding with `req` (each response case carries its request alongside), a lowercase `@method`, a `@path` containing a character hio re-encodes (O1), non-transferable and transferable AID `keyid`s (the transferable case supplies the current key as resolver input, and one case pins a `D…` keyid that must not resolve as a raw key), an absent `alg`, freshness at each boundary of §6, a chunked body without `content-digest`, and each refusal code in §9. The JSON uses no language-specific encodings. keripy and signify-ts carry identical copies. fiki's Python implementation follows this profile where it and fiki's earlier behaviour differed (method case, multi-digest checking).
-- Legacy vectors taken from the signatures pinned in KERIA's and signify-ts's current tests, so each implementation proves it still accepts today's traffic.
+- Legacy vectors taken from the signatures pinned in KERIA's and signify-ts's current tests, so each implementation proves it still accepts today's traffic, and legacy messages generated by fiki from controllers with more than one current key, so each implementation proves it applies §8's effective-signer rule: a 2-of-3 group refused as `unsupported-signer`, a passcode-rotated Signify controller accepted, and a controller with threshold `['0','1']` accepted from its second key and refused from its first.
 
 ## 11. Open implementation notes
 
 - O1, `@path` on KERIA. hio's WSGI server (`serving.py`) decodes the request path and re-encodes it with `quote`, so KERIA sees a re-encoding rather than the client's bytes; they differ for `~`, `%2F`, lowercase hex, and `: @ + = , ; ! $ & ' ( ) *`. Paths built from AIDs and SAIDs are unaffected, but identifier names chosen by users are not. The plan is for hio to expose the raw path as `RAW_URI`, for KERIA to use it when present, and until then to fall back to the re-encoded path, so such requests fail verification in canonical mode. The alternative, having Signify pre-normalize the path to hio's form, would be a KERI-specific rule and is rejected.
 - O2, response freshness. §6 applies freshness to responses verified by a client. A browser whose clock is wrong will then fail every response, which is harder to diagnose than a failed request; implementations should say so in the error.
 - O3, CORS. KERIA's CORS middleware runs after response signing, so the headers it adds are not covered. None of them is security-relevant to Signify, but this profile does not claim otherwise.
+
+## 12. Versions
+
+A minor version (1.1, 1.2) clarifies the profile or tightens it: it states a reading the earlier text left open, or refuses a message no conforming signer produces. A major version (2) is breaking: a conforming signer's messages would be refused, or a verifier would have to accept something the earlier version refused. Each version is tagged in bakobo/fiki as `keri-profile-v<version>` (`keri-profile-v1`, `keri-profile-v1.1`), and implementations and vectors cite the tag rather than the main branch, which moves.
+
+Version 1.1 refuses some legacy traffic that version 1 accepted, and is still a tightening. What it refuses is a legacy message from a controller with more than one current key whose signature does not satisfy that controller's own declared threshold, or comes from a key the threshold gives no weight. Such a signature never authenticated the controller; version 1 accepted it because it took the first key without reading the threshold. No Signify or SignifyPy client produces one, because every such controller's effective signer is its first key. A verifier that upgrades will refuse a multi-key controller's legacy requests it accepted before, and that refusal is the point of the change.
+
+Changes from version 1 (2026-09-24, tag `keri-profile-v1`):
+
+- §8: legacy mode uses the controller's single effective signer under R4 rather than its first current key, and refuses a controller without one as `unsupported-signer`. R4 notes that it applies to legacy mode too.
+- §9: `mode-mismatch` names both directions, as §8 already did.
+- §8 and §9: a response whose `Signature` header is present but empty is unsigned, so a 401 carrying one is `unauthenticated`.
+- §9: a well-formed `B` keyid whose key is a small-order Ed25519 point is `malformed-key`.
+- §10: the legacy vectors include generated multi-key cases.
+- §12: this section.
