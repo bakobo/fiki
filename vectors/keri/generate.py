@@ -3,7 +3,7 @@
 
 Run from the repository root: ``python3 vectors/keri/generate.py``.
 
-The contract is the KERI profile of RFC 9421 HTTP Message Signatures, version 1 of 2026-09-24,
+The contract is the KERI profile of RFC 9421 HTTP Message Signatures, version 1.1 of 2026-11-10,
 published beside these files at docs/keri-profile.md (``this.i`` @997vxdu7),
 which keripy, KERIA and signify-ts implement for WebOfTrust/keripy#1669. fiki generates these
 because it shares no code with any of them; the profile's own oracle section asks for exactly
@@ -19,6 +19,9 @@ Two things are static data rather than generated. The RFC 9421 B.2.6 case is the
 ``legacy.json`` carries the legacy-dialect messages KERIA's and signify-ts's current tests pin,
 with provenance. fiki verifies neither dialect's legacy form; the legacy table is checked here
 only as pure Ed25519 over the base it states, so a transcription error cannot reach the file.
+legacy.json's multi-key cases (keri_vectors_format 7, ``this.i`` @2wdtp6md) are generated here,
+signed with seeded keys over a legacy base, and checked against their key state's own reduction
+to a single effective signer (profile R4), never against a legacy verifier.
 """
 
 from __future__ import annotations
@@ -27,12 +30,14 @@ import base64
 import hashlib
 import json
 import sys
+from fractions import Fraction
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "py" / "src"))
 
 import http_sfv  # noqa: E402
+from cryptography.exceptions import InvalidSignature  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey  # noqa: E402
 
 from fiki import (  # noqa: E402
@@ -59,7 +64,8 @@ from fiki.messages import content_digest  # noqa: E402
 # Content-Length's whitespace, weak and aliased B keyids, and the request-digest response case.
 # Format 5 is the review's remaining profile cases; format 6 rides with vectors_format 4
 # (@646un6k8): a non-byte-sequence Signature member and a keyid the library must refuse itself.
-KERI_VECTORS_FORMAT = 6
+# Format 7 is profile version 1.1 (@2wdtp6md): legacy.json's multi-key cases and their key states.
+KERI_VECTORS_FORMAT = 7
 
 # fiki's classes to the profile's section 9 codes. The vectors name codes, never classes, because
 # signify-ts will not reproduce fiki's taxonomy. MissingKey has no code of its own in the profile:
@@ -112,9 +118,9 @@ BODY = '{"name": "alice", "salt": "0ACDEyMzQ1Njc4OWFiY2RlZg"}'
 
 PROFILE = {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
-    "version": 1,
-    "date": "2026-09-24",
-    "where": "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md",
+    "version": "1.1",
+    "date": "2026-11-10",
+    "where": "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md",
     "rules": "Canonical mode only. Refusals are named by the profile's section 9 codes. A "
              "verifier runs its checks in section 9's order and reports the first that fails. "
              "Every refusal case carries exactly one defect, so it has exactly one correct code.",
@@ -262,6 +268,32 @@ KEYS = [
                  "A 2-of-3 group: no one key suffices (profile R4). The vectors' messages for "
                  "this keyid are signed by the first key."),
 ]
+
+
+def effective_signer(keys: list[str], threshold) -> str | None:
+    """Profile R4: the one current key that satisfies the signing threshold alone, or None.
+
+    keys are qb64 verfers and threshold is in keripy's form: a hex integer string for M of N, or a
+    list of fractional weights. Only the forms the vectors use are read; anything else aborts.
+    """
+    if isinstance(threshold, str):
+        alone = list(keys) if int(threshold, 16) == 1 else []
+    elif len(threshold) == len(keys) and all(isinstance(w, str) for w in threshold):
+        alone = [key for key, weight in zip(keys, threshold) if Fraction(weight) >= 1]
+    else:
+        raise SystemExit(f"a threshold the vectors do not use: {threshold!r}")
+    return alone[0] if len(alone) == 1 else None
+
+
+def raw_of(verfer_qb64: str) -> bytes:
+    return base64.urlsafe_b64decode("A" + verfer_qb64[1:])[1:]
+
+
+for _entry in KEYS:
+    if "key_state" in _entry:
+        _found = effective_signer(_entry["key_state"]["keys"], _entry["key_state"]["threshold"])
+        if (None if _found is None else b64url(raw_of(_found))) != _entry["effective_key"]:
+            raise SystemExit(f"{_entry['keyid']}: effective_key disagrees with its key_state")
 
 
 def padding_bit_alias(aid: str) -> str:
@@ -978,7 +1010,7 @@ def refusals():
         "id": "sign-below-the-minimum",
         "kind": "sign-request",
         "note": "A signer asked to cover less than the request minimum set refuses (profile "
-                "section 3, draft 6).",
+                "section 3).",
         "request": {"method": "GET", "url": f"{HOST}/identifiers?type=rot", "headers": {},
                     "body": None},
         "covered": ['"@method"', '"@path"'],
@@ -1158,27 +1190,131 @@ LEGACY = [
 ]
 
 
+# Legacy messages from controllers with more than one current key, generated (format 7, profile
+# version 1.1 section 8, @2wdtp6md). KERIA's and signify-ts's tests pin none, because every
+# controller they sign for has one key, which is exactly why version 1's first-key rule went
+# unnoticed.
+
+LEGACY_TIMESTAMP = "2023-11-14T22:13:20.000000+00:00"
+ZERO_FIRST = [seeded(11), seeded(12)]
+
+
+def legacy_signed(case_id, *, aid, keys, threshold, signer, note):
+    """A legacy GET as Signify's SignedHeaderAuthenticator.sign builds it, signed by signer."""
+    fields = [["signify-resource", aid], ["@method", "GET"], ["@path", "/identifiers"],
+              ["signify-timestamp", LEGACY_TIMESTAMP]]
+    params = (f"(signify-resource @method @path signify-timestamp);created={AT};"
+              f"keyid={aid};alg=ed25519")
+    raw = signer.sign(legacy_base(fields, params).encode("utf-8"))
+    cesr = "0B" + base64.urlsafe_b64encode(b"\x00\x00" + raw).decode("ascii")[2:]
+    found = effective_signer([verfer(key) for key in keys], threshold)
+    if found is None:
+        error = "unsupported-signer"
+    elif found == verfer(signer):
+        error = None
+    else:
+        error = "signature-mismatch"
+    entry = {
+        "id": case_id,
+        "kind": "request",
+        "source": {"repo": "bakobo/fiki", "file": "vectors/keri/generate.py",
+                   "generated": "Signed by fiki-py with the seed in seed_hex; no deployed "
+                                "test pins a legacy message from a multi-key controller."},
+        "method": "GET",
+        "path": "/identifiers",
+        "headers": {
+            "Signify-Resource": aid,
+            "Signify-Timestamp": LEGACY_TIMESTAMP,
+            "Signature-Input": 'signify=("signify-resource" "@method" "@path" '
+                               f'"signify-timestamp");created={AT};keyid="{aid}";'
+                               'alg="ed25519"',
+            "Signature": f'indexed="?0";signify="{cesr}"',
+        },
+        "keyid": aid,
+        "key": verfer(signer),
+        "seed_hex": signer.seed.hex(),
+        "created": AT,
+        "mocked_now": "none: legacy verification checks no freshness",
+        "key_state": {"keys": [verfer(key) for key in keys], "threshold": threshold},
+        "effective_key": None if found is None else b64url(raw_of(found)),
+        "fields": fields,
+        "params": params,
+        "note": note,
+    }
+    if error is not None:
+        entry["error"] = error
+    return entry
+
+
+LEGACY_MULTIKEY = [
+    legacy_signed(
+        "legacy-two-of-three-group", aid=synthetic_aid("legacy: two of three keys"),
+        keys=GROUP, threshold="2", signer=GROUP[0],
+        note="A 2-of-3 group signed by its first key alone. No one key satisfies the threshold, "
+             "so there is no single effective signer (profile R4, section 8). Version 1 took the "
+             "first current key and accepted this, letting one member act as the group."),
+    legacy_signed(
+        "legacy-passcode-rotated-controller", aid=synthetic_aid("legacy: passcode rotated"),
+        keys=[PASSCODE_NEW, PRIOR_NEXT], threshold=["1", "0"], signer=PASSCODE_NEW,
+        note="A Signify controller after its passcode is rotated: keys [new, prior-next], "
+             "threshold ['1','0']. Its first key is its single effective signer, so its legacy "
+             "traffic verifies under version 1.1 exactly as under version 1."),
+    legacy_signed(
+        "legacy-weight-zero-first-key-signs", aid=synthetic_aid("legacy: weight-zero first key"),
+        keys=ZERO_FIRST, threshold=["0", "1"], signer=ZERO_FIRST[0],
+        note="Threshold ['0','1'], signed by the first key, which carries no weight: the "
+             "effective signer is the second key, so the signature does not verify under it. "
+             "Version 1 took the first key and accepted this, so a compromised key rotated to "
+             "weight 0 kept authenticating."),
+    legacy_signed(
+        "legacy-weight-zero-first-key-effective-second",
+        aid=synthetic_aid("legacy: weight-zero first key"),
+        keys=ZERO_FIRST, threshold=["0", "1"], signer=ZERO_FIRST[1],
+        note="The same controller signed by its second key, its single effective signer: "
+             "accepted. Version 1 refused it, since it checked the first key."),
+]
+
+
 def legacy():
     cases = []
-    for entry in LEGACY:
+    for entry in LEGACY + LEGACY_MULTIKEY:
         entry = dict(entry)
         fields, params = entry.pop("fields"), entry.pop("params")
         entry["base"] = legacy_base(fields, params)
         signature = entry["headers"]["Signature"].split('signify="', 1)[1].rstrip('"')
-        Ed25519PublicKey.from_public_bytes(
-            base64.urlsafe_b64decode("A" + entry["key"][1:])[1:]
-        ).verify(base64.urlsafe_b64decode("AA" + signature[2:])[2:], entry["base"].encode())
+        raw_signature = base64.urlsafe_b64decode("AA" + signature[2:])[2:]
+        Ed25519PublicKey.from_public_bytes(raw_of(entry["key"])).verify(
+            raw_signature, entry["base"].encode())
+        effective = entry.get("effective_key")
+        if effective is not None and effective != b64url(raw_of(entry["key"])):
+            try:
+                Ed25519PublicKey.from_public_bytes(
+                    base64.urlsafe_b64decode(effective + "=")
+                ).verify(raw_signature, entry["base"].encode())
+            except InvalidSignature:
+                pass
+            else:
+                raise SystemExit(f"{entry['id']}: verifies under its effective key")
         cases.append(entry)
     return {
         **header("Legacy-mode messages pinned in KERIA's and signify-ts's current tests, so each "
                  "implementation proves it still accepts today's traffic (profile section 10). "
                  "fiki does not verify legacy mode; these are static data."),
-        "rules": "key is the signer's current Ed25519 verification key in CESR qb64 (a one-"
-                 "character D code over 32 bytes). base is the legacy signature base keripy's "
+        "rules": "key is the Ed25519 verification key that made the signature, in CESR qb64 (a "
+                 "one-character D code over 32 bytes). base is the legacy signature base keripy's "
                  "ending.siginput builds: field lines, then a final line with the quote placed "
                  "before @signature-params and unquoted identifiers and parameters. The "
                  "signature is the Signature header's signify member, CESR 0B (Ed25519) over "
-                 "that base. A legacy verifier checks no freshness.",
+                 "that base. A legacy verifier checks no freshness. A case pinned from KERIA or "
+                 "signify-ts is accepted, and its key is the key the verifier resolves for "
+                 "Signify-Resource. A case generated by fiki carries key_state, the key state "
+                 "the verifier holds for Signify-Resource (the current signing keys as qb64 "
+                 "verfers and the signing threshold in keripy's form), and effective_key, the "
+                 "one key that satisfies the threshold alone (profile R4 and section 8), or null "
+                 "when no single key does. Such a case is accepted when it has no error; "
+                 "otherwise error is its section 9 code: unsupported-signer when effective_key "
+                 "is null, signature-mismatch when the signature was made by a key other than "
+                 "the effective one.",
         "cases": cases,
     }
 
