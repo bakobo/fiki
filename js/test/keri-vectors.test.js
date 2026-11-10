@@ -153,7 +153,7 @@ describe('the KERI vectors format', () => {
       // The same guard @4fhrre0m gives the shared set, against its own number.
       const data = load(name);
       assert.equal(data.keri_vectors_format, KERI_VECTORS_FORMAT);
-      assert.equal(KERI_VECTORS_FORMAT, 6);
+      assert.equal(KERI_VECTORS_FORMAT, 7);
       assert.ok(!('vectors_format' in data));
       assert.ok(data.cases.length > 0);
     });
@@ -161,10 +161,10 @@ describe('the KERI vectors format', () => {
     it(`${name} names the published profile it pins`, () => {
       // The contract is a document anyone can read, beside these files (@997vxdu7).
       const { profile } = load(name);
-      assert.equal(profile.version, 1);
-      assert.equal(profile.where, 'https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md');
+      assert.equal(profile.version, '1.1');
+      assert.equal(profile.where, 'https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md');
       const doc = readFileSync(new URL('../../docs/keri-profile.md', import.meta.url), 'utf8');
-      assert.ok(doc.startsWith(`# ${profile.title}\n\nVersion 1, `));
+      assert.ok(doc.startsWith(`# ${profile.title}\n\nVersion 1.1, ${profile.date}.`));
     });
   }
 
@@ -343,9 +343,16 @@ describe('the legacy material', () => {
 
   it('carries what a legacy verifier needs, and its provenance', () => {
     for (const c of data.cases) {
-      assert.ok(['WebOfTrust/keria', 'WebOfTrust/signify-ts'].includes(c.source.repo));
-      assert.equal(c.source.commit.length, 40);
-      assert.ok(c.source.file && c.source.lines);
+      if (c.source.repo === 'bakobo/fiki') {
+        // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+        assert.equal(c.source.file, 'vectors/keri/generate.py');
+        assert.ok(c.source.generated && c.seed_hex && c.key_state && 'effective_key' in c);
+      } else {
+        assert.ok(['WebOfTrust/keria', 'WebOfTrust/signify-ts'].includes(c.source.repo));
+        assert.equal(c.source.commit.length, 40);
+        assert.ok(c.source.file && c.source.lines);
+        assert.ok(!('key_state' in c) && !('error' in c));
+      }
       for (const field of ['kind', 'method', 'path', 'headers', 'key', 'keyid', 'created']) {
         assert.ok(field in c, field);
       }
@@ -364,12 +371,38 @@ describe('the legacy material', () => {
       const key = await crypto.subtle.importKey('raw', rawKey, { name: 'Ed25519' }, false, ['verify']);
       assert.ok(await crypto.subtle.verify({ name: 'Ed25519' }, key, rawSignature, new TextEncoder().encode(c.base)));
     });
+
+    it(`${c.id}'s outcome agrees with its key state`, async () => {
+      // Profile section 8 at version 1.1: the signer is the key state's single effective signer
+      // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
+      // effective_key the case states, and the error follows from it and from who signed.
+      if (!('key_state' in c)) return; // pinned from KERIA or signify-ts: accepted under its key
+      const { keys, threshold } = c.key_state;
+      const weight = (w) => { const [n, d = '1'] = w.split('/'); return Number(n) / Number(d); };
+      const alone = typeof threshold === 'string'
+        ? (parseInt(threshold, 16) === 1 ? keys : [])
+        : keys.filter((_, i) => weight(threshold[i]) >= 1);
+      const found = alone.length === 1 ? alone[0] : null;
+      const raw = (qb64) => Buffer.from(fromB64Url('A' + qb64.slice(1)).slice(1)).toString('base64url');
+      assert.equal(c.effective_key, found === null ? null : raw(found));
+      if (found === null) {
+        assert.equal(c.error, 'unsupported-signer');
+      } else if (found === c.key) {
+        assert.ok(!('error' in c));
+      } else {
+        assert.equal(c.error, 'signature-mismatch');
+        const signature = c.headers.Signature.split('signify="')[1].replace(/"$/, '');
+        const rawSignature = fromB64Url('AA' + signature.slice(2)).slice(2);
+        const key = await crypto.subtle.importKey('raw', fromB64Url(c.effective_key), { name: 'Ed25519' }, false, ['verify']);
+        assert.ok(!(await crypto.subtle.verify({ name: 'Ed25519' }, key, rawSignature, new TextEncoder().encode(c.base))));
+      }
+    });
   }
 });
 
-// Read once from the files at format 4 (keri_vectors_format 6), never at test time, so a file that loses cases fails.
+// Read once from the files at format 4 (keri_vectors_format 7), never at test time, so a file that loses cases fails.
 const CASES = {
-  'legacy.json': 4,
+  'legacy.json': 8,
   'refusals.json': 65,
   'requests.json': 21,
   'responses.json': 4,
