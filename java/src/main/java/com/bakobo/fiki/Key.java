@@ -188,7 +188,7 @@ public final class Key {
 
     /**
      * Load an unencrypted openssh-key-v1 Ed25519 private key, as ssh-keygen writes it (this.i
-     * @0mvgkwnl): the armored text with LF line endings, with or without the final newline.
+     * {@literal @}0mvgkwnl): the armored text with LF line endings, with or without the final newline.
      *
      * <p>The key must be the only one in the file, its check integers must agree, its padding must
      * be 1, 2, 3, ..., and its public key must match in both places it is stored and must be the
