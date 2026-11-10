@@ -329,7 +329,7 @@
     {
       "id": "signature-member-not-a-byte-sequence",
       "kind": "request",
-      "note": "Section 9: a Signature member that is not a byte sequence is malformed-signature, not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).",
+      "note": "Section 9: a Signature member that is not a byte sequence is malformed-signature, not malformed-signature-value (since keri_vectors_format 6; fiki @0zq820dl).",
       "request": {
         "method": "POST",
         "url": "https://keria.example.com/identifiers",

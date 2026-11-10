@@ -320,7 +320,7 @@ def well_formed_aid(keyid: str) -> bool:
 def resolver(keys: list[dict]):
     """What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode.
 
-    It knows key state and nothing else (keri_vectors_format 6, fiki @7w7nv94j): it returns a key,
+    It knows key state and nothing else (since keri_vectors_format 6, fiki @7w7nv94j): it returns a key,
     says the keyid is unknown, or says its signer is unsupported. A keyid that is not a
     well-formed AID never reaches it, because the library refuses it first, and the vectors'
     keyid-not-an-aid and padding-bit-alias cases check that the library does. A B keyid's key is
@@ -738,7 +738,7 @@ def refusals():
     add("signature-member-not-a-byte-sequence", "malformed-signature", {**post, "headers": {
         **post["headers"], "Signature": f'{LABEL}="not a byte sequence"'}},
         note="Section 9: a Signature member that is not a byte sequence is malformed-signature, "
-             "not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).")
+             "not malformed-signature-value (since keri_vectors_format 6; fiki @0zq820dl).")
 
     # The covered list.
     add("duplicate-component", "duplicate-component",
