@@ -20,7 +20,7 @@ from typing import Any
 # (``this.i`` @4fhrre0m). A consumer asserts these against the port it is testing, as each port's
 # own driver does, so newer vectors fail loudly rather than passing a subset.
 VECTORS_FORMAT = 4
-KERI_VECTORS_FORMAT = 6
+KERI_VECTORS_FORMAT = 7
 KEY_VECTORS_FORMAT = 1
 
 BAD_NAME = "e.input.format.vectors.name.f"
