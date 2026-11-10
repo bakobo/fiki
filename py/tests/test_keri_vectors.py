@@ -22,10 +22,12 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+from fractions import Fraction
 from pathlib import Path
 
 import http_sfv
 import pytest
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from fiki import (KERI_VECTORS_FORMAT, Key, Request, response_signature_base, sign_request,
@@ -63,7 +65,7 @@ COUNTS = {
     "requests.json": 21,
     "responses.json": 4,
     "refusals.json": 65,
-    "legacy.json": 4,
+    "legacy.json": 8,
 }
 
 # Each test that runs one file's cases, and the file. rfc9421.json's one case is unpacked by its
@@ -73,6 +75,7 @@ DRIVERS = {
     "test_response_accept_vectors": "responses.json",
     "test_refusal_vectors": "refusals.json",
     "test_each_legacy_signature_verifies_over_its_stated_base": "legacy.json",
+    "test_each_legacy_outcome_agrees_with_its_key_state": "legacy.json",
 }
 
 
@@ -187,10 +190,12 @@ def test_this_port_satisfies_the_keri_vectors_format_it_is_running(name):
 def test_each_file_names_the_published_profile_it_pins(name):
     """The contract is a document anyone can read, beside these files (@997vxdu7)."""
     profile = load(name)["profile"]
-    assert profile["version"] == 1
-    assert profile["where"] == "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md"
+    assert profile["version"] == "1.1"
+    assert profile["where"] == (
+        "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md")
     doc = KERI.parents[1] / "docs" / "keri-profile.md"
-    assert doc.read_text(encoding="utf-8").startswith(f"# {profile['title']}\n\nVersion 1, ")
+    assert doc.read_text(encoding="utf-8").startswith(
+        f"# {profile['title']}\n\nVersion 1.1, {profile['date']}.")
 
 
 @pytest.mark.parametrize("name", ["requests.json", "responses.json", "refusals.json"])
@@ -352,9 +357,17 @@ def test_legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance(
     data = load("legacy.json")
     for case in data["cases"]:
         source = case["source"]
-        assert source["repo"] in {"WebOfTrust/keria", "WebOfTrust/signify-ts"}
-        assert len(source["commit"]) == 40
-        assert source["file"] and source["lines"]
+        if source["repo"] == "bakobo/fiki":
+            # Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+            assert source["file"] == "vectors/keri/generate.py" and source["generated"]
+            assert verifying_key(Key.from_seed(bytes.fromhex(case["seed_hex"])).aid) \
+                .public_bytes_raw() == base64.urlsafe_b64decode("A" + case["key"][1:])[1:]
+            assert "key_state" in case and "effective_key" in case
+        else:
+            assert source["repo"] in {"WebOfTrust/keria", "WebOfTrust/signify-ts"}
+            assert len(source["commit"]) == 40
+            assert source["file"] and source["lines"]
+            assert "key_state" not in case and "error" not in case
         for field in ("kind", "method", "path", "headers", "key", "keyid", "created"):
             assert field in case, field
         assert case["headers"]["Signature-Input"].startswith("signify=")
@@ -368,3 +381,33 @@ def test_each_legacy_signature_verifies_over_its_stated_base(case):
     raw_signature = base64.urlsafe_b64decode("AA" + signature[2:])[2:]
     raw_key = base64.urlsafe_b64decode("A" + case["key"][1:])[1:]
     Ed25519PublicKey.from_public_bytes(raw_key).verify(raw_signature, case["base"].encode())
+
+
+@pytest.mark.parametrize("case", cases("legacy.json"))
+def test_each_legacy_outcome_agrees_with_its_key_state(case):
+    """Profile section 8 at version 1.1: the signer is the key state's single effective signer.
+
+    fiki has no legacy verifier, so this checks the data, not a verifier: the key state reduces to
+    the effective_key the case states, and the error follows from it and from who signed.
+    """
+    if "key_state" not in case:
+        return  # pinned from KERIA or signify-ts: accepted under its stated key
+    keys, threshold = case["key_state"]["keys"], case["key_state"]["threshold"]
+    # Written out here rather than imported from the generator, which made the case with its own.
+    if isinstance(threshold, str):
+        alone = keys if int(threshold, 16) == 1 else []
+    else:
+        alone = [key for key, weight in zip(keys, threshold, strict=True) if Fraction(weight) >= 1]
+    found = alone[0] if len(alone) == 1 else None
+    raw = None if found is None else base64.urlsafe_b64decode("A" + found[1:])[1:]
+    assert (None if raw is None else b64url(case["effective_key"])) == raw
+    signature = case["headers"]["Signature"].split('signify="', 1)[1].rstrip('"')
+    raw_signature = base64.urlsafe_b64decode("AA" + signature[2:])[2:]
+    if found is None:
+        assert case["error"] == "unsupported-signer"
+    elif found == case["key"]:
+        assert "error" not in case
+    else:
+        assert case["error"] == "signature-mismatch"
+        with pytest.raises(InvalidSignature):
+            Ed25519PublicKey.from_public_bytes(raw).verify(raw_signature, case["base"].encode())
