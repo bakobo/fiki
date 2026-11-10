@@ -9,7 +9,7 @@ import java.util.regex.Pattern;
  * Other spellings of an Ed25519 public key, read at the edge of the API (this.i @0mvgkwnl).
  *
  * <p>{@link Key#aidFrom} turns a public key spelled as an AID, as raw base64url (the wire keyid of
- * @7xrx5evg, also a JWK's "x"), as a base58btc did:key, as a did:peer with numalgo 0, or as an
+ * {@literal @}7xrx5evg, also a JWK's "x"), as a base58btc did:key, as a did:peer with numalgo 0, or as an
  * OpenSSH public line into the canonical AID. The OpenSSH private-key reader is {@link OpenSsh}.
  *
  * <p>Nothing here touches a request. A verifier calls {@code aidFrom} when it loads its
