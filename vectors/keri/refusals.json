@@ -1,12 +1,12 @@
 {
   "about": "Messages a canonical verifier must REFUSE, and the section 9 code.",
-  "keri_vectors_format": 6,
+  "keri_vectors_format": 7,
   "generated_by": "vectors/keri/generate.py",
   "profile": {
     "title": "KERI profile of RFC 9421 HTTP Message Signatures",
-    "version": 1,
-    "date": "2026-09-24",
-    "where": "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md",
+    "version": "1.1",
+    "date": "2026-11-10",
+    "where": "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md",
     "rules": "Canonical mode only. Refusals are named by the profile's section 9 codes. A verifier runs its checks in section 9's order and reports the first that fails. Every refusal case carries exactly one defect, so it has exactly one correct code."
   },
   "encoding": {
@@ -329,7 +329,7 @@
     {
       "id": "signature-member-not-a-byte-sequence",
       "kind": "request",
-      "note": "Section 9: a Signature member that is not a byte sequence is malformed-signature, not malformed-signature-value (keri_vectors_format 6; fiki @0zq820dl).",
+      "note": "Section 9: a Signature member that is not a byte sequence is malformed-signature, not malformed-signature-value (since keri_vectors_format 6; fiki @0zq820dl).",
       "request": {
         "method": "POST",
         "url": "https://keria.example.com/identifiers",
@@ -1477,7 +1477,7 @@
     {
       "id": "sign-below-the-minimum",
       "kind": "sign-request",
-      "note": "A signer asked to cover less than the request minimum set refuses (profile section 3, draft 6).",
+      "note": "A signer asked to cover less than the request minimum set refuses (profile section 3).",
       "request": {
         "method": "GET",
         "url": "https://keria.example.com/identifiers?type=rot",

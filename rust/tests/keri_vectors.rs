@@ -139,7 +139,7 @@ const CASE_COUNTS: [(&str, usize); 5] = [
     ("requests.json", 21),
     ("responses.json", 4),
     ("refusals.json", 65),
-    ("legacy.json", 4),
+    ("legacy.json", 8),
 ];
 
 /// Runs every case of `name` and reports all the failures together, so one red run names every
@@ -478,7 +478,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 6);
+    assert_eq!(KERI_VECTORS_FORMAT, 7);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");
@@ -492,14 +492,15 @@ fn each_file_names_the_published_profile_it_pins() {
     let doc = fs::read_to_string(format!("{}/docs/keri-profile.md", root())).unwrap();
     for name in FILES {
         let profile = &load(name)["profile"];
-        assert_eq!(profile["version"], 1, "{name}");
+        assert_eq!(profile["version"], "1.1", "{name}");
         assert_eq!(
             profile["where"],
-            "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md"
+            "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md"
         );
         let title = profile["title"].as_str().unwrap();
+        let date = profile["date"].as_str().unwrap();
         assert!(
-            doc.starts_with(&format!("# {title}\n\nVersion 1, ")),
+            doc.starts_with(&format!("# {title}\n\nVersion 1.1, {date}.")),
             "{name}"
         );
     }
@@ -801,15 +802,30 @@ fn legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance() {
     each("legacy.json", &load("legacy.json"), |case| {
         let source = &case["source"];
         let repo = source["repo"].as_str().unwrap_or("");
-        if !["WebOfTrust/keria", "WebOfTrust/signify-ts"].contains(&repo) {
-            return Err(format!("repo {repo}"));
-        }
-        if source["commit"].as_str().map(str::len) != Some(40) {
-            return Err("commit".into());
-        }
-        for field in ["file", "lines"] {
-            if !source[field].as_str().is_some_and(|s| !s.is_empty()) {
-                return Err(format!("source.{field}"));
+        if repo == "bakobo/fiki" {
+            // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+            if source["file"] != "vectors/keri/generate.py"
+                || !source["generated"].as_str().is_some_and(|s| !s.is_empty())
+                || !case["seed_hex"].is_string()
+                || !case["key_state"].is_object()
+                || case.get("effective_key").is_none()
+            {
+                return Err("incomplete generated case".into());
+            }
+        } else {
+            if !["WebOfTrust/keria", "WebOfTrust/signify-ts"].contains(&repo) {
+                return Err(format!("repo {repo}"));
+            }
+            if source["commit"].as_str().map(str::len) != Some(40) {
+                return Err("commit".into());
+            }
+            for field in ["file", "lines"] {
+                if !source[field].as_str().is_some_and(|s| !s.is_empty()) {
+                    return Err(format!("source.{field}"));
+                }
+            }
+            if case.get("key_state").is_some() || case.get("error").is_some() {
+                return Err("a pinned case states a key state or an error".into());
             }
         }
         for field in [
@@ -855,5 +871,91 @@ fn each_legacy_signature_verifies_over_its_stated_base() {
                 &Signature::from_bytes(&raw_signature),
             )
             .map_err(|e| e.to_string())
+    });
+}
+
+#[test]
+fn each_legacy_outcome_agrees_with_its_key_state() {
+    // Profile section 8 at version 1.1: the signer is the key state's single effective signer
+    // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
+    // effective_key the case states, and the error follows from it and from who signed.
+    each("legacy.json", &load("legacy.json"), |case| {
+        let Some(state) = case.get("key_state") else {
+            return Ok(()); // pinned from KERIA or signify-ts: accepted under its stated key
+        };
+        let keys: Vec<&str> = state["keys"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| k.as_str().unwrap())
+            .collect();
+        let alone: Vec<&str> = match &state["threshold"] {
+            Value::String(hex) => {
+                if u64::from_str_radix(hex, 16) == Ok(1) {
+                    keys.clone()
+                } else {
+                    Vec::new()
+                }
+            }
+            Value::Array(weights) if weights.len() == keys.len() => keys
+                .iter()
+                .zip(weights)
+                .filter(|(_, weight)| {
+                    let weight = weight.as_str().unwrap();
+                    let (n, d) = weight.split_once('/').unwrap_or((weight, "1"));
+                    n.parse::<u64>().unwrap() >= d.parse::<u64>().unwrap()
+                })
+                .map(|(key, _)| *key)
+                .collect(),
+            other => return Err(format!("threshold {other}")),
+        };
+        let error = case["error"].as_str();
+        let found = if alone.len() == 1 {
+            Some(alone[0])
+        } else {
+            None
+        };
+        let Some(found) = found else {
+            if !case["effective_key"].is_null() || error != Some("unsupported-signer") {
+                return Err(format!("no single effective signer, yet error {error:?}"));
+            }
+            return Ok(());
+        };
+        let effective = b64_decode(&format!("A{}", &found[1..]), URL).unwrap()[1..].to_vec();
+        if case["effective_key"]
+            .as_str()
+            .and_then(|e| b64_decode(e, URL))
+            .as_deref()
+            != Some(effective.as_slice())
+        {
+            return Err("effective_key disagrees with the key state".into());
+        }
+        if found == case["key"].as_str().unwrap() {
+            return match error {
+                None => Ok(()),
+                Some(code) => Err(format!("signed by the effective signer, yet error {code}")),
+            };
+        }
+        if error != Some("signature-mismatch") {
+            return Err(format!("signed by another key, yet error {error:?}"));
+        }
+        let header = case["headers"]["Signature"].as_str().unwrap();
+        let signature = header
+            .split_once("signify=\"")
+            .unwrap()
+            .1
+            .trim_end_matches('"');
+        let raw_signature: [u8; 64] = b64_decode(&format!("AA{}", &signature[2..]), URL).unwrap()
+            [2..]
+            .try_into()
+            .unwrap();
+        let raw_key: [u8; 32] = effective.try_into().unwrap();
+        match VerifyingKey::from_bytes(&raw_key).unwrap().verify(
+            case["base"].as_str().unwrap().as_bytes(),
+            &Signature::from_bytes(&raw_signature),
+        ) {
+            Ok(()) => Err("the signature verifies under the effective key".into()),
+            Err(_) => Ok(()),
+        }
     });
 }

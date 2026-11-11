@@ -74,11 +74,11 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> LegacyCases() => Ids("legacy.json");
 
-        // Cases per file at keri_vectors_format 6, read from the files once and never at test time (tick
+        // Cases per file at keri_vectors_format 7, read from the files once and never at test time (tick
         // 7xbw, review T8). rfc9421.json's one case is the RFC's own, run by name below.
         private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
         {
-            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 65 }, { "legacy.json", 4 },
+            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 65 }, { "legacy.json", 8 },
         };
 
         private static readonly Dictionary<string, Func<IEnumerable<object[]>>> Sources = new Dictionary<string, Func<IEnumerable<object[]>>>
@@ -256,10 +256,12 @@ namespace Bakobo.Fiki.Tests
         {
             // The contract is a document anyone can read, beside these files (@997vxdu7).
             var profile = Load(name).GetProperty("profile");
-            Assert.Equal(1, profile.GetProperty("version").GetInt32());
-            Assert.Equal("https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md", profile.GetProperty("where").GetString());
+            Assert.Equal("1.1", profile.GetProperty("version").GetString());
+            Assert.Equal("https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md", profile.GetProperty("where").GetString());
             var doc = File.ReadAllText(Repo.PathTo("docs", "keri-profile.md")).Replace("\r\n", "\n");
-            Assert.StartsWith($"# {profile.GetProperty("title").GetString()}\n\nVersion 1, ", doc, StringComparison.Ordinal);
+            Assert.StartsWith(
+                $"# {profile.GetProperty("title").GetString()}\n\nVersion 1.1, {profile.GetProperty("date").GetString()}.",
+                doc, StringComparison.Ordinal);
         }
 
         [Theory]
@@ -479,10 +481,21 @@ namespace Bakobo.Fiki.Tests
             foreach (var c in Load("legacy.json").GetProperty("cases").EnumerateArray())
             {
                 var source = c.GetProperty("source");
-                Assert.Contains(source.GetProperty("repo").GetString(), new[] { "WebOfTrust/keria", "WebOfTrust/signify-ts" });
-                Assert.Equal(40, source.GetProperty("commit").GetString()!.Length);
-                Assert.False(string.IsNullOrEmpty(source.GetProperty("file").GetString()));
-                Assert.False(string.IsNullOrEmpty(source.GetProperty("lines").GetString()));
+                if (source.GetProperty("repo").GetString() == "bakobo/fiki")
+                {
+                    // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+                    Assert.Equal("vectors/keri/generate.py", source.GetProperty("file").GetString());
+                    Assert.False(string.IsNullOrEmpty(source.GetProperty("generated").GetString()));
+                    Assert.True(c.TryGetProperty("seed_hex", out _) && c.TryGetProperty("key_state", out _) && c.TryGetProperty("effective_key", out _));
+                }
+                else
+                {
+                    Assert.Contains(source.GetProperty("repo").GetString(), new[] { "WebOfTrust/keria", "WebOfTrust/signify-ts" });
+                    Assert.Equal(40, source.GetProperty("commit").GetString()!.Length);
+                    Assert.False(string.IsNullOrEmpty(source.GetProperty("file").GetString()));
+                    Assert.False(string.IsNullOrEmpty(source.GetProperty("lines").GetString()));
+                    Assert.False(c.TryGetProperty("key_state", out _) || c.TryGetProperty("error", out _));
+                }
                 foreach (var field in new[] { "kind", "method", "path", "headers", "key", "keyid", "created" })
                 {
                     Assert.True(c.TryGetProperty(field, out _), field);
@@ -504,6 +517,65 @@ namespace Bakobo.Fiki.Tests
             var rawSignature = Bytes.FromB64Url("AA" + signature.Substring(2)).Skip(2).ToArray();
             var rawKey = Bytes.FromB64Url("A" + c.GetProperty("key").GetString()!.Substring(1)).Skip(1).ToArray();
             Assert.True(new PublicKey(rawKey).Verify(rawSignature, Bytes.Utf8(c.GetProperty("base").GetString()!)));
+        }
+
+        [Theory]
+        [MemberData(nameof(LegacyCases))]
+        public void EachLegacyOutcomeAgreesWithItsKeyState(string id)
+        {
+            // Profile section 8 at version 1.1: the signer is the key state's single effective signer
+            // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
+            // effective_key the case states, and the error follows from it and from who signed.
+            var c = Case("legacy.json", id);
+            if (!c.TryGetProperty("key_state", out var state))
+            {
+                return; // pinned from KERIA or signify-ts: accepted under its stated key
+            }
+            var keys = state.GetProperty("keys").EnumerateArray().Select(k => k.GetString()!).ToList();
+            var threshold = state.GetProperty("threshold");
+            var alone = new List<string>();
+            if (threshold.ValueKind == JsonValueKind.String)
+            {
+                if (Convert.ToInt32(threshold.GetString(), 16) == 1)
+                {
+                    alone.AddRange(keys);
+                }
+            }
+            else
+            {
+                var weights = threshold.EnumerateArray().Select(w => w.GetString()!).ToList();
+                Assert.Equal(keys.Count, weights.Count);
+                for (var i = 0; i < keys.Count; i++)
+                {
+                    var parts = weights[i].Split('/');
+                    var n = long.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+                    var d = parts.Length == 2 ? long.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture) : 1;
+                    if (n >= d)
+                    {
+                        alone.Add(keys[i]);
+                    }
+                }
+            }
+            var error = c.TryGetProperty("error", out var e) ? e.GetString() : null;
+            if (alone.Count != 1)
+            {
+                Assert.Equal(JsonValueKind.Null, c.GetProperty("effective_key").ValueKind);
+                Assert.Equal("unsupported-signer", error);
+                return;
+            }
+            var found = alone[0];
+            var effective = Bytes.FromB64Url("A" + found.Substring(1)).Skip(1).ToArray();
+            Assert.Equal(effective, Bytes.FromB64Url(c.GetProperty("effective_key").GetString()!));
+            if (found == c.GetProperty("key").GetString())
+            {
+                Assert.Null(error);
+                return;
+            }
+            Assert.Equal("signature-mismatch", error);
+            var header = c.GetProperty("headers").GetProperty("Signature").GetString()!;
+            var signature = header.Substring(header.IndexOf("signify=\"", StringComparison.Ordinal) + 9).TrimEnd('"');
+            var rawSignature = Bytes.FromB64Url("AA" + signature.Substring(2)).Skip(2).ToArray();
+            Assert.False(new PublicKey(effective).Verify(rawSignature, Bytes.Utf8(c.GetProperty("base").GetString()!)));
         }
     }
 }

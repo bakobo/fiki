@@ -73,7 +73,7 @@ const aid = aidFrom('did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK');
 const key = await Key.fromOpenssh(readFileSync('fiki_ed25519', 'utf8'));
 ```
 
-This port satisfies key vectors format 1 (`KEY_VECTORS_FORMAT`), the cases in `vectors/keys/keys.json`, beside vectors format 4 (`VECTORS_FORMAT`) and KERI vectors format 6 (`KERI_VECTORS_FORMAT`).
+This port satisfies key vectors format 1 (`KEY_VECTORS_FORMAT`), the cases in `vectors/keys/keys.json`, beside vectors format 4 (`VECTORS_FORMAT`) and KERI vectors format 7 (`KERI_VECTORS_FORMAT`).
 
 ## Keys in a browser
 

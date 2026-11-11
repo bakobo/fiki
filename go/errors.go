@@ -22,7 +22,7 @@ const VectorsFormat = 4
 // KeriVectorsFormat is the KERI profile's conformance contract this port satisfies, the
 // keri_vectors_format of vectors/keri/ (this.i @8vwrexxc, @9z57sejw). A separate number from
 // VectorsFormat, because the two sets answer to different authorities and move independently.
-const KeriVectorsFormat = 6
+const KeriVectorsFormat = 7
 
 // KeyVectorsFormat is the key-spelling contract this port satisfies, the key_vectors_format of
 // vectors/keys/ (this.i @0mvgkwnl): AIDFrom and FromOpenSSH. A number of its own, so that the

@@ -26,6 +26,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,7 +146,7 @@ var keriCounts = map[string]int{
 	"keri/requests.json":  21,
 	"keri/responses.json": 4,
 	"keri/refusals.json":  65,
-	"keri/legacy.json":    4,
+	"keri/legacy.json":    8,
 }
 
 func loadKeri(t *testing.T, name string) keriFile {
@@ -359,17 +360,18 @@ func TestEachKeriFileNamesThePublishedProfileItPins(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var profile struct {
 				Title   string `json:"title"`
-				Version int    `json:"version"`
+				Version string `json:"version"`
+				Date    string `json:"date"`
 				Where   string `json:"where"`
 			}
 			if err := json.Unmarshal(loadKeri(t, name).Profile, &profile); err != nil {
 				t.Fatal(err)
 			}
-			if profile.Version != 1 || profile.Where != "https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md" {
+			if profile.Version != "1.1" || profile.Where != "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md" {
 				t.Errorf("profile = %+v", profile)
 			}
-			if !strings.HasPrefix(string(doc), "# "+profile.Title+"\n\nVersion 1, ") {
-				t.Errorf("docs/keri-profile.md is not version 1 of %q", profile.Title)
+			if !strings.HasPrefix(string(doc), "# "+profile.Title+"\n\nVersion 1.1, "+profile.Date+".") {
+				t.Errorf("docs/keri-profile.md is not version 1.1 of %q", profile.Title)
 			}
 		})
 	}
@@ -673,14 +675,22 @@ func TestKeriRefusalVectors(t *testing.T) {
 type legacyCase struct {
 	ID     string `json:"id"`
 	Source struct {
-		Repo   string `json:"repo"`
-		Commit string `json:"commit"`
-		File   string `json:"file"`
-		Lines  string `json:"lines"`
+		Repo      string `json:"repo"`
+		Commit    string `json:"commit"`
+		File      string `json:"file"`
+		Lines     string `json:"lines"`
+		Generated string `json:"generated"`
 	} `json:"source"`
-	Headers map[string]string `json:"headers"`
-	Key     string            `json:"key"`
-	Base    string            `json:"base"`
+	Headers  map[string]string `json:"headers"`
+	Key      string            `json:"key"`
+	Base     string            `json:"base"`
+	SeedHex  string            `json:"seed_hex"`
+	KeyState *struct {
+		Keys      []string        `json:"keys"`
+		Threshold json.RawMessage `json:"threshold"`
+	} `json:"key_state"`
+	EffectiveKey *string `json:"effective_key"`
+	Error        *string `json:"error"`
 }
 
 func TestLegacyVectorsCarryWhatALegacyVerifierNeedsAndTheirProvenance(t *testing.T) {
@@ -705,12 +715,24 @@ func TestLegacyVectorsCarryWhatALegacyVerifierNeedsAndTheirProvenance(t *testing
 	if err := json.Unmarshal(raw, &cases); err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range cases.Cases {
-		if c.Source.Repo != "WebOfTrust/keria" && c.Source.Repo != "WebOfTrust/signify-ts" {
-			t.Errorf("%s: source repo %q", c.ID, c.Source.Repo)
-		}
-		if len(c.Source.Commit) != 40 || c.Source.File == "" || c.Source.Lines == "" {
-			t.Errorf("%s: incomplete provenance %+v", c.ID, c.Source)
+	for i, c := range cases.Cases {
+		if c.Source.Repo == "bakobo/fiki" {
+			// Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+			_, hasEffective := file.Cases[i]["effective_key"]
+			if c.Source.File != "vectors/keri/generate.py" || c.Source.Generated == "" || c.SeedHex == "" ||
+				c.KeyState == nil || !hasEffective {
+				t.Errorf("%s: incomplete generated case %+v", c.ID, c.Source)
+			}
+		} else {
+			if c.Source.Repo != "WebOfTrust/keria" && c.Source.Repo != "WebOfTrust/signify-ts" {
+				t.Errorf("%s: source repo %q", c.ID, c.Source.Repo)
+			}
+			if len(c.Source.Commit) != 40 || c.Source.File == "" || c.Source.Lines == "" {
+				t.Errorf("%s: incomplete provenance %+v", c.ID, c.Source)
+			}
+			if c.KeyState != nil || c.Error != nil {
+				t.Errorf("%s: a pinned case states a key state or an error", c.ID)
+			}
 		}
 		if !strings.HasPrefix(c.Headers["Signature-Input"], "signify=") ||
 			!strings.HasPrefix(c.Headers["Signature"], `indexed="?0";signify="0B`) {
@@ -738,6 +760,75 @@ func TestEachLegacySignatureVerifiesOverItsStatedBase(t *testing.T) {
 			key := b64urlLoose(t, "A"+c.Key[1:])[1:]
 			if !ed25519.Verify(key, []byte(c.Base), signature) {
 				t.Error("the legacy signature does not verify over its stated base")
+			}
+		})
+	}
+}
+
+func TestEachLegacyOutcomeAgreesWithItsKeyState(t *testing.T) {
+	// Profile section 8 at version 1.1: the signer is the key state's single effective signer
+	// (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
+	// effective_key the case states, and the error follows from it and from who signed.
+	raw, err := os.ReadFile(filepath.Join(keriDir, "legacy.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var file struct{ Cases []legacyCase }
+	if err := json.Unmarshal(raw, &file); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range file.Cases {
+		t.Run(c.ID, func(t *testing.T) {
+			if c.KeyState == nil {
+				return // pinned from KERIA or signify-ts: accepted under its stated key
+			}
+			keys := c.KeyState.Keys
+			var alone []string
+			var hex string
+			var weights []string
+			if json.Unmarshal(c.KeyState.Threshold, &hex) == nil {
+				if hex == "1" {
+					alone = keys
+				}
+			} else if err := json.Unmarshal(c.KeyState.Threshold, &weights); err == nil && len(weights) == len(keys) {
+				for i, weight := range weights {
+					w, ok := new(big.Rat).SetString(weight)
+					if !ok {
+						t.Fatalf("weight %q", weight)
+					}
+					if w.Cmp(big.NewRat(1, 1)) >= 0 {
+						alone = append(alone, keys[i])
+					}
+				}
+			} else {
+				t.Fatalf("threshold %s", c.KeyState.Threshold)
+			}
+			var found string
+			if len(alone) == 1 {
+				found = alone[0]
+			}
+			if found == "" {
+				if c.EffectiveKey != nil || c.Error == nil || *c.Error != "unsupported-signer" {
+					t.Errorf("no single effective signer, yet effective_key %v and error %v", c.EffectiveKey, c.Error)
+				}
+				return
+			}
+			effective := b64urlLoose(t, "A"+found[1:])[1:]
+			if c.EffectiveKey == nil || !bytes.Equal(b64urlLoose(t, *c.EffectiveKey), effective) {
+				t.Errorf("effective_key %v disagrees with the key state", c.EffectiveKey)
+			}
+			if found == c.Key {
+				if c.Error != nil {
+					t.Errorf("signed by the effective signer, yet error %q", *c.Error)
+				}
+				return
+			}
+			if c.Error == nil || *c.Error != "signature-mismatch" {
+				t.Errorf("signed by another key, yet error %v", c.Error)
+			}
+			qb64 := strings.TrimSuffix(strings.SplitN(c.Headers["Signature"], `signify="`, 2)[1], `"`)
+			if ed25519.Verify(effective, []byte(c.Base), b64urlLoose(t, "AA"+qb64[2:])[2:]) {
+				t.Error("the signature verifies under the effective key")
 			}
 		})
 	}

@@ -1,5 +1,6 @@
 package com.bakobo.fiki;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -59,14 +60,14 @@ class KeriVectorsTest {
     private static final Map<String, String> CODES = codes();
 
     /*
-     * The number of cases in each file at keri_vectors_format 6, read from the files once when these constants
+     * The number of cases in each file at keri_vectors_format 7, read from the files once when these constants
      * were written and never at test time (tick 7xbw, T8); rfc9421.json's one case is asserted where
      * it is read.
      */
     private static final int REQUESTS_CASES = 21;
     private static final int RESPONSES_CASES = 4;
     private static final int REFUSALS_CASES = 65;
-    private static final int LEGACY_CASES = 4;
+    private static final int LEGACY_CASES = 8;
 
     private static JsonNode load(String name) throws Exception {
         File file = new File(KERI, name);
@@ -252,10 +253,13 @@ class KeriVectorsTest {
     Stream<DynamicTest> eachFileNamesThePublishedProfileItPins() {
         return FILES.stream().map(name -> DynamicTest.dynamicTest(name, () -> {
             JsonNode profile = load(name).get("profile");
-            assertEquals(1, profile.get("version").asInt());
-            assertEquals("https://github.com/bakobo/fiki/blob/main/docs/keri-profile.md", profile.get("where").asText());
+            assertEquals("1.1", profile.get("version").asText());
+            assertTrue(profile.get("version").isTextual());
+            assertEquals("https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md",
+                    profile.get("where").asText());
             String doc = Files.readString(new File("../docs/keri-profile.md").toPath(), StandardCharsets.UTF_8);
-            assertTrue(doc.startsWith("# " + profile.get("title").asText() + "\n\nVersion 1, "));
+            assertTrue(doc.startsWith("# " + profile.get("title").asText() + "\n\nVersion 1.1, "
+                    + profile.get("date").asText() + "."));
         }));
     }
 
@@ -440,10 +444,18 @@ class KeriVectorsTest {
         assertEquals(LEGACY_CASES, cases.size());
         for (JsonNode c : cases) {
             JsonNode source = c.get("source");
-            assertTrue(Set.of("WebOfTrust/keria", "WebOfTrust/signify-ts").contains(source.get("repo").asText()));
-            assertEquals(40, source.get("commit").asText().length());
-            assertFalse(source.get("file").asText().isEmpty());
-            assertFalse(source.get("lines").asText().isEmpty());
+            if (source.get("repo").asText().equals("bakobo/fiki")) {
+                // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+                assertEquals("vectors/keri/generate.py", source.get("file").asText());
+                assertFalse(source.get("generated").asText().isEmpty());
+                assertTrue(c.has("seed_hex") && c.has("key_state") && c.has("effective_key"));
+            } else {
+                assertTrue(Set.of("WebOfTrust/keria", "WebOfTrust/signify-ts").contains(source.get("repo").asText()));
+                assertEquals(40, source.get("commit").asText().length());
+                assertFalse(source.get("file").asText().isEmpty());
+                assertFalse(source.get("lines").asText().isEmpty());
+                assertFalse(c.has("key_state") || c.has("error"));
+            }
             for (String field : List.of("kind", "method", "path", "headers", "key", "keyid", "created")) {
                 assertTrue(c.has(field), field);
             }
@@ -465,6 +477,58 @@ class KeriVectorsTest {
             verifier.initVerify(Key.decodePublic(rawKey));
             verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
             assertTrue(verifier.verify(rawSignature));
+        });
+    }
+
+    @TestFactory
+    Stream<DynamicTest> eachLegacyOutcomeAgreesWithItsKeyState() throws Exception {
+        // Profile section 8 at version 1.1: the signer is the key state's single effective signer
+        // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
+        // effective_key the case states, and the error follows from it and from who signed.
+        return Counted.each("legacy.json", load("legacy.json").get("cases"), LEGACY_CASES, c -> {
+            if (!c.has("key_state")) {
+                return; // pinned from KERIA or signify-ts: accepted under its stated key
+            }
+            List<String> keys = new ArrayList<>();
+            c.get("key_state").get("keys").forEach(k -> keys.add(k.asText()));
+            JsonNode threshold = c.get("key_state").get("threshold");
+            List<String> alone = new ArrayList<>();
+            if (threshold.isTextual()) {
+                if (Integer.parseInt(threshold.asText(), 16) == 1) {
+                    alone.addAll(keys);
+                }
+            } else {
+                assertEquals(keys.size(), threshold.size());
+                for (int i = 0; i < keys.size(); i++) {
+                    String[] parts = threshold.get(i).asText().split("/", 2);
+                    long n = Long.parseLong(parts[0]);
+                    long d = parts.length == 2 ? Long.parseLong(parts[1]) : 1;
+                    if (n >= d) {
+                        alone.add(keys.get(i));
+                    }
+                }
+            }
+            String error = c.has("error") ? c.get("error").asText() : null;
+            if (alone.size() != 1) {
+                assertTrue(c.get("effective_key").isNull());
+                assertEquals("unsupported-signer", error);
+                return;
+            }
+            String found = alone.get(0);
+            byte[] effective = Arrays.copyOfRange(URL_DECODER.decode("A" + found.substring(1)), 1, 33);
+            assertArrayEquals(effective, URL_DECODER.decode(c.get("effective_key").asText()));
+            if (found.equals(c.get("key").asText())) {
+                assertEquals(null, error);
+                return;
+            }
+            assertEquals("signature-mismatch", error);
+            String signature = c.get("headers").get("Signature").asText().split("signify=\"", 2)[1];
+            signature = signature.substring(0, signature.length() - 1);
+            byte[] rawSignature = Arrays.copyOfRange(URL_DECODER.decode("AA" + signature.substring(2)), 2, 66);
+            Signature verifier = Signature.getInstance("Ed25519");
+            verifier.initVerify(Key.decodePublic(effective));
+            verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
+            assertFalse(verifier.verify(rawSignature));
         });
     }
 }
