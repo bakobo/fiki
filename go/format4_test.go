@@ -195,16 +195,12 @@ func TestAWellFormedKeyidIsAskedOfTheResolverOnce(t *testing.T) {
 	if kindOf(t, err) != KindUnknownKey || len(asked) != 1 || asked[0] != keriAID {
 		t.Errorf("kind %s, resolver asked %q", kindOf(t, err), asked)
 	}
-	// A small-order B AID is well formed, so the resolver is asked, and the key it returns is
-	// refused (aid-lens.json's small-order-b-aid).
+	// A small-order B AID is well formed and its key is its prefix's, so the resolver is never
+	// asked, and the key is refused (aid-lens.json's small-order-b-aid, @37rktct3).
 	weak := "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	asked = nil
-	prefix := func(keyid string) ([]byte, error) {
-		asked = append(asked, keyid)
-		return append([]byte{1}, make([]byte, 31)...), nil
-	}
-	_, err = verifyOptedOut("GET", urlQuery, signedUnder(t, key, weak), VerifyOptions{Resolve: prefix})
-	if kindOf(t, err) != KindMalformedKey || len(asked) != 1 {
+	_, err = verifyOptedOut("GET", urlQuery, signedUnder(t, key, weak), VerifyOptions{Resolve: unknown})
+	if kindOf(t, err) != KindMalformedKey || len(asked) != 0 {
 		t.Errorf("kind %s, resolver asked %q", kindOf(t, err), asked)
 	}
 	// The same check on a response, before the expected keyid is compared.

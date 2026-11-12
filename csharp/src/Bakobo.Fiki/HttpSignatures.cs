@@ -20,7 +20,7 @@ namespace Bakobo.Fiki
         /// @8vwrexxc). A separate number from <see cref="VectorsFormat"/>, because the two sets answer
         /// to different authorities and move independently.
         /// </summary>
-        public const int KeriVectorsFormat = 7;
+        public const int KeriVectorsFormat = 8;
 
         /// <summary>
         /// The key-spelling vector set this port satisfies, <c>vectors/keys/</c>, which

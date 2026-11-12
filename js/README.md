@@ -73,7 +73,7 @@ const aid = aidFrom('did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK');
 const key = await Key.fromOpenssh(readFileSync('fiki_ed25519', 'utf8'));
 ```
 
-This port satisfies key vectors format 1 (`KEY_VECTORS_FORMAT`), the cases in `vectors/keys/keys.json`, beside vectors format 4 (`VECTORS_FORMAT`) and KERI vectors format 7 (`KERI_VECTORS_FORMAT`).
+This port satisfies key vectors format 1 (`KEY_VECTORS_FORMAT`), the cases in `vectors/keys/keys.json`, beside vectors format 4 (`VECTORS_FORMAT`) and KERI vectors format 8 (`KERI_VECTORS_FORMAT`).
 
 ## Keys in a browser
 
@@ -93,7 +93,7 @@ The safe shape is the default and the portable one is explicit, because the two 
 
 Everything is async. WebCrypto's `sign`, `verify`, `digest` and `importKey` all return promises, so `signRequest`, `signResponse`, `verifyRequest`, `verifyResponse` and the `Key` constructors do too, where the Python versions are synchronous. Names are otherwise the same in camelCase — `signatureBase`, `responseSignatureBase`, `verifyingKey`, `aidFrom`, `Key.fromSeed`, `Key.fromOpenssh`, `key.aid`, `expectedKeyid` — so the two read as one library. Three more differences are deliberate (`this.i` @9enyfktu):
 
-- A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network. fiki hands it only a well-formed AID — 44 characters, `B`, `D` or `E`, then the canonical base64url of 32 bytes — and refuses any other keyid, its own 43-character raw keyid included, as `MalformedKey` before the resolver is called (`this.i` @7w7nv94j).
+- A `resolve` function may return the key or a promise of it, and verification awaits either, because a KERI resolver usually reads key state from storage or a network. fiki hands it only a well-formed AID — the canonical qb64 of one of keripy's prefix derivation codes — and refuses any other keyid, its own 43-character raw keyid included, as `MalformedKey` before the resolver is called (`this.i` @7w7nv94j). Under a resolver a `B` keyid's key is its own prefix and the resolver is never asked about it, a non-transferable keyid of another algorithm (`1AAA`, `1AAC`, `1AAI`) is `UnsupportedAlgorithm` without a lookup, and every key an AID names, from its prefix or from the resolver, must lie in Ed25519's prime-order subgroup or it is `MalformedKey` (KERI profile 1.2, `this.i` @37rktct3).
 - The request a response answers is a plain object, `{ method, url, headers, body }`, rather than an exported `Request` class.
 - A mistake in the call rather than the message — `expectedAid` together with `resolve`, a `minimum` smaller than the profile's, a missing or non-positive `maxAge`, missing or malformed `authorities`, a response binding the request's digest verified without the request body, a request whose headers announce a body (a `Content-Length` above zero, or any `Transfer-Encoding`) handed to `signResponse` or `verifyResponse` with a null body (`this.i` @6v00d3tu), and everything the signer refuses above — is a `TypeError`. Python raises `TypeError` for some of these and `ValueError` for others; JavaScript has no `ValueError`. None of them is a `FikiError`.
 

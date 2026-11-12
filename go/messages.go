@@ -88,7 +88,9 @@ var signatureParams = map[string]bool{"created": true, "expires": true, "nonce":
 // returns (nil, nil) when it knows no key for the keyid, which fiki reports as UnknownKey. Any error
 // it returns, such as an *Error of kind UnsupportedSigner, is passed on unchanged. fiki hands it
 // only a well-formed AID (@7w7nv94j), refusing any other keyid as MalformedKey first, so it answers
-// about key state alone.
+// about key state alone. It is never asked about a B keyid, whose key fiki takes from the prefix,
+// nor about a non-transferable keyid of another algorithm, which is UnsupportedAlgorithm; every key
+// it returns must lie in Ed25519's prime-order subgroup or is MalformedKey (@37rktct3).
 type Resolver func(keyid string) ([]byte, error)
 
 // ContentDigest is the RFC 9530 Content-Digest header value for a body.
@@ -658,9 +660,13 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 		return nil, err
 	}
 	if opts.Minimum != nil {
+		// A response by its content (@2f227n4r), which a client holds before it verifies. A request
+		// by what its headers announce and only that (@84nt4je0): content they did not announce is
+		// the body stage's to refuse, so a verifier holding the body and one reading it later report
+		// the same code.
 		hasBody := len(opts.Body) > 0
 		if !response {
-			hasBody = requestHasBody(found, opts.Body)
+			hasBody = requestHasBody(found, nil)
 		}
 		// By the request's content alone, as SignResponse decides it (@7p9s3g9k).
 		requestHadBody := request != nil && len(request.Body) > 0
@@ -689,6 +695,14 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 			Kind:    KindUnknownKey,
 			Message: fmt.Sprintf("This message is signed by %s, and the one expected is %s.", shown(keyid), shown(*opts.ExpectedKeyid)),
 			Keyid:   keyid,
+		}
+	}
+	if code, _ := aidCode(keyid); public == nil && otherNonTransferable[code] {
+		// Non-transferable, so no key state to ask about, and not Ed25519 (profile R1, @37rktct3).
+		return nil, &Error{
+			Kind: KindUnsupportedAlgorithm,
+			Message: fmt.Sprintf("The keyid %s is a non-transferable key of an algorithm other than %s, "+
+				"and fiki verifies only %s signatures.", shown(keyid), Alg, Alg),
 		}
 	}
 	if public == nil {
@@ -735,6 +749,17 @@ func verify(m *message, response bool, request *Request, opts VerifyOptions) (*V
 	// could still have chosen — and would tell that attacker their forgery at least parsed.
 	if err := checkFreshness(list, opts); err != nil {
 		return nil, err
+	}
+
+	// The body stage (profile section 9, @84nt4je0): request content no header announced, uncovered.
+	// A response's was decided at the covered list.
+	if opts.Minimum != nil && !response && len(opts.Body) > 0 && !coversBody(items) {
+		return nil, &Error{
+			Kind: KindInsufficientCoverage,
+			Message: "The message carries a body its content-digest does not cover, so the body could " +
+				"be replaced in transit; it is refused even though the signature verifies.",
+			Component: ContentDigestHeader,
+		}
 	}
 
 	type owed struct {
@@ -927,7 +952,12 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 // keyid is compared and before any resolver sees it (this.i @5zrf8gjk).
 func localKey(expectedAID *string, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
 	if expectedAID != nil {
-		public, err := VerifyingKey(*expectedAID)
+		// An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+		// prime-order subgroup too (profile R1, this.i @37rktct3); VerifyingKey settles its spelling.
+		if _, err := VerifyingKey(*expectedAID); err != nil {
+			return nil, "", err
+		}
+		public, err := aidKey(*expectedAID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -941,16 +971,27 @@ func localKey(expectedAID *string, keyid string, resolve Resolver) (ed25519.Publ
 		// A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
 		// well-formed AID, whatever its shape, is refused here and never handed to it. That
 		// includes fiki's own raw keyid: a verifier with a resolver never reads a key inline.
-		if !wellFormedAID(keyid) {
+		code, ok := aidCode(keyid)
+		if !ok {
 			return nil, "", &Error{
 				Kind: KindMalformedKey,
-				Message: fmt.Sprintf("The keyid %s is not a well-formed AID: 44 characters, B, D or E, "+
-					"then the canonical base64url spelling of 32 bytes. A resolver is asked only "+
-					"about an AID.", shown(keyid)),
+				Message: fmt.Sprintf("The keyid %s is not a well-formed AID: the canonical qb64 spelling "+
+					"of a KERI prefix derivation code and its bytes. A resolver is asked only about "+
+					"an AID.", shown(keyid)),
 				Keyid: keyid,
 			}
 		}
-		return nil, "", nil
+		if code != "B" {
+			return nil, "", nil
+		}
+		// A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key it
+		// must lie in the prime-order subgroup; both are the keyid's own well-formedness, decided
+		// before the expected keyid is compared (profile R1, @37rktct3).
+		public, err := aidKey(keyid)
+		if err != nil {
+			return nil, "", err
+		}
+		return public, keyid, nil
 	}
 	// Strictly: a lenient decoder ignores trailing bits and skips line breaks, so a keyid that is
 	// not the key's encoding could verify as whatever key it happened to decode to. Only the one
@@ -990,7 +1031,11 @@ func resolvedKey(keyid string, resolve Resolver) (ed25519.PublicKey, string, err
 			Keyid:   keyid,
 		}
 	}
-	return usable(ed25519.PublicKey(raw), keyid, keyid)
+	// As an AID's key, it must lie in the prime-order subgroup, checked as it is resolved (@37rktct3).
+	if err := subgroupDefect(raw, "The key resolved for "+shown(keyid), keyid); err != nil {
+		return nil, "", err
+	}
+	return ed25519.PublicKey(raw), keyid, nil
 }
 
 // usable refuses a key that is not a canonical on-curve point, or is of small order, whichever way
@@ -1020,6 +1065,23 @@ func keyDefect(public []byte, subject, keyid string) error {
 			Kind: KindMalformedKey,
 			Message: subject + " is a point of small order, under which a signature can be forged " +
 				"without any private key, so it is not a key fiki will verify with.",
+			Keyid: keyid,
+		}
+	}
+	return nil
+}
+
+// subgroupDefect is keyDefect for a key an AID names, which must also lie in the prime-order
+// subgroup (KERI profile R1, @37rktct3); fiki's own raw keyid accepts a mixed-order key (@5r75ff4m).
+func subgroupDefect(public []byte, subject, keyid string) error {
+	if err := keyDefect(public, subject, keyid); err != nil {
+		return err
+	}
+	if !primeOrder(public) {
+		return &Error{
+			Kind: KindMalformedKey,
+			Message: subject + " is a point of mixed order, outside the prime-order subgroup every " +
+				"honest key lies in, so no signature is checked against it.",
 			Keyid: keyid,
 		}
 	}

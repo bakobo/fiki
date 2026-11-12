@@ -70,13 +70,44 @@ def _small_order(x: int, y: int) -> bool:
     return X == 0 and Y == Z
 
 
-def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
+# The order of Ed25519's prime-order subgroup, RFC 8032 section 5.1's L.
+_L = 2**252 + 27742317777372353535851937790883648493
+
+
+def _add(a, b):
+    """RFC 8032 section 5.1.4's addition, on points in extended coordinates (X, Y, Z, T)."""
+    x1, y1, z1, t1 = a
+    x2, y2, z2, t2 = b
+    e1, h1 = (y1 - x1) * (y2 - x2) % _P, (y1 + x1) * (y2 + x2) % _P
+    c, d = t1 * 2 * _D * t2 % _P, z1 * 2 * z2 % _P
+    e, f, g, h = h1 - e1, d - c, d + c, h1 + e1
+    return e * f % _P, g * h % _P, f * g % _P, e * h % _P
+
+
+def _prime_order(x: int, y: int) -> bool:
+    """True when [L]P is the identity, so P lies in the prime-order subgroup (@37rktct3).
+
+    A point of small order is not caught here, since the identity is one; ``_small_order`` runs
+    first. What this adds is the mixed-order point, a subgroup point plus a torsion component,
+    which libsodium's crypto_core_ed25519_is_valid_point refuses and keripy follows.
+    """
+    total, step, n = (0, 1, 1, 0), (x, y, 1, x * y % _P), _L
+    while n:
+        if n & 1:
+            total = _add(total, step)
+        step, n = _add(step, step), n >> 1
+    return total[0] == 0 and total[1] == total[2]
+
+
+def public_key(raw: bytes, keyid: str, *, subgroup: bool = False) -> Ed25519PublicKey:
     """The Ed25519 public key ``raw`` encodes, refused unless it is one an honest signer holds.
 
     Raises :class:`~fiki.errors.MalformedKey`, before any signature is examined, for an encoding
     that is not a canonical on-curve point or for a point of small order (@37wdchu5). Under the
     identity point, the key 0x01 followed by 31 zero bytes, a signature of 0x01 followed by 63
-    zero bytes verifies over any message, and OpenSSL accepts it.
+    zero bytes verifies over any message, and OpenSSL accepts it. With ``subgroup``, which is how
+    a key named by an AID is read (KERI profile R1, @37rktct3), a point outside the prime-order
+    subgroup is refused too; fiki's own raw keyid accepts one (@5r75ff4m).
     """
     # An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
     subject = f"The key for {shown(keyid)}" if keyid else "The key given"
@@ -98,6 +129,12 @@ def public_key(raw: bytes, keyid: str) -> Ed25519PublicKey:
         raise MalformedKey(
             f"{subject} is a point of small order, under which a signature can be forged for "
             "any message, so no signature is checked against it.",
+            keyid=keyid,
+        )
+    if subgroup and not _prime_order(*point):
+        raise MalformedKey(
+            f"{subject} is a point of mixed order, outside the prime-order subgroup every honest "
+            "key lies in, so no signature is checked against it.",
             keyid=keyid,
         )
     return Ed25519PublicKey.from_public_bytes(raw)
@@ -163,26 +200,56 @@ class Key:
         return self._private_key.sign(data)
 
 
-# The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
-# Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
-_SPELLED_CODES = "BDE"
+# keripy's PreDex, the prefix derivation codes an AID may carry, with the raw size each encodes
+# (@37rktct3). fiki reads none of them but B; it needs the table only to say whether a keyid is a
+# well-formed AID, which the KERI profile's R1 makes the verifier's job before any key store is asked.
+_PREFIX_CODES = {
+    "B": 32, "D": 32, "E": 32, "F": 32, "G": 32, "H": 32, "I": 32,
+    "0D": 64, "0E": 64, "0F": 64, "0G": 64,
+    "1AAA": 33, "1AAB": 33, "1AAI": 33, "1AAJ": 33,
+    "1AAC": 57, "1AAD": 57,
+    "1AAE": 114,
+}
+
+# The non-transferable codes other than B: secp256k1, Ed448 and secp256r1 keys, whose algorithm
+# the profile does not support.
+OTHER_NON_TRANSFERABLE = frozenset({"1AAA", "1AAC", "1AAI"})
+
+
+def aid_code(keyid: str) -> str | None:
+    """The PreDex code of ``keyid`` when it is a well-formed AID, else None (@7w7nv94j, @37rktct3).
+
+    The code is one, two or four characters by its first character, as CESR sizes it; the raw
+    bytes behind it are padded with zero bytes to a multiple of three, base64url-encoded, and the
+    code written over the characters the padding became. Well formed means exactly that spelling:
+    the right length, base64url throughout, and zero pad bits, so that re-encoding gives back the
+    keyid. fiki checks this before any resolver sees a keyid, so a resolver only ever answers
+    about key state.
+    """
+    size = 1 if keyid[:1].isalpha() else 2 if keyid[:1] == "0" else 4
+    code = keyid[:size]
+    length = _PREFIX_CODES.get(code)
+    if length is None:
+        return None
+    pad = (3 - length % 3) % 3
+    if len(keyid) != (pad + length) * 4 // 3 + (size - pad):
+        return None
+    try:
+        decoded = base64.b64decode("A" * pad + keyid[size:], altchars=b"-_", validate=True)
+    except ValueError:  # binascii.Error, or non-ASCII input, which base64 refuses as ValueError
+        return None
+    spelled = base64.urlsafe_b64encode(bytes(pad) + decoded[pad:]).decode("ascii")[pad:]
+    return code if code + spelled == keyid else None
 
 
 def well_formed_aid(keyid: str) -> bool:
-    """True when ``keyid`` is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j).
+    """True when ``keyid`` is a well-formed AID under the KERI vectors' keys_rule."""
+    return aid_code(keyid) is not None
 
-    44 characters, a first character of B, D or E, and 43 base64url characters that decode
-    behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the
-    keyid exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever
-    answers about key state.
-    """
-    if len(keyid) != _QB64_LEN or keyid[:1] not in _SPELLED_CODES:
-        return False
-    try:
-        decoded = base64.b64decode("A" + keyid[1:], altchars=b"-_", validate=True)
-    except ValueError:  # binascii.Error, or non-ASCII input, which base64 refuses as ValueError
-        return False
-    return keyid[0] + base64.urlsafe_b64encode(b"\x00" + decoded[1:]).decode("ascii")[1:] == keyid
+
+def aid_key(keyid: str) -> Ed25519PublicKey:
+    """The key a well-formed B keyid carries, read as an AID's key: in the prime-order subgroup."""
+    return public_key(base64.urlsafe_b64decode("A" + keyid[1:])[1:], keyid, subgroup=True)
 
 
 def verifying_key(aid: str) -> Ed25519PublicKey:

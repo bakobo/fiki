@@ -15,7 +15,7 @@ export const VECTORS_FORMAT = 4;
 // The KERI profile's own conformance contract, vectors/keri/ (`this.i` @8vwrexxc, @9enyfktu). A
 // separate number from VECTORS_FORMAT, because the two sets answer to different authorities and
 // move independently.
-export const KERI_VECTORS_FORMAT = 7;
+export const KERI_VECTORS_FORMAT = 8;
 
 export * as errors from './errors.js';
 export { FikiError } from './errors.js';

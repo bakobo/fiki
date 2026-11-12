@@ -11,7 +11,7 @@ dotnet test
 
 That runs the suite on net10.0. To hold the library to 100% line and branch coverage, as CI does, add `-p:CollectCoverage=true`; the build fails below it. On Windows the suite also runs on .NET Framework 4.8.1 (net481), which is what proves the netstandard2.0 asset rather than asserting it. Elsewhere, `dotnet build -p:FikiNet481=true` compiles that asset without running it.
 
-The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 4), every case in the KERI profile's `vectors/keri/` (KERI vectors format 7), every case in the key-spelling set `vectors/keys/` (key vectors format 1), and the httpwg structured-field-tests corpus vendored under `vectors/third_party/` (`this.i` @7fexwu3s). `HttpSignatures.VectorsFormat`, `HttpSignatures.KeriVectorsFormat` and `HttpSignatures.KeyVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
+The suite runs RFC 9421's own Appendix B example, every case in the shared `vectors/` (vectors format 4), every case in the KERI profile's `vectors/keri/` (KERI vectors format 8), every case in the key-spelling set `vectors/keys/` (key vectors format 1), and the httpwg structured-field-tests corpus vendored under `vectors/third_party/` (`this.i` @7fexwu3s). `HttpSignatures.VectorsFormat`, `HttpSignatures.KeriVectorsFormat` and `HttpSignatures.KeyVectorsFormat` say which. This port follows fiki-py, the reference implementation and the vectors' generator.
 
 ## Signing a request
 
@@ -45,7 +45,7 @@ A refusal is a `FikiException` whose `Kind` names the obstacle. The `FikiErrorKi
 
 Signature, Signature-Input and Content-Digest are bounded before they are parsed: `HttpSignatures.MaxFieldBytes` (8192) bytes each as received, `MaxDictionaryMembers` (16) members, `MaxInnerListItems` (64) items in an inner list and `MaxParameters` (16) parameters on an item. A header over any of them is that header's malformed kind. `Verdict.KeyId` is the keyid exactly as it appeared on the wire, or null; `Verdict.Aid` is the identity that vouched for the key.
 
-Responses are signed and verified the same way, with `HttpSignatures.SignResponse` and `HttpSignatures.VerifyResponse`; `VerifyOptions.WithRequest` names the request a response answers, and `HttpSignatures.Req("@path")` names one of its components. `WithResolver` supplies keys for keyids such as KERI AIDs, and `WithMinimum(HttpSignatures.RequestMinimum)` applies the KERI profile's minimum covered set.
+Responses are signed and verified the same way, with `HttpSignatures.SignResponse` and `HttpSignatures.VerifyResponse`; `VerifyOptions.WithRequest` names the request a response answers, and `HttpSignatures.Req("@path")` names one of its components. `WithResolver` supplies keys for keyids such as KERI AIDs, and `WithMinimum(HttpSignatures.RequestMinimum)` applies the KERI profile's minimum covered set. Under a resolver a keyid must be the canonical qb64 of one of keripy's prefix codes or it is `MalformedKey`; a `B` keyid's key is taken from its prefix and the resolver is never asked about it, and a non-transferable secp256k1, Ed448 or secp256r1 keyid is `UnsupportedAlgorithm` (KERI profile 1.2).
 
 ## Other spellings of a key
 
@@ -64,7 +64,7 @@ It takes **BouncyCastle.Cryptography**, pinned exactly, rather than NSec.Cryptog
 
 The cost is a large library of which fiki uses one algorithm, and one more maintainer outside Bakobo in the supply chain. CI checks that the packed library declares BouncyCastle.Cryptography and nothing else, for each target framework.
 
-A key that is a small-order point, in any of its encodings, is refused as `MalformedKey` when it is decoded from a keyid, read from an AID, or returned by a resolver, before the algorithm or the signature is looked at. Against such a key a signature anyone can write verifies, and OpenSSL, which fiki-py uses, accepts it. The check is BouncyCastle's `Ed25519.ValidatePublicKeyPartial`, which also refuses bytes that are no canonical point on the curve; fiki-py reports those as a `SignatureMismatch` instead. `Key.ToAid` will not render such a key.
+A key that is a small-order point, in any of its encodings, is refused as `MalformedKey` when it is decoded from a keyid, read from an AID, or returned by a resolver, before the algorithm or the signature is looked at. Against such a key a signature anyone can write verifies, and OpenSSL, which fiki-py uses, accepts it. The check is BouncyCastle's `Ed25519.ValidatePublicKeyPartial`, which also refuses bytes that are no canonical point on the curve; fiki-py reports those as a `SignatureMismatch` instead. `Key.ToAid` will not render such a key. A key an AID names under a resolver, a `B` keyid's own or one the resolver returns, must also lie in the prime-order subgroup, which BouncyCastle's `Ed25519.ValidatePublicKeyFull` checks, so a mixed-order key is `MalformedKey` there; as a raw keyid the same key is still accepted when its signature satisfies the cofactorless equation, as the shared vectors require.
 
 ## How this port reproduces fiki-py
 

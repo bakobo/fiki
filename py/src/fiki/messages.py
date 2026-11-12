@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -72,7 +73,7 @@ from .errors import (
     UnknownKey,
     UnsupportedAlgorithm,
 )
-from .keys import public_key, to_aid, verifying_key, well_formed_aid
+from .keys import OTHER_NON_TRANSFERABLE, aid_code, aid_key, public_key, to_aid, verifying_key
 
 ALG = "ed25519"
 
@@ -507,7 +508,11 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     if minimum is not None:
         _check_minimum(
             items, minimum,
-            has_body=bool(body) if response else _request_has_body(headers, body),
+            # A response by its content (@2f227n4r), which a client holds before it verifies. A
+            # request by what its headers announce and only that (@84nt4je0): content they did
+            # not announce is the body stage's to refuse, so a verifier holding the body and one
+            # reading it later report the same code.
+            has_body=bool(body) if response else _request_has_body(headers, None),
             # By the request's content alone, as sign_response decides it (@7p9s3g9k).
             request_had_body=request is not None and bool(request.body),
         )
@@ -525,6 +530,13 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
             f"This message is signed by {'no keyid' if keyid is None else shown(keyid)}, and the "
             f"one expected is {shown(expected_keyid)}.",
             keyid=keyid,
+        )
+    if local is None and aid_code(keyid) in OTHER_NON_TRANSFERABLE:
+        # Non-transferable, so no key state to ask about, and not Ed25519 (profile R1).
+        raise UnsupportedAlgorithm(
+            f"The keyid {shown(keyid)} is a non-transferable key of an algorithm other than "
+            f"{ALG}, and fiki verifies only {ALG} signatures.",
+            alg=None,
         )
     public_key, aid = local if local is not None else _resolved(keyid, resolve)
     alg = inner.params.get("alg")
@@ -563,6 +575,15 @@ def _verify(message, headers, body, *, response, request, max_age, expected_aid,
     # parsed. The clock is read only if one of the two checks is actually live, which is what
     # keeps a message declaring no freshness deterministic (@67shl6c5).
     _check_freshness(inner.params, max_age=max_age, skew=skew, now=now)
+
+    # The body stage (profile section 9, @84nt4je0): request content no header announced,
+    # uncovered. A response's was decided at the covered list.
+    if minimum is not None and not response and body and not _covers_body(items):
+        raise InsufficientCoverage(
+            "The message carries a body its content-digest does not cover, so the body could be "
+            "replaced in transit; it is refused even though the signature verifies.",
+            component=CONTENT_DIGEST,
+        )
 
     digests = []
     if _covers_body(items):
@@ -726,6 +747,16 @@ def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None)
     if expires is None and max_age is None:
         return
     stamp = int(time.time()) if now is None else now
+    # A NaN or non-number clock makes every comparison below false, which would pass a stale message.
+    # An int is always finite, and math.isfinite would overflow on one past a float's range.
+    if (isinstance(stamp, bool) or not isinstance(stamp, (int, float))
+            or (isinstance(stamp, float) and not math.isfinite(stamp))):
+        raise TypeError(
+            f"now must be a finite number of seconds since the epoch, or None for the system clock; this one "
+            f"is {now!r}, against which no freshness check can be decided."
+        )
+    # Whole seconds, rounded down, so a fractional clock moves no boundary (profile section 6).
+    stamp = math.floor(stamp)
 
     if max_age is not None:
         created = params.get("created")
@@ -989,8 +1020,10 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     expected keyid is compared and before any resolver sees it (@5zrf8gjk).
     """
     if expected_aid is not None:
-        expected = verifying_key(expected_aid)
-        return expected, to_aid(expected.public_bytes_raw())
+        # An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+        # prime-order subgroup too (profile R1, @37rktct3); verifying_key settles its spelling.
+        verifying_key(expected_aid)
+        return aid_key(expected_aid), expected_aid
     if not keyid:
         raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "
@@ -999,14 +1032,18 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     if resolve is not None:
         # A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
         # well-formed AID, whatever its shape, is refused here and never handed to it.
-        if not well_formed_aid(keyid):
+        code = aid_code(keyid)
+        if code is None:
             raise MalformedKey(
-                f"The keyid {shown(keyid)} is not a well-formed AID: 44 characters, B, D or E, "
-                "then the canonical base64url spelling of 32 bytes. A resolver is asked only "
-                "about an AID.",
+                f"The keyid {shown(keyid)} is not a well-formed AID: the canonical qb64 spelling "
+                "of a KERI prefix derivation code and its bytes. A resolver is asked only about "
+                "an AID.",
                 keyid=keyid,
             )
-        return None
+        # A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key
+        # it must lie in the prime-order subgroup; both are the keyid's own well-formedness,
+        # decided before the expected keyid is compared (profile R1, @37rktct3).
+        return (aid_key(keyid), keyid) if code == "B" else None
     # Strictly, as keys.py decodes an AID: a lenient decoder discards characters outside the
     # alphabet and ignores trailing bits, so a keyid that is not the key's encoding could verify
     # as whatever key it happened to decode to. Only the one canonical spelling is a key.
@@ -1040,7 +1077,7 @@ def _resolved(keyid: str, resolve: Resolver):
             f"The key resolved for {shown(keyid)} is not a {_KEY_LENGTH}-byte Ed25519 public key.",
             keyid=keyid,
         )
-    return public_key(bytes(raw), keyid), keyid
+    return public_key(bytes(raw), keyid, subgroup=True), keyid
 
 
 def _check_digest(header: str | None, body: bytes | None) -> None:

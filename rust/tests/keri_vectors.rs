@@ -9,13 +9,14 @@
 //! from the files alone, as fiki-py's driver now writes its own, so a library that skipped a check
 //! cannot pass by borrowing the generator's.
 //!
-//! The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back
-//! a non-transferable `B…` keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
-//! the table, answers `None` for a keyid it has no key state for, and refuses a key state with no
-//! single effective signer as `UnsupportedSigner`. It never decodes a `D…` keyid as a key, which is
-//! exactly what one of the vectors is there to catch, and it carries no well-formedness check: a
-//! keyid that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
-//! test the library rather than this file.
+//! The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It looks every
+//! keyid up in the table, answers `None` for a keyid it has no key state for, and refuses a key
+//! state with no single effective signer as `UnsupportedSigner`. It knows nothing of `B…` keyids:
+//! since keri_vectors_format 8 the library takes their key from the prefix and never asks
+//! (@37rktct3), and the case whose B keyid the table does not list would fail if it did. It never
+//! decodes a `D…` keyid as a key, which is exactly what one of the vectors is there to catch, and
+//! it carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to
+//! refuse, so the refusal vectors for them test the library rather than this file.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -136,10 +137,10 @@ fn typed<T: for<'de> Deserialize<'de>>(value: &Value) -> T {
 /// a driver that loops over nothing.
 const CASE_COUNTS: [(&str, usize); 5] = [
     ("rfc9421.json", 1),
-    ("requests.json", 21),
+    ("requests.json", 25),
     ("responses.json", 4),
-    ("refusals.json", 65),
-    ("legacy.json", 8),
+    ("refusals.json", 78),
+    ("legacy.json", 12),
 ];
 
 /// Runs every case of `name` and reports all the failures together, so one red run names every
@@ -227,26 +228,48 @@ fn from_hex(text: &str) -> Vec<u8> {
         .collect()
 }
 
-/// A one-character CESR code over 32 raw bytes: the arithmetic of fiki's own B lens.
-fn qb64(code: char, raw: &[u8]) -> String {
-    let mut padded = vec![0u8];
+/// CESR's arithmetic: zero bytes in front to a multiple of three, base64url, and the code in place
+/// of the characters those bytes became.
+fn qb64(code: &str, raw: &[u8]) -> String {
+    let pad = (3 - raw.len() % 3) % 3;
+    let mut padded = vec![0u8; pad];
     padded.extend_from_slice(raw);
-    format!("{code}{}", &b64_encode(&padded, URL, false)[1..])
+    format!("{code}{}", &b64_encode(&padded, URL, false)[pad..])
 }
 
-/// The keys rule each file states: 44 characters, a B, D or E code, and 43 base64url characters
-/// that decode behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives
-/// back the keyid exactly.
+/// keripy's PreDex codes and the raw size each encodes, as each file's keys rule lists them.
+const PREDEX: [(&str, usize); 18] = [
+    ("B", 32),
+    ("D", 32),
+    ("E", 32),
+    ("F", 32),
+    ("G", 32),
+    ("H", 32),
+    ("I", 32),
+    ("0D", 64),
+    ("0E", 64),
+    ("0F", 64),
+    ("0G", 64),
+    ("1AAA", 33),
+    ("1AAB", 33),
+    ("1AAI", 33),
+    ("1AAJ", 33),
+    ("1AAC", 57),
+    ("1AAD", 57),
+    ("1AAE", 114),
+];
+
+/// The keys rule each file states (profile R1): the canonical qb64 spelling of a PreDex code and
+/// its bytes, so that re-encoding the decoded bytes gives back the keyid exactly.
 fn well_formed_aid(keyid: &str) -> bool {
-    if keyid.len() != 44 || !matches!(keyid.as_bytes()[0], b'B' | b'D' | b'E') {
-        return false;
-    }
-    match b64_decode(&format!("A{}", &keyid[1..]), URL) {
-        Some(decoded) if decoded.len() == 33 => {
-            qb64(keyid.as_bytes()[0] as char, &decoded[1..]) == keyid
-        }
-        _ => false,
-    }
+    PREDEX.iter().any(|(code, size)| {
+        let pad = (3 - size % 3) % 3;
+        let Some(rest) = keyid.strip_prefix(code) else {
+            return false;
+        };
+        let decoded = b64_decode(&format!("{}{rest}", "A".repeat(pad)), URL);
+        decoded.is_some_and(|d| d.len() == pad + size && qb64(code, &d[pad..]) == keyid)
+    })
 }
 
 /// The same 32 key bytes, spelled with a non-zero bit in the pad byte the code character replaces.
@@ -274,17 +297,6 @@ fn resolver(keys: &Value) -> Resolver {
         .map(|entry| (entry["keyid"].as_str().unwrap().to_string(), entry.clone()))
         .collect();
     Arc::new(move |keyid: &str| {
-        // A B keyid's 32 prefix bytes, handed back unexamined: whether they are a well-formed AID
-        // or a usable key is fiki's to decide (@7w7nv94j), so a library that skipped either check
-        // fails the vectors that pin it.
-        if let Some(prefix) = keyid.strip_prefix('B') {
-            let decoded = b64_decode(&format!("A{prefix}"), URL).unwrap_or_else(|| {
-                panic!("fiki handed the resolver {keyid:?}, which is not an AID")
-            });
-            return Ok(Some(decoded[1..].try_into().unwrap_or_else(|_| {
-                panic!("fiki handed the resolver {keyid:?}, which is not an AID")
-            })));
-        }
         let Some(entry) = table.get(keyid) else {
             return Ok(None);
         };
@@ -301,6 +313,22 @@ fn resolver(keys: &Value) -> Resolver {
             )),
         }
     })
+}
+
+/// The key a signature is checked with when the base is rebuilt: a B prefix's own, else the
+/// table's.
+fn key_for(keyid: &str, keys: &Value) -> fiki::Result<[u8; 32]> {
+    if let Some(prefix) = keyid.strip_prefix('B') {
+        let decoded = b64_decode(&format!("A{prefix}"), URL).unwrap();
+        return Ok(decoded[1..].try_into().unwrap());
+    }
+    Ok(resolver(keys)(keyid)?.unwrap())
+}
+
+/// A case's clock: fiki's is whole seconds, and the profile rounds a fractional one down (section
+/// 6), so a fractional `now` is floored here.
+fn now_of(case: &Value) -> i64 {
+    case["now"].as_f64().unwrap().floor() as i64
 }
 
 fn body_of(message: &Value) -> Option<Vec<u8>> {
@@ -389,7 +417,7 @@ fn run(case: &Value, data: &Value) -> fiki::Result<Verdict> {
     verify(
         &case["request"],
         case.get("response"),
-        case["now"].as_i64().unwrap(),
+        now_of(case),
         &policy(data, case),
         &data["keys"],
     )
@@ -464,7 +492,7 @@ fn expected_base(
         .1
         .trim_matches(':')
         .to_string();
-    let key = resolver(keys)(params.keyid.as_deref().unwrap())?.unwrap();
+    let key = key_for(params.keyid.as_deref().unwrap(), keys)?;
     let raw: [u8; 64] = b64_decode(&signature, STD).unwrap().try_into().unwrap();
     VerifyingKey::from_bytes(&key)
         .unwrap()
@@ -478,7 +506,7 @@ fn expected_base(
 #[test]
 fn this_port_satisfies_the_keri_vectors_format_it_is_running() {
     // The same guard @4fhrre0m gives the shared set, against its own number (@8vwrexxc).
-    assert_eq!(KERI_VECTORS_FORMAT, 7);
+    assert_eq!(KERI_VECTORS_FORMAT, 8);
     for name in FILES {
         let data = load(name);
         assert_eq!(data["keri_vectors_format"], KERI_VECTORS_FORMAT, "{name}");
@@ -492,15 +520,15 @@ fn each_file_names_the_published_profile_it_pins() {
     let doc = fs::read_to_string(format!("{}/docs/keri-profile.md", root())).unwrap();
     for name in FILES {
         let profile = &load(name)["profile"];
-        assert_eq!(profile["version"], "1.1", "{name}");
+        assert_eq!(profile["version"], "1.2", "{name}");
         assert_eq!(
             profile["where"],
-            "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md"
+            "https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md"
         );
         let title = profile["title"].as_str().unwrap();
         let date = profile["date"].as_str().unwrap();
         assert!(
-            doc.starts_with(&format!("# {title}\n\nVersion 1.1, {date}.")),
+            doc.starts_with(&format!("# {title}\n\nVersion 1.2, {date}.")),
             "{name}"
         );
     }
@@ -566,6 +594,18 @@ fn the_keys_table_agrees_with_its_seeds_and_key_states() {
                     b64_decode(&format!("A{}", &k[1..]), URL).unwrap()[1..].to_vec()
                 })
                 .collect();
+            if entry["weak_key"] == true {
+                // A key no seed yields, there to be refused as it is resolved (profile R1): the
+                // single key of its key state, and not a point of the prime-order subgroup.
+                let effective = b64_decode(entry["effective_key"].as_str().unwrap(), URL).unwrap();
+                assert_eq!(state, std::slice::from_ref(&effective), "{keyid}");
+                let point = VerifyingKey::from_bytes(&effective.try_into().unwrap());
+                assert!(
+                    point.map_or(true, |p| p.is_weak() || !p.to_edwards().is_torsion_free()),
+                    "{keyid}"
+                );
+                continue;
+            }
             match entry["effective_key"].as_str() {
                 None => assert_eq!(raw_key(&signer).to_vec(), state[0]),
                 Some(effective) => {
@@ -582,6 +622,12 @@ fn the_well_formedness_rule_refuses_near_misses() {
     assert!(!well_formed_aid(&format!("E{}", "!".repeat(43))));
     assert!(!well_formed_aid(&format!("A{}", "A".repeat(43))));
     assert!(!well_formed_aid("not-an-aid"));
+    for (code, size) in PREDEX {
+        let keyid = qb64(code, &vec![7u8; size]);
+        assert!(well_formed_aid(&keyid), "{keyid}");
+        assert!(!well_formed_aid(&keyid[..keyid.len() - 1]), "{keyid}");
+        assert!(!well_formed_aid(&format!("{keyid}A")), "{keyid}");
+    }
     for entry in load("requests.json")["keys"].as_array().unwrap() {
         let keyid = entry["keyid"].as_str().unwrap();
         assert!(well_formed_aid(keyid));
@@ -708,7 +754,32 @@ fn accepted(case: &Value, data: &Value) -> Result<(), String> {
 #[test]
 fn request_accept_vectors() {
     let data = load("requests.json");
-    each("requests.json", &data, |case| accepted(case, &data));
+    let verify_only = strings(&data["verify_only"]);
+    each("requests.json", &data, |case| {
+        if case["verified_by_fiki"] == false {
+            // Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6).
+            // The base and signature are still the ones the message carries.
+            let id = case["id"].as_str().unwrap();
+            if !case["why"].as_str().is_some_and(|w| !w.is_empty())
+                || !verify_only.iter().any(|v| v == id)
+            {
+                return Err("an unverified case must say why and be verify_only".into());
+            }
+            let expected = &case["expected"];
+            let signature = expected["signature"].as_str().unwrap();
+            let padded = format!("{signature}{}", "=".repeat((4 - signature.len() % 4) % 4));
+            let raw: [u8; 64] = b64_decode(&padded, STD).unwrap().try_into().unwrap();
+            let key = key_for(expected["keyid"].as_str().unwrap(), &data["keys"]).unwrap();
+            return VerifyingKey::from_bytes(&key)
+                .unwrap()
+                .verify(
+                    expected["base"].as_str().unwrap().as_bytes(),
+                    &Signature::from_bytes(&raw),
+                )
+                .map_err(|e| format!("the stated base was not signed: {e}"));
+        }
+        accepted(case, &data)
+    });
 }
 
 #[test]
@@ -719,7 +790,7 @@ fn response_accept_vectors() {
         verify(
             &case["request"],
             None,
-            case["now"].as_i64().unwrap(),
+            now_of(case),
             &data["policy"],
             &data["keys"],
         )
@@ -803,14 +874,20 @@ fn legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance() {
         let source = &case["source"];
         let repo = source["repo"].as_str().unwrap_or("");
         if repo == "bakobo/fiki" {
-            // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+            // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature,
+            // and since format 8 each states its sufficient keys rather than one effective key.
             if source["file"] != "vectors/keri/generate.py"
                 || !source["generated"].as_str().is_some_and(|s| !s.is_empty())
                 || !case["seed_hex"].is_string()
-                || !case["key_state"].is_object()
-                || case.get("effective_key").is_none()
+                || case.get("key_state").is_none()
+                || case.get("sufficient_keys").is_none()
             {
                 return Err("incomplete generated case".into());
+            }
+            let signer = Key::from_seed(&from_hex(case["seed_hex"].as_str().unwrap())).unwrap();
+            let key = case["key"].as_str().unwrap();
+            if b64_decode(&format!("A{}", &key[1..]), URL).unwrap()[1..] != raw_key(&signer) {
+                return Err("the seed does not yield the case's key".into());
             }
         } else {
             if !["WebOfTrust/keria", "WebOfTrust/signify-ts"].contains(&repo) {
@@ -876,19 +953,28 @@ fn each_legacy_signature_verifies_over_its_stated_base() {
 
 #[test]
 fn each_legacy_outcome_agrees_with_its_key_state() {
-    // Profile section 8 at version 1.1: the signer is the key state's single effective signer
-    // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
-    // effective_key the case states, and the error follows from it and from who signed.
+    // Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign. fiki
+    // has no legacy verifier, so this checks the data, not a verifier: the key state reduces to the
+    // sufficient_keys the case states, and the error follows from them and from who signed.
+    let codes = strings(&load("refusals.json")["codes"]);
     each("legacy.json", &load("legacy.json"), |case| {
         let Some(state) = case.get("key_state") else {
             return Ok(()); // pinned from KERIA or signify-ts: accepted under its stated key
         };
+        let error = case["error"].as_str();
+        if state.is_null() {
+            return match (error, case["sufficient_keys"].is_null()) {
+                (Some("unknown-key"), true) => Ok(()),
+                _ => Err(format!("no key state, yet error {error:?}")),
+            };
+        }
         let keys: Vec<&str> = state["keys"]
             .as_array()
             .unwrap()
             .iter()
             .map(|k| k.as_str().unwrap())
             .collect();
+        // Written out here rather than taken from the generator, which made the case with its own.
         let alone: Vec<&str> = match &state["threshold"] {
             Value::String(hex) => {
                 if u64::from_str_radix(hex, 16) == Ok(1) {
@@ -909,53 +995,59 @@ fn each_legacy_outcome_agrees_with_its_key_state() {
                 .collect(),
             other => return Err(format!("threshold {other}")),
         };
-        let error = case["error"].as_str();
-        let found = if alone.len() == 1 {
-            Some(alone[0])
-        } else {
-            None
-        };
-        let Some(found) = found else {
-            if !case["effective_key"].is_null() || error != Some("unsupported-signer") {
-                return Err(format!("no single effective signer, yet error {error:?}"));
-            }
-            return Ok(());
-        };
-        let effective = b64_decode(&format!("A{}", &found[1..]), URL).unwrap()[1..].to_vec();
-        if case["effective_key"]
-            .as_str()
-            .and_then(|e| b64_decode(e, URL))
-            .as_deref()
-            != Some(effective.as_slice())
-        {
-            return Err("effective_key disagrees with the key state".into());
+        let raws: Vec<Vec<u8>> = alone
+            .iter()
+            .map(|key| b64_decode(&format!("A{}", &key[1..]), URL).unwrap()[1..].to_vec())
+            .collect();
+        let stated: Option<Vec<Vec<u8>>> = case["sufficient_keys"].as_array().map(|keys| {
+            keys.iter()
+                .map(|k| b64_decode(k.as_str().unwrap(), URL).unwrap())
+                .collect()
+        });
+        if stated.as_ref() != Some(&raws) {
+            return Err("sufficient_keys disagrees with the key state".into());
         }
-        if found == case["key"].as_str().unwrap() {
+        let signer = case["key"].as_str().unwrap();
+        if alone.is_empty() {
             return match error {
-                None => Ok(()),
-                Some(code) => Err(format!("signed by the effective signer, yet error {code}")),
+                Some("unsupported-signer") => Ok(()),
+                _ => Err(format!("no sufficient key, yet error {error:?}")),
             };
         }
-        if error != Some("signature-mismatch") {
+        if error == Some("signature-mismatch") {
+            if alone.contains(&signer) {
+                return Err("signed by a sufficient key, yet signature-mismatch".into());
+            }
+            let header = case["headers"]["Signature"].as_str().unwrap();
+            let signature = header
+                .split_once("signify=\"")
+                .unwrap()
+                .1
+                .trim_end_matches('"');
+            let raw_signature: [u8; 64] = b64_decode(&format!("AA{}", &signature[2..]), URL)
+                .unwrap()[2..]
+                .try_into()
+                .unwrap();
+            for raw in raws {
+                let raw_key: [u8; 32] = raw.try_into().unwrap();
+                let verified = VerifyingKey::from_bytes(&raw_key).unwrap().verify(
+                    case["base"].as_str().unwrap().as_bytes(),
+                    &Signature::from_bytes(&raw_signature),
+                );
+                if verified.is_ok() {
+                    return Err("the signature verifies under a sufficient key".into());
+                }
+            }
+            return Ok(());
+        }
+        // Accepted, or a header refused before any key is tried, whose key state would accept.
+        if !alone.contains(&signer) {
             return Err(format!("signed by another key, yet error {error:?}"));
         }
-        let header = case["headers"]["Signature"].as_str().unwrap();
-        let signature = header
-            .split_once("signify=\"")
-            .unwrap()
-            .1
-            .trim_end_matches('"');
-        let raw_signature: [u8; 64] = b64_decode(&format!("AA{}", &signature[2..]), URL).unwrap()
-            [2..]
-            .try_into()
-            .unwrap();
-        let raw_key: [u8; 32] = effective.try_into().unwrap();
-        match VerifyingKey::from_bytes(&raw_key).unwrap().verify(
-            case["base"].as_str().unwrap().as_bytes(),
-            &Signature::from_bytes(&raw_signature),
-        ) {
-            Ok(()) => Err("the signature verifies under the effective key".into()),
-            Err(_) => Ok(()),
+        match error {
+            None => Ok(()),
+            Some(code) if codes.iter().any(|c| c == code) => Ok(()),
+            Some(code) => Err(format!("error {code} is no profile code")),
         }
     });
 }

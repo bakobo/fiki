@@ -22,16 +22,16 @@ namespace Bakobo.Fiki.Tests
     /// </remarks>
     public class SmallOrderTests
     {
-        private static readonly BigInteger P = BigInteger.Pow(2, 255) - 19;
-        private static readonly BigInteger D = Mod(-121665 * Inverse(121666));
+        internal static readonly BigInteger P = BigInteger.Pow(2, 255) - 19;
+        internal static readonly BigInteger D = Mod(-121665 * Inverse(121666));
         private static readonly BigInteger SqrtMinusOne = BigInteger.ModPow(2, (P - 1) / 4, P);
 
-        private static BigInteger Mod(BigInteger a) => ((a % P) + P) % P;
+        internal static BigInteger Mod(BigInteger a) => ((a % P) + P) % P;
 
-        private static BigInteger Inverse(BigInteger a) => BigInteger.ModPow(Mod(a), P - 2, P);
+        internal static BigInteger Inverse(BigInteger a) => BigInteger.ModPow(Mod(a), P - 2, P);
 
         /// <summary>A square root mod p (p = 5 mod 8), or null when a is not a square.</summary>
-        private static BigInteger? Sqrt(BigInteger a)
+        internal static BigInteger? Sqrt(BigInteger a)
         {
             a = Mod(a);
             var root = BigInteger.ModPow(a, (P + 3) / 8, P);
@@ -58,7 +58,7 @@ namespace Bakobo.Fiki.Tests
             Mod(-x * x + y * y) == Mod(1 + D * x * x * y * y);
 
         /// <summary>The eight small-order points, as (x, y).</summary>
-        private static List<(BigInteger X, BigInteger Y)> Torsion()
+        internal static List<(BigInteger X, BigInteger Y)> Torsion()
         {
             var points = new List<(BigInteger, BigInteger)> { (0, 1), (0, P - 1) };
             var i = SqrtMinusOne;

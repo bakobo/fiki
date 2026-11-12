@@ -382,8 +382,9 @@ class ProfileTest {
         assertEquals(List.of(AID), calls);
     }
 
+    /** Since profile 1.2 a B keyid's key is its prefix, so no resolver is asked (@37rktct3). */
     @Test
-    void aSmallOrderBAidIsWellFormedSoTheResolverIsAskedAndItsKeyRefused() {
+    void aSmallOrderBAidIsRefusedFromItsPrefixAndTheResolverIsNeverAsked() {
         String identity = cesr("B", HexFormat.of().parseHex(SMALL_ORDER.get(0)));
         List<String> calls = new ArrayList<>();
         assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> verify(forgedUnder(identity),
@@ -391,7 +392,7 @@ class ProfileTest {
                 calls.add(keyid);
                 return HexFormat.of().parseHex(SMALL_ORDER.get(0));
             }))));
-        assertEquals(List.of(identity), calls);
+        assertEquals(List.of(), calls);
         assertEquals(FikiException.Kind.MalformedKey, kindOf(() -> Key.verifyingKeyBytes(identity)));
     }
 

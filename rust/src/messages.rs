@@ -25,7 +25,10 @@ use crate::base::{
     CONTENT_DIGEST, DEFAULT_COVERED, MAX_FIELD_BYTES,
 };
 use crate::errors::{Error, Kind, Result};
-use crate::keys::{aid_of, b64std, public_key, raw_keyid, verifying_key, well_formed_aid, Key};
+use crate::keys::{
+    aid_code, aid_key, aid_of, b64std, public_key, raw_keyid, subgroup_key, verifying_key, Key,
+    OTHER_NON_TRANSFERABLE,
+};
 use crate::sfv::{parse_dictionary, serialize_inner_list, InnerList, Item, Member, Value};
 
 /// The only signature algorithm fiki produces or accepts.
@@ -716,7 +719,10 @@ fn verify(
     if let Some(minimum) = &minimum {
         let has_body = match response {
             Some(_) => has_content(opts.body.as_deref()),
-            None => request_has_body(found, opts.body.as_deref()),
+            // A request by what its headers announce and only that (`this.i` @84nt4je0):
+            // content they did not announce is the body stage's to refuse, so a verifier holding
+            // the body and one reading it later report the same code.
+            None => request_has_body(found, None),
         };
         // By the request's content alone, as sign_response decides it (@7p9s3g9k).
         let request_had_body = request.is_some_and(|r| has_content(r.body));
@@ -751,7 +757,18 @@ fn verify(
     }
     let (public, aid) = match local {
         Local::Found(public, aid) => (public, aid),
-        Local::Resolve(resolver, keyid) => resolved(resolver, keyid)?,
+        Local::Resolve(_, keyid, code) if OTHER_NON_TRANSFERABLE.contains(&code) => {
+            // Non-transferable, so no key state to ask about, and not Ed25519 (profile R1).
+            return Err(Error::new(
+                Kind::UnsupportedAlgorithm,
+                format!(
+                    "The keyid {} is a non-transferable key of an algorithm other than {ALG}, \
+                     and fiki verifies only {ALG} signatures.",
+                    shown(keyid)
+                ),
+            ));
+        }
+        Local::Resolve(resolver, keyid, _) => resolved(resolver, keyid)?,
     };
     if let Some(Value::Text(alg)) = inner.param("alg") {
         if alg != ALG {
@@ -805,6 +822,21 @@ fn verify(
     // so acting on them before verifying it would enforce a policy against values an attacker
     // could still have chosen — and would tell that attacker their forgery at least parsed.
     check_freshness(&inner, opts)?;
+
+    // The body stage (profile section 9, `this.i` @84nt4je0): request content no header announced,
+    // uncovered. A response's was decided at the covered list.
+    if minimum.is_some()
+        && response.is_none()
+        && has_content(opts.body.as_deref())
+        && !covers_body(items)
+    {
+        return Err(Error::detailed(
+            Kind::InsufficientCoverage,
+            "The message carries a body its content-digest does not cover, so the body could be \
+             replaced in transit; it is refused even though the signature verifies.",
+            CONTENT_DIGEST,
+        ));
+    }
 
     let mut digests = Vec::new();
     if covers_body(items) {
@@ -1189,8 +1221,22 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
 /// expected keyid is compared and before any resolver sees it (`this.i` @5zrf8gjk).
 fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Local<'a>> {
     if let Some(aid) = &opts.expected_aid {
-        let public = verifying_key(aid)?;
-        return Ok(Local::Found(public, aid_of(public.as_bytes())));
+        // An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+        // prime-order subgroup too (profile R1, `this.i` @37rktct3); verifying_key settles its
+        // spelling and refuses a small-order key, so what aid_key adds is the mixed-order one.
+        verifying_key(aid)?;
+        let public = aid_key(aid).ok_or_else(|| {
+            Error::detailed(
+                Kind::MalformedKey,
+                format!(
+                    "The expected AID {} names a point of mixed order, outside the prime-order \
+                     subgroup every honest key lies in, so no signature is checked against it.",
+                    shown(aid)
+                ),
+                aid.as_str(),
+            )
+        })?;
+        return Ok(Local::Found(public, aid.clone()));
     }
     let keyid = keyid.filter(|k| !k.is_empty()).ok_or_else(|| {
         Error::new(
@@ -1203,14 +1249,28 @@ fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Loca
     if let Some(resolver) = &opts.resolve {
         // A resolver answers only about key state (`this.i` @7w7nv94j), so a keyid that is not a
         // well-formed AID, whatever its shape, is refused here and never handed to it.
-        if !well_formed_aid(keyid) {
+        let Some(code) = aid_code(keyid) else {
             return Err(malformed(format!(
-                "The keyid {} is not a well-formed AID: 44 characters, B, D or E, then the \
-                 canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
+                "The keyid {} is not a well-formed AID: the canonical qb64 spelling of a KERI \
+                 prefix derivation code and its bytes. A resolver is asked only about an AID.",
                 shown(keyid)
             )));
+        };
+        if code != "B" {
+            return Ok(Local::Resolve(resolver, keyid, code));
         }
-        return Ok(Local::Resolve(resolver, keyid));
+        // A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key it
+        // must lie in the prime-order subgroup; both are the keyid's own well-formedness, decided
+        // before the expected keyid is compared (profile R1, `this.i` @37rktct3).
+        let public = aid_key(keyid).ok_or_else(|| {
+            malformed(format!(
+                "The keyid {} is not a usable Ed25519 public key: it is not a point on the curve, \
+                 or it is a point of small or mixed order, outside the prime-order subgroup every \
+                 honest key lies in, so no signature is checked against it.",
+                shown(keyid)
+            ))
+        })?;
+        return Ok(Local::Found(public, keyid.to_string()));
     }
     let raw = raw_keyid(keyid).ok_or_else(|| {
         malformed(format!(
@@ -1232,7 +1292,8 @@ fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Loca
 /// What the keyid alone decided: the key and the identity to report, or a resolver to ask.
 enum Local<'a> {
     Found(VerifyingKey, String),
-    Resolve(&'a Resolver, &'a str),
+    /// A well-formed AID other than B, with its PreDex code.
+    Resolve(&'a Resolver, &'a str, &'static str),
 }
 
 /// The resolver's key for a keyid already found well formed, and the keyid it vouched for.
@@ -1249,12 +1310,14 @@ fn resolved(resolver: &Resolver, keyid: &str) -> Result<(VerifyingKey, String)> 
             keyid,
         )
     })?;
-    let public = public_key(&raw).ok_or_else(|| {
+    // As an AID's key, it must also lie in the prime-order subgroup (`this.i` @37rktct3).
+    let public = subgroup_key(&raw).ok_or_else(|| {
         Error::detailed(
             Kind::MalformedKey,
             format!(
                 "The key resolved for {} is not a usable Ed25519 public key: it is not a point on \
-                 the curve, or it is a small-order point, under which a signature proves nothing.",
+                 the curve, or it is a point of small or mixed order, outside the prime-order \
+                 subgroup every honest key lies in, so no signature is checked against it.",
                 shown(keyid)
             ),
             keyid,

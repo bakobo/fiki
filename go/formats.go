@@ -93,7 +93,8 @@ func multibaseEd25519(value string) []byte {
 	return decoded[2:]
 }
 
-// aidBody is the 32 bytes under a canonically spelled 44-character B, D or E AID, or nil.
+// aidBody is the 32 bytes under a canonically spelled 44-character AID of a 32-byte code, or nil;
+// rawOf asks it only about a B one.
 func aidBody(text string) []byte {
 	if !wellFormedAID(text) {
 		return nil

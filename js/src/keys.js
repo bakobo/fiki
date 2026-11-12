@@ -68,24 +68,65 @@ function power(base, exponent) {
 }
 const D = mod(-121665n * power(121666n, P - 2n));
 
-function canonicalPoint(raw) {
+const SQRT_M1 = power(2n, (P - 1n) / 4n);
+
+/** The point `raw` encodes as [x, y], or null when it is not the canonical encoding of one. */
+function decodePoint(raw) {
   let y = 0n;
   for (let i = RAW_LEN - 1; i >= 0; i -= 1) y = (y << 8n) | BigInt(raw[i]);
   const sign = y >> 255n;
   y &= (1n << 255n) - 1n;
-  if (y >= P) return false;
+  if (y >= P) return null;
   const x2 = mod((y * y - 1n) * power(D * y * y + 1n, P - 2n));
+  // RFC 8032's square root: a candidate, times sqrt(-1) when its square is -x2, and no point at
+  // all when neither squares to x2.
+  let x = power(x2, (P + 3n) / 8n);
+  if (mod(x * x - x2) !== 0n) x = mod(x * SQRT_M1);
+  if (mod(x * x - x2) !== 0n) return null;
   // x of zero has one encoding only, with the sign bit clear.
-  if (x2 === 0n) return sign === 0n;
-  // Euler's criterion: x2 has a square root mod p exactly when x2^((p-1)/2) is 1.
-  return power(x2, (P - 1n) / 2n) === 1n;
+  if (x === 0n && sign === 1n) return null;
+  return [(x & 1n) === sign ? x : mod(-x), y];
 }
 
-/** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo). */
-export function checkKey(raw, keyid) {
+// The order of Ed25519's prime-order subgroup, RFC 8032 section 5.1's L.
+const L = 2n ** 252n + 27742317777372353535851937790883648493n;
+
+/** RFC 8032 section 5.1.4's addition, on points in extended coordinates (X, Y, Z, T). */
+function addExtended([x1, y1, z1, t1], [x2, y2, z2, t2]) {
+  const a = mod((y1 - x1) * (y2 - x2));
+  const b = mod((y1 + x1) * (y2 + x2));
+  const c = mod(t1 * 2n * D * t2);
+  const d = mod(z1 * 2n * z2);
+  const [e, f, g, h] = [b - a, d - c, d + c, b + a];
+  return [mod(e * f), mod(g * h), mod(f * g), mod(e * h)];
+}
+
+/** True when [L]P is the identity, so P lies in the prime-order subgroup (@37rktct3).
+ *
+ * A point of small order is not caught here, since the identity is one; the blocklist runs first.
+ * What this adds is the mixed-order point, a subgroup point plus a torsion component, which
+ * libsodium's crypto_core_ed25519_is_valid_point refuses and keripy follows.
+ */
+function primeOrder([x, y]) {
+  let total = [0n, 1n, 1n, 0n];
+  let step = [x, y, 1n, mod(x * y)];
+  for (let n = L; n > 0n; n >>= 1n) {
+    if (n & 1n) total = addExtended(total, step);
+    step = addExtended(step, step);
+  }
+  return total[0] === 0n && total[1] === total[2];
+}
+
+/** Refuse a 32-byte public key that is not a canonical point, or is of small order (27eo).
+ *
+ * With `subgroup`, which is how a key named by an AID is read (KERI profile R1, @37rktct3), a point
+ * outside the prime-order subgroup is refused too; fiki's own raw keyid accepts one (@5r75ff4m).
+ */
+export function checkKey(raw, keyid, { subgroup = false } = {}) {
   // An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
   const subject = keyid ? `The key for ${quoted(keyid)}` : 'The key given';
-  if (!canonicalPoint(raw)) {
+  const point = decodePoint(raw);
+  if (point === null) {
     throw new MalformedKey(
       `${subject} is not the canonical encoding of a point on the Ed25519 curve, so ` +
         'it is not a key fiki will verify with.',
@@ -96,6 +137,13 @@ export function checkKey(raw, keyid) {
     throw new MalformedKey(
       `${subject} is a small-order Ed25519 point, under which a signature can be ` +
         'forged for any message, so it is not a key fiki will verify with.',
+      { keyid },
+    );
+  }
+  if (subgroup && !primeOrder(point)) {
+    throw new MalformedKey(
+      `${subject} is a point of mixed order, outside the prime-order subgroup every honest key ` +
+        'lies in, so no signature is checked against it.',
       { keyid },
     );
   }
@@ -131,22 +179,53 @@ export function verifyingKey(aid) {
   return checkKey(decoded.slice(1), aid);
 }
 
-// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
-// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
-const SPELLED_CODES = 'BDE';
+// keripy's PreDex, the prefix derivation codes an AID may carry, with the raw size each encodes
+// (@37rktct3). fiki reads none of them but B; it needs the table only to say whether a keyid is a
+// well-formed AID, which the KERI profile's R1 makes the verifier's job before any key store is asked.
+const PREFIX_CODES = new Map(Object.entries({
+  B: 32, D: 32, E: 32, F: 32, G: 32, H: 32, I: 32,
+  '0D': 64, '0E': 64, '0F': 64, '0G': 64,
+  '1AAA': 33, '1AAB': 33, '1AAI': 33, '1AAJ': 33,
+  '1AAC': 57, '1AAD': 57,
+  '1AAE': 114,
+}));
 
-/** True when `keyid` is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j).
+/** The non-transferable codes other than B: secp256k1, Ed448 and secp256r1 keys, whose algorithm
+ * the profile does not support. */
+export const OTHER_NON_TRANSFERABLE = new Set(['1AAA', '1AAC', '1AAI']);
+
+/** The PreDex code of `keyid` when it is a well-formed AID, else null (@7w7nv94j, @37rktct3).
  *
- * 44 characters, a first character of B, D or E, and 43 base64url characters that decode behind
- * one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the keyid
- * exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever answers about
- * key state. The character class excludes "=", so 43 valid characters always decode to 33 bytes,
- * and a zero pad byte is the whole of canonical re-encoding.
+ * The code is one, two or four characters by its first character, as CESR sizes it; the raw bytes
+ * behind it are padded with zero bytes to a multiple of three, base64url-encoded, and the code
+ * written over the characters the padding became. Well formed means exactly that spelling: the
+ * right length, base64url throughout, and zero pad bits, so that re-encoding gives back the keyid.
+ * fiki checks this before any resolver sees a keyid, so a resolver only ever answers about key
+ * state.
  */
+export function aidCode(keyid) {
+  const size = /^[A-Za-z]/.test(keyid) ? 1 : keyid[0] === '0' ? 2 : 4;
+  const code = keyid.slice(0, size);
+  const length = PREFIX_CODES.get(code);
+  if (length === undefined) return null;
+  const pad = (3 - (length % 3)) % 3;
+  if (keyid.length !== ((pad + length) * 4) / 3 + (size - pad)) return null;
+  const body = keyid.slice(size);
+  // The character class excludes "=", so the body always decodes to pad + length bytes.
+  if (!/^[A-Za-z0-9\-_]*$/.test(body)) return null;
+  const decoded = fromBase64Url('A'.repeat(pad) + body);
+  const spelled = toBase64Url(new Uint8Array([...new Uint8Array(pad), ...decoded.slice(pad)])).slice(pad);
+  return code + spelled === keyid ? code : null;
+}
+
+/** True when `keyid` is a well-formed AID under the KERI vectors' keys_rule. */
 export function wellFormedAid(keyid) {
-  if (keyid.length !== QB64_LEN || !SPELLED_CODES.includes(keyid[0])) return false;
-  if (!/^[A-Za-z0-9\-_]{43}$/.test(keyid.slice(1))) return false;
-  return fromBase64Url('A' + keyid.slice(1))[0] === 0;
+  return aidCode(keyid) !== null;
+}
+
+/** The key a well-formed B keyid carries, read as an AID's key: in the prime-order subgroup. */
+export function aidKey(keyid) {
+  return checkKey(fromBase64Url('A' + keyid.slice(1)).slice(1), keyid, { subgroup: true });
 }
 
 /** An Ed25519 key pair whose public half is rendered as a non-transferable AID. */

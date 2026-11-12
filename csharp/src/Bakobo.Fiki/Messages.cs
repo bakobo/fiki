@@ -345,7 +345,11 @@ namespace Bakobo.Fiki
             if (minimum != null)
             {
                 CheckMinimum(items, minimum,
-                    hasBody: response ? HasContent(body) : RequestHasBody(found, body),
+                    // A response by its content (@2f227n4r), which a client holds before it verifies.
+                    // A request by what its headers announce and only that (@84nt4je0): content they
+                    // did not announce is the body stage's to refuse, so a verifier holding the body
+                    // and one reading it later report the same code.
+                    hasBody: response ? HasContent(body) : RequestHasBody(found, null),
                     // By the request's content alone, as SignResponse decides it (@7p9s3g9k).
                     requestHadBody: HasContent(request?.BodyRef));
             }
@@ -366,6 +370,15 @@ namespace Bakobo.Fiki
                     FikiErrorKind.UnknownKey,
                     $"This message is signed by {PyText.Shown(keyId ?? "")}, and the one expected is {PyText.Shown(options.ExpectedKeyId)}.",
                     keyId: keyId);
+            }
+            if (publicKey == null && Aids.OtherNonTransferable(Aids.AidCode(keyId!)!))
+            {
+                // Non-transferable, so no key state to ask about, and not Ed25519 (profile R1, @37rktct3).
+                // A null key here means a resolver and a well-formed keyid that is not B, so it has a code.
+                throw new FikiException(
+                    FikiErrorKind.UnsupportedAlgorithm,
+                    $"The keyid {PyText.Shown(keyId!)} is a non-transferable key of an algorithm other than {Alg}, and fiki " +
+                    $"verifies only {Alg} signatures.");
             }
             publicKey ??= Resolved(keyId!, options.Resolver!, out aid);
             if (inner.Params.TryGet("alg", out var alg) && alg!.Text != Alg)
@@ -404,6 +417,17 @@ namespace Bakobo.Fiki
             // an attacker could still have chosen. The clock is read only if a check is live, which
             // keeps a message declaring no freshness deterministic (@67shl6c5).
             CheckFreshness(inner.Params, options.MaxAgeSeconds, options.Skew, options.Now);
+
+            // The body stage (profile section 9, @84nt4je0): request content no header announced,
+            // uncovered. A response's was decided at the covered list.
+            if (minimum != null && !response && HasContent(body) && !CoversBody(items))
+            {
+                throw new FikiException(
+                    FikiErrorKind.InsufficientCoverage,
+                    "The message carries a body its content-digest does not cover, so the body could be replaced in transit; " +
+                    "it is refused even though the signature verifies.")
+                { Component = Components.SpecOf(BodyDigest) };
+            }
 
             var digests = new List<KeyValuePair<string?, byte[]?>>();
             if (CoversBody(items))
@@ -588,7 +612,9 @@ namespace Bakobo.Fiki
         {
             if (expectedAid != null)
             {
-                var expected = Aids.VerifyingKey(expectedAid);
+                // An expected AID names its key as a B keyid does, so as an AID's key it must lie in
+                // the prime-order subgroup too (profile R1, @37rktct3).
+                var expected = Aids.SubgroupKey(Aids.VerifyingKey(expectedAid), expectedAid);
                 aid = Aids.ToAid(expected);
                 return expected;
             }
@@ -600,16 +626,16 @@ namespace Bakobo.Fiki
             {
                 // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
                 // well-formed AID, whatever its shape, is refused here and never handed to it.
-                if (!Aids.WellFormed(keyId!))
-                {
-                    throw new FikiException(
-                        FikiErrorKind.MalformedKey,
-                        $"The keyid {PyText.Shown(keyId!)} is not a well-formed AID: 44 characters, B, D or E, then the canonical " +
-                        "base64url spelling of 32 bytes. A resolver is asked only about an AID.",
-                        keyId: keyId);
-                }
+                var code = Aids.AidCode(keyId!) ?? throw new FikiException(
+                    FikiErrorKind.MalformedKey,
+                    $"The keyid {PyText.Shown(keyId!)} is not a well-formed AID: the canonical qb64 spelling of a KERI prefix " +
+                    "derivation code and its bytes. A resolver is asked only about an AID.",
+                    keyId: keyId);
                 aid = keyId!;
-                return null;
+                // A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key
+                // it must lie in the prime-order subgroup; both are the keyid's own well-formedness,
+                // decided before the expected keyid is compared (profile R1, @37rktct3).
+                return code == "B" ? Aids.SubgroupKey(Aids.Canonical(keyId!)!, keyId!) : null;
             }
             // Strictly, as an AID is decoded: a lenient decoder discards characters outside the
             // alphabet and ignores trailing bits, so a keyid that is not the key's encoding could
@@ -660,13 +686,10 @@ namespace Bakobo.Fiki
                     keyId: keyId);
             }
             // A small-order key is refused here, in the key's place in section 9's order, rather
-            // than attempted: against it a signature anyone can write verifies.
-            if (!Aids.IsUsableKey(resolved))
-            {
-                throw Aids.Unusable(keyId);
-            }
+            // than attempted: against it a signature anyone can write verifies. As an AID's key it
+            // must also lie in the prime-order subgroup (profile R1, @37rktct3).
             aid = keyId;
-            return resolved;
+            return Aids.SubgroupKey(resolved, keyId);
         }
 
         private static FikiException MissingKey() => new FikiException(
