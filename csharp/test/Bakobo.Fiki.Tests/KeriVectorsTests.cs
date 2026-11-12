@@ -74,11 +74,11 @@ namespace Bakobo.Fiki.Tests
 
         public static IEnumerable<object[]> LegacyCases() => Ids("legacy.json");
 
-        // Cases per file at keri_vectors_format 7, read from the files once and never at test time (tick
+        // Cases per file at keri_vectors_format 8, read from the files once and never at test time (tick
         // 7xbw, review T8). rfc9421.json's one case is the RFC's own, run by name below.
         private static readonly Dictionary<string, int> Pinned = new Dictionary<string, int>
         {
-            { "rfc9421.json", 1 }, { "requests.json", 21 }, { "responses.json", 4 }, { "refusals.json", 65 }, { "legacy.json", 8 },
+            { "rfc9421.json", 1 }, { "requests.json", 25 }, { "responses.json", 4 }, { "refusals.json", 78 }, { "legacy.json", 12 },
         };
 
         private static readonly Dictionary<string, Func<IEnumerable<object[]>>> Sources = new Dictionary<string, Func<IEnumerable<object[]>>>
@@ -103,40 +103,67 @@ namespace Bakobo.Fiki.Tests
 
         // --- generate.py's rules, ported ---
 
+        // generate.py's PREFIX_CODES, keripy's PreDex with the raw size each code encodes, in the
+        // generator's order, which its prefix test walks; checked against the generator's text below.
+        internal static readonly List<KeyValuePair<string, int>> PrefixCodes = new List<KeyValuePair<string, int>>
+        {
+            new KeyValuePair<string, int>("B", 32), new KeyValuePair<string, int>("D", 32), new KeyValuePair<string, int>("E", 32),
+            new KeyValuePair<string, int>("F", 32), new KeyValuePair<string, int>("G", 32), new KeyValuePair<string, int>("H", 32),
+            new KeyValuePair<string, int>("I", 32),
+            new KeyValuePair<string, int>("0D", 64), new KeyValuePair<string, int>("0E", 64), new KeyValuePair<string, int>("0F", 64),
+            new KeyValuePair<string, int>("0G", 64),
+            new KeyValuePair<string, int>("1AAA", 33), new KeyValuePair<string, int>("1AAB", 33), new KeyValuePair<string, int>("1AAI", 33),
+            new KeyValuePair<string, int>("1AAJ", 33),
+            new KeyValuePair<string, int>("1AAC", 57), new KeyValuePair<string, int>("1AAD", 57), new KeyValuePair<string, int>("1AAE", 114),
+        };
+
         /// <summary>
-        /// KEYS_RULE's test: 44 characters, a B, D or E code, and 43 base64url characters that decode
-        /// behind one pad character to 32 bytes with a zero pad byte, so re-encoding gives the keyid
-        /// back. Written against System.Convert rather than fiki's own decoder, as the generator's is
-        /// independent of fiki's.
+        /// KEYS_RULE's test (keri_vectors_format 8): the canonical qb64 spelling of one of keripy's
+        /// PreDex codes, the bytes padded in front with zero bytes to a multiple of three,
+        /// base64url-encoded, and the code written over the characters the padding became, so
+        /// re-encoding gives the keyid back. Written against System.Convert rather than fiki's own
+        /// decoder, as the generator's is independent of fiki's.
         /// </summary>
         internal static bool WellFormedAid(string keyId)
         {
-            if (keyId.Length != 44 || "BDE".IndexOf(keyId[0]) < 0)
+            foreach (var entry in PrefixCodes)
             {
-                return false;
+                if (!keyId.StartsWith(entry.Key, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                var pad = (3 - entry.Value % 3) % 3;
+                var standard = new string('A', pad) + keyId.Substring(entry.Key.Length).Replace('-', '+').Replace('_', '/');
+                byte[] decoded;
+                try
+                {
+                    decoded = Convert.FromBase64String(standard);
+                }
+                catch (FormatException)
+                {
+                    return false;
+                }
+                return decoded.Length == pad + entry.Value && Qb64(entry.Key, decoded.Skip(pad).ToArray()) == keyId;
             }
-            byte[] decoded;
-            try
-            {
-                decoded = Convert.FromBase64String("A" + keyId.Substring(1).Replace('-', '+').Replace('_', '/'));
-            }
-            catch (FormatException)
-            {
-                return false;
-            }
-            return decoded.Length == 33 && Qb64(keyId[0], decoded.Skip(1).ToArray()) == keyId;
+            return false;
         }
 
-        private static string Qb64(char code, byte[] raw) => code + Bytes.B64Url(new byte[] { 0 }.Concat(raw).ToArray()).Substring(1);
+        /// <summary>generate.py's cesr: any PreDex code over its raw bytes.</summary>
+        private static string Qb64(string code, byte[] raw)
+        {
+            var pad = (3 - raw.Length % 3) % 3;
+            return code + Bytes.B64Url(new byte[pad].Concat(raw).ToArray()).Substring(pad);
+        }
 
         /// <summary>
         /// What a KERI verifier's key lookup does, for a keys table: authoritative, never a decode, and
-        /// knowing key state alone (keri_vectors_format 6, this.i @7w7nv94j). It hands back a
-        /// non-transferable B keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
-        /// the table, answers null for a keyid it has no key state for, and says UnsupportedSigner for
-        /// a key state with no single effective signer. It carries no well-formedness check: a keyid
-        /// that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
-        /// test the library rather than this file.
+        /// knowing key state alone (keri_vectors_format 6, this.i @7w7nv94j). It looks every keyid up
+        /// in the table, answers null for a keyid it has no key state for, and says UnsupportedSigner
+        /// for a key state with no single effective signer. It knows nothing of B keyids: since
+        /// keri_vectors_format 8 the library takes their key from the prefix and never asks
+        /// (@37rktct3), and the case whose B keyid the table does not list would fail if it did. It
+        /// carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to
+        /// refuse, so the refusal vectors for them test the library rather than this file.
         /// </summary>
         internal static Func<string, byte[]?> Resolver(JsonElement keys)
         {
@@ -144,10 +171,6 @@ namespace Bakobo.Fiki.Tests
                 .ToDictionary(e => e.GetProperty("keyid").GetString()!, e => e);
             return keyId =>
             {
-                if (keyId[0] == 'B')
-                {
-                    return Bytes.FromB64Url("A" + keyId.Substring(1)).Skip(1).ToArray();
-                }
                 if (!table.TryGetValue(keyId, out var entry))
                 {
                     return null;
@@ -161,6 +184,16 @@ namespace Bakobo.Fiki.Tests
                 return Bytes.FromB64Url(effective.GetString()!);
             };
         }
+
+        /// <summary>The key a signature is checked with when the base is rebuilt: a B prefix's own, else the table's.</summary>
+        private static byte[] KeyFor(string keyId, JsonElement keys) =>
+            keyId[0] == 'B' ? Bytes.FromB64Url("A" + keyId.Substring(1)).Skip(1).ToArray() : Resolver(keys)(keyId)!;
+
+        /// <summary>
+        /// A case's now. fiki's clock is whole seconds, and the profile rounds a fractional one down
+        /// (section 6), so a fractional now is rounded down here.
+        /// </summary>
+        private static long Now(JsonElement c) => (long)Math.Floor(c.GetProperty("now").GetDouble());
 
         private static Request AsRequest(JsonElement message) => new Request(
             message.GetProperty("method").GetString()!, message.GetProperty("url").GetString()!,
@@ -206,7 +239,7 @@ namespace Bakobo.Fiki.Tests
 
         private static Verdict Run(JsonElement c, JsonElement data) => Verify(
             c.GetProperty("request"), c.TryGetProperty("response", out var response) ? response : (JsonElement?)null,
-            c.GetProperty("now").GetInt64(), data.GetProperty("policy"),
+            Now(c), data.GetProperty("policy"),
             c.TryGetProperty("policy", out var policy) ? policy : (JsonElement?)null, data.GetProperty("keys"));
 
         /// <summary>
@@ -231,7 +264,7 @@ namespace Bakobo.Fiki.Tests
                     VectorsTests.Headers(headers), covered, created, keyId, Text("alg"), Integer("expires"), Text("nonce"), Text("tag"));
             var header = headers.GetProperty("Signature").GetString()!;
             var signature = header.Substring(header.IndexOf('=') + 1).Trim(':');
-            Assert.True(new PublicKey(Resolver(keys)(keyId)!).Verify(Convert.FromBase64String(signature), bas));
+            Assert.True(new PublicKey(KeyFor(keyId, keys)).Verify(Convert.FromBase64String(signature), bas));
             return (Bytes.Text(bas), signature);
         }
 
@@ -256,11 +289,11 @@ namespace Bakobo.Fiki.Tests
         {
             // The contract is a document anyone can read, beside these files (@997vxdu7).
             var profile = Load(name).GetProperty("profile");
-            Assert.Equal("1.1", profile.GetProperty("version").GetString());
-            Assert.Equal("https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md", profile.GetProperty("where").GetString());
+            Assert.Equal("1.2", profile.GetProperty("version").GetString());
+            Assert.Equal("https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md", profile.GetProperty("where").GetString());
             var doc = File.ReadAllText(Repo.PathTo("docs", "keri-profile.md")).Replace("\r\n", "\n");
             Assert.StartsWith(
-                $"# {profile.GetProperty("title").GetString()}\n\nVersion 1.1, {profile.GetProperty("date").GetString()}.",
+                $"# {profile.GetProperty("title").GetString()}\n\nVersion 1.2, {profile.GetProperty("date").GetString()}.",
                 doc, StringComparison.Ordinal);
         }
 
@@ -299,6 +332,13 @@ namespace Bakobo.Fiki.Tests
                 Assert.All(stateKeys, k => Assert.True(k[0] == 'D' && k.Length == 44));
                 var state = stateKeys.Select(k => Bytes.FromB64Url("A" + k.Substring(1)).Skip(1).ToArray()).ToList();
                 var effective = entry.GetProperty("effective_key");
+                if (entry.TryGetProperty("weak_key", out var weak) && weak.GetBoolean())
+                {
+                    // A key no seed yields, there to be refused as it is resolved (profile R1).
+                    Assert.Equal(state.Single(), Bytes.FromB64Url(effective.GetString()!));
+                    Assert.Equal(FikiErrorKind.MalformedKey, Assert.Throws<FikiException>(() => Key.VerifyingKey("B" + effective.GetString())).Kind);
+                    continue;
+                }
                 if (effective.ValueKind == JsonValueKind.Null)
                 {
                     Assert.Equal(state[0], signerRaw);
@@ -329,6 +369,31 @@ namespace Bakobo.Fiki.Tests
                 Assert.True(WellFormedAid(keyId));
                 Assert.False(WellFormedAid(KeysTests.PaddingBitAlias(keyId)));
             }
+        }
+
+        [Fact]
+        public void TheWellFormednessRuleAcceptsEveryPrefixCodeAndRefusesItsNearMisses()
+        {
+            foreach (var entry in PrefixCodes)
+            {
+                var keyId = Qb64(entry.Key, Enumerable.Range(1, entry.Value).Select(i => (byte)i).ToArray());
+                Assert.True(WellFormedAid(keyId), entry.Key);
+                Assert.False(WellFormedAid(keyId.Substring(0, keyId.Length - 1)), entry.Key);
+                Assert.False(WellFormedAid(keyId + "AAAA"), entry.Key);
+            }
+            Assert.False(WellFormedAid("0D" + "g" + new string('A', 85)));
+        }
+
+        [Fact]
+        public void ThePrefixCodeTableIsTheGeneratorsOwn()
+        {
+            var source = File.ReadAllText(Repo.PathTo("vectors", "keri", "generate.py"));
+            var block = source.Substring(source.IndexOf("PREFIX_CODES = {", StringComparison.Ordinal));
+            block = block.Substring(0, block.IndexOf('}'));
+            var table = Regex.Matches(block, "\"(\\w+)\": (\\d+)").Cast<Match>()
+                .Select(m => new KeyValuePair<string, int>(m.Groups[1].Value, int.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture)))
+                .ToList();
+            Assert.Equal(PrefixCodes, table);
         }
 
         [Fact]
@@ -396,6 +461,19 @@ namespace Bakobo.Fiki.Tests
         {
             var data = Load("requests.json");
             var c = Case("requests.json", id);
+            if (c.TryGetProperty("verified_by_fiki", out var verified) && !verified.GetBoolean())
+            {
+                // Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6). The
+                // base and signature are still the ones the message carries.
+                Assert.False(string.IsNullOrEmpty(c.GetProperty("why").GetString()));
+                Assert.Contains(id, Strings(data.GetProperty("verify_only")));
+                var stated = c.GetProperty("expected");
+                var unpadded = stated.GetProperty("signature").GetString()!;
+                Assert.True(new PublicKey(KeyFor(stated.GetProperty("keyid").GetString()!, data.GetProperty("keys"))).Verify(
+                    Convert.FromBase64String(unpadded.PadRight(unpadded.Length + (4 - unpadded.Length % 4) % 4, '=')),
+                    Bytes.Utf8(stated.GetProperty("base").GetString()!)));
+                return;
+            }
             var verdict = Run(c, data);
             var expected = c.GetProperty("expected");
             Assert.Equal(expected.GetProperty("keyid").GetString(), verdict.KeyId);
@@ -411,7 +489,7 @@ namespace Bakobo.Fiki.Tests
         {
             var data = Load("responses.json");
             var c = Case("responses.json", id);
-            Verify(c.GetProperty("request"), null, c.GetProperty("now").GetInt64(), data.GetProperty("policy"), null, data.GetProperty("keys"));
+            Verify(c.GetProperty("request"), null, Now(c), data.GetProperty("policy"), null, data.GetProperty("keys"));
             var verdict = Run(c, data);
             var expected = c.GetProperty("expected");
             Assert.Equal(expected.GetProperty("keyid").GetString(), verdict.KeyId);
@@ -484,9 +562,12 @@ namespace Bakobo.Fiki.Tests
                 if (source.GetProperty("repo").GetString() == "bakobo/fiki")
                 {
                     // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
+                    // Since format 8 each carries sufficient_keys, every key that alone satisfies the
+                    // threshold, in place of format 7's effective_key.
                     Assert.Equal("vectors/keri/generate.py", source.GetProperty("file").GetString());
                     Assert.False(string.IsNullOrEmpty(source.GetProperty("generated").GetString()));
-                    Assert.True(c.TryGetProperty("seed_hex", out _) && c.TryGetProperty("key_state", out _) && c.TryGetProperty("effective_key", out _));
+                    Assert.True(c.TryGetProperty("seed_hex", out _) && c.TryGetProperty("key_state", out _) && c.TryGetProperty("sufficient_keys", out _));
+                    Assert.False(c.TryGetProperty("effective_key", out _));
                 }
                 else
                 {
@@ -523,14 +604,23 @@ namespace Bakobo.Fiki.Tests
         [MemberData(nameof(LegacyCases))]
         public void EachLegacyOutcomeAgreesWithItsKeyState(string id)
         {
-            // Profile section 8 at version 1.1: the signer is the key state's single effective signer
-            // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
-            // effective_key the case states, and the error follows from it and from who signed.
+            // Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign.
+            // fiki has no legacy verifier, so this checks the data: the key state reduces to the
+            // sufficient_keys the case states, and the error follows from them and from who signed.
             var c = Case("legacy.json", id);
             if (!c.TryGetProperty("key_state", out var state))
             {
                 return; // pinned from KERIA or signify-ts: accepted under its stated key
             }
+            var error = c.TryGetProperty("error", out var e) ? e.GetString() : null;
+            if (state.ValueKind == JsonValueKind.Null)
+            {
+                // Legacy mode never takes a key from a prefix, so no key state is no key.
+                Assert.Equal(JsonValueKind.Null, c.GetProperty("sufficient_keys").ValueKind);
+                Assert.Equal("unknown-key", error);
+                return;
+            }
+            // Written out here rather than ported from the generator, which made the case with its own.
             var keys = state.GetProperty("keys").EnumerateArray().Select(k => k.GetString()!).ToList();
             var threshold = state.GetProperty("threshold");
             var alone = new List<string>();
@@ -556,26 +646,28 @@ namespace Bakobo.Fiki.Tests
                     }
                 }
             }
-            var error = c.TryGetProperty("error", out var e) ? e.GetString() : null;
-            if (alone.Count != 1)
-            {
-                Assert.Equal(JsonValueKind.Null, c.GetProperty("effective_key").ValueKind);
-                Assert.Equal("unsupported-signer", error);
-                return;
-            }
-            var found = alone[0];
-            var effective = Bytes.FromB64Url("A" + found.Substring(1)).Skip(1).ToArray();
-            Assert.Equal(effective, Bytes.FromB64Url(c.GetProperty("effective_key").GetString()!));
-            if (found == c.GetProperty("key").GetString())
-            {
-                Assert.Null(error);
-                return;
-            }
-            Assert.Equal("signature-mismatch", error);
+            var raws = alone.Select(k => Bytes.FromB64Url("A" + k.Substring(1)).Skip(1).ToArray()).ToList();
+            var stated = c.GetProperty("sufficient_keys").EnumerateArray().Select(k => Bytes.FromB64Url(k.GetString()!)).ToList();
+            Assert.Equal(raws, stated);
             var header = c.GetProperty("headers").GetProperty("Signature").GetString()!;
             var signature = header.Substring(header.IndexOf("signify=\"", StringComparison.Ordinal) + 9).TrimEnd('"');
             var rawSignature = Bytes.FromB64Url("AA" + signature.Substring(2)).Skip(2).ToArray();
-            Assert.False(new PublicKey(effective).Verify(rawSignature, Bytes.Utf8(c.GetProperty("base").GetString()!)));
+            var signer = c.GetProperty("key").GetString();
+            if (alone.Count == 0)
+            {
+                Assert.Equal("unsupported-signer", error);
+            }
+            else if (error == "signature-mismatch")
+            {
+                Assert.DoesNotContain(signer, alone);
+                Assert.All(raws, raw => Assert.False(new PublicKey(raw).Verify(rawSignature, Bytes.Utf8(c.GetProperty("base").GetString()!))));
+            }
+            else
+            {
+                // Accepted, or a header refused before any key is tried, whose key state would accept.
+                Assert.Contains(signer, alone);
+                Assert.True(error == null || Strings(Load("refusals.json").GetProperty("codes")).Contains(error));
+            }
         }
     }
 }
