@@ -284,7 +284,7 @@ func TestTheVerdictReportsTheWireKeyidAndWhoVouched(t *testing.T) {
 
 // B19 and E3: both vectors formats and the four bounds are exported.
 func TestTheFormatsAndBoundsAreExported(t *testing.T) {
-	if VectorsFormat != 4 || KeriVectorsFormat != 7 {
+	if VectorsFormat != 4 || KeriVectorsFormat != 8 {
 		t.Errorf("formats %d and %d", VectorsFormat, KeriVectorsFormat)
 	}
 	if MaxFieldBytes != 8192 || MaxDictionaryMembers != 16 || MaxInnerListItems != 64 || MaxParameters != 16 {

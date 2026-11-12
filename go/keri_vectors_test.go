@@ -8,12 +8,13 @@ package fiki
 // and the policy-applying verifier are restated from the rules the files themselves state (policy,
 // case_policy), and the files are read from the repository root, never copied.
 //
-// The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back
-// a non-transferable B keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
-// the table, answers (nil, nil) for a keyid it holds no key state for, and returns
-// UnsupportedSigner for a key state with no single effective signer. It never decodes a D keyid as
-// a key, which is exactly what one of the vectors is there to catch, and it carries no
-// well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to refuse, so the
+// The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It looks every
+// keyid up in the table, answers (nil, nil) for a keyid it holds no key state for, and returns
+// UnsupportedSigner for a key state with no single effective signer. It knows nothing of B keyids:
+// since keri_vectors_format 8 the library takes their key from the prefix and never asks
+// (@37rktct3), and the case whose B keyid the table does not list would fail if it did. It never
+// decodes a D keyid as a key, which is exactly what one of the vectors is there to catch, and it
+// carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to refuse, so the
 // refusal vectors for them test the library rather than this file. The keys table itself is
 // checked against keys_rule with the library's wellFormedAID.
 
@@ -26,6 +27,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"math"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -91,6 +93,7 @@ type keriKey struct {
 	Kind         string  `json:"kind"`
 	EffectiveKey *string `json:"effective_key"`
 	SeedHex      string  `json:"seed_hex"`
+	WeakKey      bool    `json:"weak_key"`
 	KeyState     *struct {
 		Keys []string `json:"keys"`
 	} `json:"key_state"`
@@ -111,7 +114,7 @@ type keriCase struct {
 	Request        keriMessage     `json:"request"`
 	Response       *keriMessage    `json:"response"`
 	Policy         json.RawMessage `json:"policy"`
-	Now            int64           `json:"now"`
+	Now            float64         `json:"now"`
 	Error          string          `json:"error"`
 	VerifiedByFiki *bool           `json:"verified_by_fiki"`
 	Why            string          `json:"why"`
@@ -143,10 +146,10 @@ type keriFile struct {
 // hardening-a (tick 7xbw, T8); see pinned.
 var keriCounts = map[string]int{
 	"keri/rfc9421.json":   1,
-	"keri/requests.json":  21,
+	"keri/requests.json":  25,
 	"keri/responses.json": 4,
-	"keri/refusals.json":  65,
-	"keri/legacy.json":    8,
+	"keri/refusals.json":  78,
+	"keri/legacy.json":    12,
 }
 
 func loadKeri(t *testing.T, name string) keriFile {
@@ -195,13 +198,6 @@ func keriResolver(keys []keriKey) Resolver {
 		}
 	}
 	return func(keyid string) ([]byte, error) {
-		if strings.HasPrefix(keyid, "B") {
-			prefix, err := base64.RawURLEncoding.DecodeString("A" + keyid[1:])
-			if err != nil {
-				return nil, err
-			}
-			return prefix[1:], nil
-		}
 		entry, ok := table[keyid]
 		if !ok {
 			return nil, nil
@@ -217,12 +213,28 @@ func keriResolver(keys []keriKey) Resolver {
 	}
 }
 
-// keriVerify verifies a case's message as a KERI verifier would, under the given policy.
-func keriVerify(request keriMessage, response *keriMessage, now int64, policy keriPolicy, keys []keriKey) (*Verdict, error) {
+// keyFor is the key a signature is checked with when a base is rebuilt: a B prefix's own, else the
+// table's.
+func keyFor(t *testing.T, keyid string, keys []keriKey) []byte {
+	t.Helper()
+	if strings.HasPrefix(keyid, "B") {
+		return b64urlLoose(t, "A"+keyid[1:])[1:]
+	}
+	key, err := keriResolver(keys)(keyid)
+	if err != nil || key == nil {
+		t.Fatalf("no key resolves for %s: %v", keyid, err)
+	}
+	return key
+}
+
+// keriVerify verifies a case's message as a KERI verifier would, under the given policy. fiki's
+// clock is whole seconds, and the profile rounds a fractional one down (section 6), so a case's
+// fractional now is floored here.
+func keriVerify(request keriMessage, response *keriMessage, now float64, policy keriPolicy, keys []keriKey) (*Verdict, error) {
 	opts := VerifyOptions{
 		MaxAge:  &policy.MaxAge,
 		Skew:    &policy.Skew,
-		Now:     now,
+		Now:     int64(math.Floor(now)),
 		Resolve: keriResolver(keys),
 	}
 	if policy.ExpectedKeyid != "" {
@@ -295,11 +307,7 @@ func expectedBase(t *testing.T, request keriMessage, response *keriMessage, keys
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, err := keriResolver(keys)(params.Keyid)
-	if err != nil || key == nil {
-		t.Fatalf("no key resolves for %s: %v", params.Keyid, err)
-	}
-	if !ed25519.Verify(key, base, raw) {
+	if !ed25519.Verify(keyFor(t, params.Keyid, keys), base, raw) {
 		t.Fatal("the message's signature does not verify over the rebuilt base")
 	}
 	return string(base), signature
@@ -367,11 +375,11 @@ func TestEachKeriFileNamesThePublishedProfileItPins(t *testing.T) {
 			if err := json.Unmarshal(loadKeri(t, name).Profile, &profile); err != nil {
 				t.Fatal(err)
 			}
-			if profile.Version != "1.1" || profile.Where != "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md" {
+			if profile.Version != "1.2" || profile.Where != "https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md" {
 				t.Errorf("profile = %+v", profile)
 			}
-			if !strings.HasPrefix(string(doc), "# "+profile.Title+"\n\nVersion 1.1, "+profile.Date+".") {
-				t.Errorf("docs/keri-profile.md is not version 1.1 of %q", profile.Title)
+			if !strings.HasPrefix(string(doc), "# "+profile.Title+"\n\nVersion 1.2, "+profile.Date+".") {
+				t.Errorf("docs/keri-profile.md is not version 1.2 of %q", profile.Title)
 			}
 		})
 	}
@@ -430,6 +438,17 @@ func TestTheKeysTableAgreesWithItsSeedsAndKeyStates(t *testing.T) {
 						t.Errorf("%s is not a D verfer", verfer)
 					}
 					state = append(state, b64urlLoose(t, "A"+verfer[1:])[1:])
+				}
+				if entry.WeakKey {
+					// A key no seed yields, there to be refused as it is resolved (profile R1): it is
+					// the key state's one key, and the library's subgroup check refuses it.
+					if len(state) != 1 || entry.EffectiveKey == nil || !bytes.Equal(b64urlLoose(t, *entry.EffectiveKey), state[0]) {
+						t.Errorf("%s: a weak key is the key state's single key", entry.Keyid)
+					}
+					if subgroupDefect(state[0], "the weak key", entry.Keyid) == nil {
+						t.Errorf("%s: the weak key lies in the prime-order subgroup", entry.Keyid)
+					}
+					continue
 				}
 				if entry.EffectiveKey == nil {
 					if !bytes.Equal(signer, state[0]) {
@@ -561,6 +580,23 @@ func TestKeriRequestAcceptVectors(t *testing.T) {
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			ran()
+			if c.VerifiedByFiki != nil && !*c.VerifiedByFiki {
+				// Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6).
+				// The base and signature are still the ones the message carries.
+				if c.Why == "" || !slices.Contains(file.VerifyOnly, c.ID) {
+					t.Error("a case fiki does not verify must say why and be verify_only")
+				}
+				signature := c.Expected.Signature
+				signature += strings.Repeat("=", (4-len(signature)%4)%4)
+				raw, err := base64.StdEncoding.DecodeString(signature)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !ed25519.Verify(keyFor(t, c.Expected.Keyid, file.Keys), []byte(c.Expected.Base), raw) {
+					t.Error("the signature does not verify over the stated base")
+				}
+				return
+			}
 			verdict, err := keriVerify(c.Request, nil, c.Now, policyFor(t, file, c), file.Keys)
 			if err != nil {
 				t.Fatalf("expected this request to verify, got %v", err)
@@ -681,16 +717,20 @@ type legacyCase struct {
 		Lines     string `json:"lines"`
 		Generated string `json:"generated"`
 	} `json:"source"`
-	Headers  map[string]string `json:"headers"`
-	Key      string            `json:"key"`
-	Base     string            `json:"base"`
-	SeedHex  string            `json:"seed_hex"`
-	KeyState *struct {
-		Keys      []string        `json:"keys"`
-		Threshold json.RawMessage `json:"threshold"`
-	} `json:"key_state"`
-	EffectiveKey *string `json:"effective_key"`
-	Error        *string `json:"error"`
+	Headers map[string]string `json:"headers"`
+	Key     string            `json:"key"`
+	Base    string            `json:"base"`
+	SeedHex string            `json:"seed_hex"`
+	// Raw, so that a key_state of null (generated, with no key state) differs from none at all
+	// (pinned).
+	KeyState       json.RawMessage `json:"key_state"`
+	SufficientKeys json.RawMessage `json:"sufficient_keys"`
+	Error          *string         `json:"error"`
+}
+
+type legacyKeyState struct {
+	Keys      []string        `json:"keys"`
+	Threshold json.RawMessage `json:"threshold"`
 }
 
 func TestLegacyVectorsCarryWhatALegacyVerifierNeedsAndTheirProvenance(t *testing.T) {
@@ -718,9 +758,9 @@ func TestLegacyVectorsCarryWhatALegacyVerifierNeedsAndTheirProvenance(t *testing
 	for i, c := range cases.Cases {
 		if c.Source.Repo == "bakobo/fiki" {
 			// Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
-			_, hasEffective := file.Cases[i]["effective_key"]
+			_, hasSufficient := file.Cases[i]["sufficient_keys"]
 			if c.Source.File != "vectors/keri/generate.py" || c.Source.Generated == "" || c.SeedHex == "" ||
-				c.KeyState == nil || !hasEffective {
+				c.KeyState == nil || !hasSufficient {
 				t.Errorf("%s: incomplete generated case %+v", c.ID, c.Source)
 			}
 		} else {
@@ -766,9 +806,9 @@ func TestEachLegacySignatureVerifiesOverItsStatedBase(t *testing.T) {
 }
 
 func TestEachLegacyOutcomeAgreesWithItsKeyState(t *testing.T) {
-	// Profile section 8 at version 1.1: the signer is the key state's single effective signer
-	// (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
-	// effective_key the case states, and the error follows from it and from who signed.
+	// Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign. fiki
+	// has no legacy verifier, so this checks the data: the key state reduces to the sufficient_keys
+	// the case states, and the error follows from them and from who signed.
 	raw, err := os.ReadFile(filepath.Join(keriDir, "legacy.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -777,58 +817,81 @@ func TestEachLegacyOutcomeAgreesWithItsKeyState(t *testing.T) {
 	if err := json.Unmarshal(raw, &file); err != nil {
 		t.Fatal(err)
 	}
+	codes := loadKeri(t, "refusals.json").Codes
 	for _, c := range file.Cases {
 		t.Run(c.ID, func(t *testing.T) {
 			if c.KeyState == nil {
 				return // pinned from KERIA or signify-ts: accepted under its stated key
 			}
-			keys := c.KeyState.Keys
+			var sufficient *[]string
+			if err := json.Unmarshal(c.SufficientKeys, &sufficient); err != nil {
+				t.Fatalf("sufficient_keys %s: %v", c.SufficientKeys, err)
+			}
+			var state *legacyKeyState
+			if err := json.Unmarshal(c.KeyState, &state); err != nil {
+				t.Fatal(err)
+			}
+			if state == nil {
+				if sufficient != nil || c.Error == nil || *c.Error != "unknown-key" {
+					t.Errorf("no key state, yet sufficient_keys %v and error %v", sufficient, c.Error)
+				}
+				return
+			}
+			// Written out here rather than taken from the generator, which made the case with its own.
 			var alone []string
 			var hex string
 			var weights []string
-			if json.Unmarshal(c.KeyState.Threshold, &hex) == nil {
+			if json.Unmarshal(state.Threshold, &hex) == nil {
 				if hex == "1" {
-					alone = keys
+					alone = state.Keys
 				}
-			} else if err := json.Unmarshal(c.KeyState.Threshold, &weights); err == nil && len(weights) == len(keys) {
+			} else if err := json.Unmarshal(state.Threshold, &weights); err == nil && len(weights) == len(state.Keys) {
 				for i, weight := range weights {
 					w, ok := new(big.Rat).SetString(weight)
 					if !ok {
 						t.Fatalf("weight %q", weight)
 					}
 					if w.Cmp(big.NewRat(1, 1)) >= 0 {
-						alone = append(alone, keys[i])
+						alone = append(alone, state.Keys[i])
 					}
 				}
 			} else {
-				t.Fatalf("threshold %s", c.KeyState.Threshold)
+				t.Fatalf("threshold %s", state.Threshold)
 			}
-			var found string
-			if len(alone) == 1 {
-				found = alone[0]
+			if sufficient == nil || len(*sufficient) != len(alone) {
+				t.Fatalf("sufficient_keys %v disagrees with the key state", sufficient)
 			}
-			if found == "" {
-				if c.EffectiveKey != nil || c.Error == nil || *c.Error != "unsupported-signer" {
-					t.Errorf("no single effective signer, yet effective_key %v and error %v", c.EffectiveKey, c.Error)
+			raws := make([][]byte, len(alone))
+			for i, key := range alone {
+				raws[i] = b64urlLoose(t, "A"+key[1:])[1:]
+				if !bytes.Equal(b64urlLoose(t, (*sufficient)[i]), raws[i]) {
+					t.Errorf("sufficient_keys[%d] disagrees with the key state", i)
 				}
-				return
-			}
-			effective := b64urlLoose(t, "A"+found[1:])[1:]
-			if c.EffectiveKey == nil || !bytes.Equal(b64urlLoose(t, *c.EffectiveKey), effective) {
-				t.Errorf("effective_key %v disagrees with the key state", c.EffectiveKey)
-			}
-			if found == c.Key {
-				if c.Error != nil {
-					t.Errorf("signed by the effective signer, yet error %q", *c.Error)
-				}
-				return
-			}
-			if c.Error == nil || *c.Error != "signature-mismatch" {
-				t.Errorf("signed by another key, yet error %v", c.Error)
 			}
 			qb64 := strings.TrimSuffix(strings.SplitN(c.Headers["Signature"], `signify="`, 2)[1], `"`)
-			if ed25519.Verify(effective, []byte(c.Base), b64urlLoose(t, "AA"+qb64[2:])[2:]) {
-				t.Error("the signature verifies under the effective key")
+			signature := b64urlLoose(t, "AA"+qb64[2:])[2:]
+			switch {
+			case len(alone) == 0:
+				if c.Error == nil || *c.Error != "unsupported-signer" {
+					t.Errorf("no key suffices alone, yet error %v", c.Error)
+				}
+			case c.Error != nil && *c.Error == "signature-mismatch":
+				if slices.Contains(alone, c.Key) {
+					t.Error("signed by a sufficient key, yet signature-mismatch")
+				}
+				for _, key := range raws {
+					if ed25519.Verify(key, []byte(c.Base), signature) {
+						t.Error("the signature verifies under a sufficient key")
+					}
+				}
+			default:
+				// Accepted, or a header refused before any key is tried, whose key state would accept.
+				if !slices.Contains(alone, c.Key) {
+					t.Errorf("signed by %s, which does not suffice alone, yet error %v", c.Key, c.Error)
+				}
+				if c.Error != nil && !slices.Contains(codes, *c.Error) {
+					t.Errorf("error %q is not a profile code", *c.Error)
+				}
 			}
 		})
 	}
