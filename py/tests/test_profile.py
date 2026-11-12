@@ -216,7 +216,8 @@ def test_a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved(keyid):
     assert calls == []
 
 
-@pytest.mark.parametrize("code", "BDE")
+# Not B: a B keyid's key is its prefix, and no resolver is asked about it (@37rktct3).
+@pytest.mark.parametrize("code", "DE")
 def test_a_well_formed_unknown_aid_is_resolved_once(code):
     keyid = cesr(code, hashlib.sha256(b"unknown").digest())
     calls = []
