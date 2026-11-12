@@ -746,6 +746,12 @@ def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None)
     if expires is None and max_age is None:
         return
     stamp = int(time.time()) if now is None else now
+    # A NaN or non-number clock makes every comparison below false, which would pass a stale message.
+    if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or stamp != stamp or stamp in (float("inf"), float("-inf")):
+        raise TypeError(
+            f"now must be a finite number of seconds since the epoch, or None for the system clock; this one "
+            f"is {now!r}, against which no freshness check can be decided."
+        )
 
     if max_age is not None:
         created = params.get("created")

@@ -706,6 +706,13 @@ function checkFreshness(params, { maxAge, skew, now: at }) {
   const expires = params.get('expires');
   if (expires === undefined && maxAge === null) return;
   const stamp = at === null || at === undefined ? now() : at;
+  // A NaN or non-number clock makes every comparison below false, which would pass a stale message.
+  if (typeof stamp !== 'number' || !Number.isFinite(stamp)) {
+    throw new TypeError(
+      `now must be a finite number of seconds since the epoch, or null for the system clock; this one ` +
+        `is ${String(at)}, against which no freshness check can be decided.`,
+    );
+  }
 
   if (maxAge !== null) {
     const created = params.get('created');

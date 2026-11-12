@@ -233,3 +233,12 @@ describe('content no header announced, at the body stage (@84nt4je0)', () => {
     );
   });
 });
+
+describe('a clock that is not a finite number', () => {
+  for (const clock of [NaN, Infinity, 'not-a-clock']) {
+    it(`is a caller error, not a pass: ${String(clock)}`, async () => {
+      const signed = await sign(KEY.aid);
+      await assert.rejects(async () => verify(signed, { resolve: never, now: clock }), TypeError);
+    });
+  }
+});
