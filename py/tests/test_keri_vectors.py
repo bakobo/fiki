@@ -6,13 +6,14 @@ runs it. signify-ts and keripy load the same JSON directly, so everything this d
 the files; the only thing it adds is the resolver a KERI verifier would back with key event logs,
 built here from the keys table each file carries.
 
-The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It hands back a
-non-transferable ``B…`` keyid's 32 prefix bytes unexamined, looks every transferable keyid up in
-the table, answers None for a keyid it has no key state for, and raises UnsupportedSigner for a
-key state with no single effective signer. It never decodes a ``D…`` keyid as a key, which is
-exactly what one of the vectors is there to catch, and it carries no well-formedness check: a
-keyid that is not an AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them
-test the library rather than this file. The resolver and the verifier are written here from the
+The resolver is authoritative (@6g9zjsv9) and knows key state alone (@7w7nv94j). It looks every
+keyid up in the table, answers None for a keyid it has no key state for, and raises
+UnsupportedSigner for a key state with no single effective signer. It knows nothing of ``B…``
+keyids: since keri_vectors_format 8 the library takes their key from the prefix and never asks
+(@37rktct3), and the case whose B keyid the table does not list would fail if it did. It never
+decodes a ``D…`` keyid as a key, which is exactly what one of the vectors is there to catch, and
+it carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's to
+refuse, so the refusal vectors for them test the library rather than this file. The resolver and the verifier are written here from the
 files alone, never imported from the generator, so a library that skipped a check cannot pass by
 borrowing the generator's; only the generator's table of profile codes is imported.
 """
@@ -22,6 +23,7 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
+import math
 from fractions import Fraction
 from pathlib import Path
 
@@ -62,10 +64,10 @@ def load(name: str) -> dict:
 # file emptied or cut short fails at collection rather than passing on the cases it still holds.
 COUNTS = {
     "rfc9421.json": 1,
-    "requests.json": 21,
+    "requests.json": 25,
     "responses.json": 4,
-    "refusals.json": 65,
-    "legacy.json": 8,
+    "refusals.json": 78,
+    "legacy.json": 12,
 }
 
 # Each test that runs one file's cases, and the file. rfc9421.json's one case is unpacked by its
@@ -109,8 +111,6 @@ def resolver(keys: list[dict]):
     table = {entry["keyid"]: entry for entry in keys if entry["kind"] == "transferable"}
 
     def resolve(keyid: str):
-        if keyid.startswith("B"):
-            return base64.urlsafe_b64decode("A" + keyid[1:])[1:]
         entry = table.get(keyid)
         if entry is None:
             return None
@@ -122,14 +122,26 @@ def resolver(keys: list[dict]):
     return resolve
 
 
+def key_for(keyid: str, keys: list) -> bytes:
+    """The key a signature is checked with when the base is rebuilt: a B prefix's own, else the
+    table's."""
+    if keyid.startswith("B"):
+        return base64.urlsafe_b64decode("A" + keyid[1:])[1:]
+    return resolver(keys)(keyid)
+
+
 def as_request(message: dict) -> Request:
     return Request(method=message["method"], url=message["url"], headers=message["headers"],
                    body=body_of(message))
 
 
-def verify(request: dict, response: dict | None = None, *, now: int, policy: dict, keys: list):
-    """Verify as a KERI verifier would, under a policy object as the files spell one."""
-    common = {"max_age": policy["max_age"], "skew": policy["skew"], "now": now,
+def verify(request: dict, response: dict | None = None, *, now, policy: dict, keys: list):
+    """Verify as a KERI verifier would, under a policy object as the files spell one.
+
+    fiki's clock is whole seconds, and the profile rounds a fractional one down (section 6), so a
+    case's fractional now is rounded down here.
+    """
+    common = {"max_age": policy["max_age"], "skew": policy["skew"], "now": math.floor(now),
               "resolve": resolver(keys), "expected_keyid": policy.get("expected_keyid")}
     if response is not None:
         return verify_response(status=response["status"], headers=response["headers"],
@@ -159,7 +171,7 @@ def expected_base(request: dict, response: dict | None, keys: list) -> tuple[str
         base = signature_base(method=request["method"], url=request["url"],
                               headers=request["headers"], **kwargs)
     signature = message["headers"]["Signature"].split("=", 1)[1].strip(":")
-    Ed25519PublicKey.from_public_bytes(resolver(keys)(params["keyid"])).verify(
+    Ed25519PublicKey.from_public_bytes(key_for(params["keyid"], keys)).verify(
         base64.b64decode(signature), base)
     return base.decode("utf-8"), signature
 
@@ -190,12 +202,12 @@ def test_this_port_satisfies_the_keri_vectors_format_it_is_running(name):
 def test_each_file_names_the_published_profile_it_pins(name):
     """The contract is a document anyone can read, beside these files (@997vxdu7)."""
     profile = load(name)["profile"]
-    assert profile["version"] == "1.1"
+    assert profile["version"] == "1.2"
     assert profile["where"] == (
-        "https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md")
+        "https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md")
     doc = KERI.parents[1] / "docs" / "keri-profile.md"
     assert doc.read_text(encoding="utf-8").startswith(
-        f"# {profile['title']}\n\nVersion 1.1, {profile['date']}.")
+        f"# {profile['title']}\n\nVersion 1.2, {profile['date']}.")
 
 
 @pytest.mark.parametrize("name", ["requests.json", "responses.json", "refusals.json"])
@@ -222,6 +234,12 @@ def test_the_keys_table_agrees_with_its_seeds_and_key_states(name):
             continue
         state = [base64.urlsafe_b64decode("A" + key[1:])[1:] for key in entry["key_state"]["keys"]]
         assert all(key.startswith("D") and len(key) == 44 for key in entry["key_state"]["keys"])
+        if entry.get("weak_key"):
+            # A key no seed yields, there to be refused as it is resolved (profile R1).
+            assert b64url(entry["effective_key"]) == state[0]
+            with pytest.raises(FikiError):
+                verifying_key("B" + entry["effective_key"])
+            continue
         if entry["effective_key"] is None:
             assert signer.public_bytes_raw() == state[0]
         else:
@@ -294,6 +312,15 @@ def test_rfc_9421_b_2_6_is_the_rfcs_own_base_and_signature():
 @pytest.mark.parametrize("case", cases("requests.json"))
 def test_request_accept_vectors(case):
     data = load("requests.json")
+    if case.get("verified_by_fiki") is False:
+        # Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6). The
+        # base and signature are still the ones the message carries.
+        assert case["why"] and case["id"] in data["verify_only"]
+        signature = case["expected"]["signature"]
+        Ed25519PublicKey.from_public_bytes(key_for(case["expected"]["keyid"], data["keys"])).verify(
+            base64.b64decode(signature + "=" * (-len(signature) % 4)),
+            case["expected"]["base"].encode())
+        return
     verdict = run(case, data)
     expected = case["expected"]
     assert verdict.keyid == expected["keyid"]
@@ -362,7 +389,7 @@ def test_legacy_vectors_carry_what_a_legacy_verifier_needs_and_their_provenance(
             assert source["file"] == "vectors/keri/generate.py" and source["generated"]
             assert verifying_key(Key.from_seed(bytes.fromhex(case["seed_hex"])).aid) \
                 .public_bytes_raw() == base64.urlsafe_b64decode("A" + case["key"][1:])[1:]
-            assert "key_state" in case and "effective_key" in case
+            assert "key_state" in case and "sufficient_keys" in case
         else:
             assert source["repo"] in {"WebOfTrust/keria", "WebOfTrust/signify-ts"}
             assert len(source["commit"]) == 40
@@ -385,29 +412,35 @@ def test_each_legacy_signature_verifies_over_its_stated_base(case):
 
 @pytest.mark.parametrize("case", cases("legacy.json"))
 def test_each_legacy_outcome_agrees_with_its_key_state(case):
-    """Profile section 8 at version 1.1: the signer is the key state's single effective signer.
+    """Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign.
 
     fiki has no legacy verifier, so this checks the data, not a verifier: the key state reduces to
-    the effective_key the case states, and the error follows from it and from who signed.
+    the sufficient_keys the case states, and the error follows from them and from who signed.
     """
     if "key_state" not in case:
         return  # pinned from KERIA or signify-ts: accepted under its stated key
+    if case["key_state"] is None:
+        assert case["sufficient_keys"] is None and case["error"] == "unknown-key"
+        return
     keys, threshold = case["key_state"]["keys"], case["key_state"]["threshold"]
     # Written out here rather than imported from the generator, which made the case with its own.
     if isinstance(threshold, str):
         alone = keys if int(threshold, 16) == 1 else []
     else:
         alone = [key for key, weight in zip(keys, threshold, strict=True) if Fraction(weight) >= 1]
-    found = alone[0] if len(alone) == 1 else None
-    raw = None if found is None else base64.urlsafe_b64decode("A" + found[1:])[1:]
-    assert (None if raw is None else b64url(case["effective_key"])) == raw
+    raws = [base64.urlsafe_b64decode("A" + key[1:])[1:] for key in alone]
+    assert [b64url(key) for key in case["sufficient_keys"]] == raws
     signature = case["headers"]["Signature"].split('signify="', 1)[1].rstrip('"')
     raw_signature = base64.urlsafe_b64decode("AA" + signature[2:])[2:]
-    if found is None:
-        assert case["error"] == "unsupported-signer"
-    elif found == case["key"]:
-        assert "error" not in case
+    error = case.get("error")
+    if not alone:
+        assert error == "unsupported-signer"
+    elif error == "signature-mismatch":
+        assert case["key"] not in alone
+        for raw in raws:
+            with pytest.raises(InvalidSignature):
+                Ed25519PublicKey.from_public_bytes(raw).verify(raw_signature, case["base"].encode())
     else:
-        assert case["error"] == "signature-mismatch"
-        with pytest.raises(InvalidSignature):
-            Ed25519PublicKey.from_public_bytes(raw).verify(raw_signature, case["base"].encode())
+        # Accepted, or a header refused before any key is tried, whose key state would accept.
+        assert case["key"] in alone
+        assert error is None or error in load("refusals.json")["codes"]
