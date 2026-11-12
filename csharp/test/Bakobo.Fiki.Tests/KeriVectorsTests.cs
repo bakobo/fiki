@@ -335,8 +335,14 @@ namespace Bakobo.Fiki.Tests
                 if (entry.TryGetProperty("weak_key", out var weak) && weak.GetBoolean())
                 {
                     // A key no seed yields, there to be refused as it is resolved (profile R1).
-                    Assert.Equal(state.Single(), Bytes.FromB64Url(effective.GetString()!));
-                    Assert.Equal(FikiErrorKind.MalformedKey, Assert.Throws<FikiException>(() => Key.VerifyingKey("B" + effective.GetString())).Kind);
+                    // A usable key, so only the subgroup check refuses it. "B" + the raw keyid is not
+                    // an AID's spelling of any key, so a lens refuses it whatever the key's order.
+                    var weakKey = state.Single();
+                    Assert.Equal(weakKey, Bytes.FromB64Url(effective.GetString()!));
+                    Assert.True(Aids.IsUsableKey(weakKey));
+                    var refused = Assert.Throws<FikiException>(() => Aids.SubgroupKey(weakKey, keyId));
+                    Assert.Equal(FikiErrorKind.MalformedKey, refused.Kind);
+                    Assert.Contains("mixed order", refused.Message);
                     continue;
                 }
                 if (effective.ValueKind == JsonValueKind.Null)
