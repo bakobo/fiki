@@ -60,7 +60,7 @@ A response verifier states the keyid it expects in the same way (@524c8qgv): `wi
 
 ## The KERI profile
 
-The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 7` beside `Fiki.VECTORS_FORMAT = 4`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
+The port implements the [KERI profile of RFC 9421](../docs/keri-profile.md) and runs every file under `vectors/keri/` in place (`KeriVectorsTest`), declaring `Fiki.KERI_VECTORS_FORMAT = 8` beside `Fiki.VECTORS_FORMAT = 4`. That adds `signResponse` and `verifyResponse` with `@status` and `Fiki.req("@path")`, a caller-chosen keyid (`SignOptions.withKeyid`), an authoritative `Fiki.Resolver` (`VerifyOptions.withResolver`), the minimum covered sets `Fiki.REQUEST_MINIMUM` and `Fiki.RESPONSE_MINIMUM`, `withExpectedKeyid` and `withAuthorities`, and refusals in the profile's section 9 order.
 
 ```java
 Map<String, String> headers = Fiki.signRequest(key, "POST", url, Map.of(),
@@ -72,6 +72,8 @@ Fiki.Verdict verdict = Fiki.verifyRequest("POST", url, headers,
         .withMinimum(Fiki.REQUEST_MINIMUM)
         .withAuthorities(Set.of("keria.example.com")));
 ```
+
+Under a resolver the keyid must be a well-formed AID, the canonical qb64 of any of keripy's prefix derivation codes, or it is `MalformedKey` and the resolver is never asked. A non-transferable `B` keyid's key is read from the prefix, so the resolver is never asked about one either; a `1AAA`, `1AAC` or `1AAI` keyid (secp256k1, Ed448, secp256r1) is `UnsupportedAlgorithm`. Every key read as an AID's, from a `B` prefix or from the resolver, must lie in Ed25519's prime-order subgroup, or it is `MalformedKey`. Under a minimum, request content that no header announced and no covered `content-digest` binds is `InsufficientCoverage` at the body stage, after the signature and freshness checks (profile version 1.2, `this.i` @37rktct3, @84nt4je0).
 
 ## Other spellings of a key
 

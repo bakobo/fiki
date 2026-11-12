@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.Signature;
@@ -41,13 +42,15 @@ import org.junit.jupiter.api.TestFactory;
  * copying it, and reimplements only what each file's keys_rule and policy prose state
  * normatively: the resolver, the AID rule, and the policy wiring.
  *
- * <p>The resolver is authoritative (@6g9zjsv9) and knows only key state (@7w7nv94j). It hands
- * back a non-transferable B keyid's prefix bytes unexamined, looks every other keyid up in the
- * file's keys table, answers null for one it has no key state for, and throws UnsupportedSigner
- * for a key state with no single effective signer. It applies no well-formedness rule: refusing a
- * keyid that is not an AID is the library's job, which two of the refusals check. It never decodes
- * a D keyid as a key, which is exactly what one of the vectors is there to catch. The AID rule
- * below is kept to check the keys table itself.
+ * <p>The resolver is authoritative (@6g9zjsv9) and knows only key state (@7w7nv94j). It looks
+ * every keyid up in the file's keys table, answers null for one it has no key state for, and throws
+ * UnsupportedSigner for a key state with no single effective signer. It knows nothing of B keyids:
+ * since keri_vectors_format 8 the library takes their key from the prefix and never asks
+ * (this.i @37rktct3), and the case whose B keyid the table does not list would fail if it did. It
+ * applies no well-formedness rule: refusing a keyid that is not an AID, or a weak key, is the
+ * library's job, which the refusals check. It never decodes a D keyid as a key, which is exactly
+ * what one of the vectors is there to catch. The AID rule below is kept to check the keys table
+ * itself.
  */
 class KeriVectorsTest {
 
@@ -60,14 +63,14 @@ class KeriVectorsTest {
     private static final Map<String, String> CODES = codes();
 
     /*
-     * The number of cases in each file at keri_vectors_format 7, read from the files once when these constants
+     * The number of cases in each file at keri_vectors_format 8, read from the files once when these constants
      * were written and never at test time (tick 7xbw, T8); rfc9421.json's one case is asserted where
      * it is read.
      */
-    private static final int REQUESTS_CASES = 21;
+    private static final int REQUESTS_CASES = 25;
     private static final int RESPONSES_CASES = 4;
-    private static final int REFUSALS_CASES = 65;
-    private static final int LEGACY_CASES = 8;
+    private static final int REFUSALS_CASES = 78;
+    private static final int LEGACY_CASES = 12;
 
     private static JsonNode load(String name) throws Exception {
         File file = new File(KERI, name);
@@ -146,11 +149,8 @@ class KeriVectorsTest {
         return keyid -> {
             // Key state and nothing else (keri_vectors_format 6, @7w7nv94j): a keyid that is not a
             // well-formed AID never reaches here, because the library refuses it first, and the
-            // keyid-not-an-aid and padding-bit-alias cases check that it does. A B keyid's key is its
-            // prefix's 32 bytes, handed back unexamined, so a weak key is the library's to refuse.
-            if (keyid.startsWith("B")) {
-                return Arrays.copyOfRange(URL_DECODER.decode("A" + keyid.substring(1)), 1, 33);
-            }
+            // keyid-not-an-aid and padding-bit-alias cases check that it does. A B keyid never
+            // reaches here either (format 8): the library reads its key from the prefix.
             JsonNode entry = table.get(keyid);
             if (entry == null) {
                 return null;
@@ -161,6 +161,25 @@ class KeriVectorsTest {
             }
             return b64url(entry.get("effective_key").asText());
         };
+    }
+
+    /**
+     * The key a signature is checked with when a base is rebuilt: a B prefix's own, else the
+     * table's.
+     */
+    private static byte[] keyFor(String keyid, JsonNode keys) {
+        if (keyid.startsWith("B")) {
+            return Arrays.copyOfRange(URL_DECODER.decode("A" + keyid.substring(1)), 1, 33);
+        }
+        return resolver(keys).resolve(keyid);
+    }
+
+    /**
+     * fiki's clock is whole seconds, and the profile rounds a fractional one down (section 6), so a
+     * case's fractional now is read as a number and rounded down here.
+     */
+    static long now(JsonNode now) {
+        return now.decimalValue().setScale(0, RoundingMode.FLOOR).longValueExact();
     }
 
     /** Verify as a KERI verifier would, under the file's policy extended by the case's. */
@@ -174,7 +193,7 @@ class KeriVectorsTest {
         JsonNode authorities = extra == null ? null : extra.get("authorities");
         Fiki.VerifyOptions common = Fiki.VerifyOptions.maxAge(policy.get("max_age").asLong())
             .withSkew(policy.get("skew").asLong())
-            .withNow(c.get("now").asLong())
+            .withNow(now(c.get("now")))
             .withResolver(resolver(data.get("keys")));
         // A policy naming no expected keyid is the KERI generator's expected_keyid=None: the check
         // declined, stated explicitly as format 3 part two requires (@524c8qgv).
@@ -228,7 +247,7 @@ class KeriVectorsTest {
             : Fiki.signatureBase(message.get("method").asText(), message.get("url").asText(), sent, covered, params);
         String signature = sent.get("Signature").split("=", 2)[1].replace(":", "");
         Signature verifier = Signature.getInstance("Ed25519");
-        verifier.initVerify(Key.decodePublic(resolver(data.get("keys")).resolve(params.keyid())));
+        verifier.initVerify(Key.decodePublic(keyFor(params.keyid(), data.get("keys"))));
         verifier.update(base);
         assertTrue(verifier.verify(Base64.getDecoder().decode(signature)));
         JsonNode expected = c.get("expected");
@@ -253,12 +272,12 @@ class KeriVectorsTest {
     Stream<DynamicTest> eachFileNamesThePublishedProfileItPins() {
         return FILES.stream().map(name -> DynamicTest.dynamicTest(name, () -> {
             JsonNode profile = load(name).get("profile");
-            assertEquals("1.1", profile.get("version").asText());
+            assertEquals("1.2", profile.get("version").asText());
             assertTrue(profile.get("version").isTextual());
-            assertEquals("https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md",
+            assertEquals("https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md",
                     profile.get("where").asText());
             String doc = Files.readString(new File("../docs/keri-profile.md").toPath(), StandardCharsets.UTF_8);
-            assertTrue(doc.startsWith("# " + profile.get("title").asText() + "\n\nVersion 1.1, "
+            assertTrue(doc.startsWith("# " + profile.get("title").asText() + "\n\nVersion 1.2, "
                     + profile.get("date").asText() + "."));
         }));
     }
@@ -293,6 +312,14 @@ class KeriVectorsTest {
                 for (JsonNode key : entry.get("key_state").get("keys")) {
                     assertTrue(key.asText().startsWith("D") && key.asText().length() == 44);
                     state.add(Arrays.copyOfRange(URL_DECODER.decode("A" + key.asText().substring(1)), 1, 33));
+                }
+                if (entry.path("weak_key").asBoolean(false)) {
+                    // A key no seed yields, there to be refused as it is resolved (profile R1).
+                    byte[] weak = b64url(entry.get("effective_key").asText());
+                    assertEquals(1, state.size());
+                    assertArrayEquals(state.get(0), weak);
+                    assertThrows(FikiException.class, () -> Key.trusted(weak, keyid, true));
+                    continue;
                 }
                 if (entry.get("effective_key").isNull()) {
                     assertTrue(Arrays.equals(signerRaw, state.get(0)));
@@ -367,6 +394,21 @@ class KeriVectorsTest {
     Stream<DynamicTest> requestAcceptVectors() throws Exception {
         JsonNode data = load("requests.json");
         return Counted.each("requests.json", data.get("cases"), REQUESTS_CASES, c -> {
+            JsonNode verified = c.get("verified_by_fiki");
+            if (verified != null && !verified.asBoolean()) {
+                // Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6).
+                // The base and signature are still the ones the message carries.
+                assertFalse(c.get("why").asText().isEmpty());
+                assertTrue(strings(data.get("verify_only")).contains(c.get("id").asText()));
+                JsonNode expected = c.get("expected");
+                String signature = expected.get("signature").asText();
+                signature += "=".repeat((4 - signature.length() % 4) % 4);
+                Signature verifier = Signature.getInstance("Ed25519");
+                verifier.initVerify(Key.decodePublic(keyFor(expected.get("keyid").asText(), data.get("keys"))));
+                verifier.update(expected.get("base").asText().getBytes(StandardCharsets.UTF_8));
+                assertTrue(verifier.verify(Base64.getDecoder().decode(signature)));
+                return;
+            }
             Fiki.Verdict verdict = run(c, data);
             JsonNode expected = c.get("expected");
             assertEquals(expected.get("keyid").asText(), verdict.keyid());
@@ -448,7 +490,8 @@ class KeriVectorsTest {
                 // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
                 assertEquals("vectors/keri/generate.py", source.get("file").asText());
                 assertFalse(source.get("generated").asText().isEmpty());
-                assertTrue(c.has("seed_hex") && c.has("key_state") && c.has("effective_key"));
+                assertTrue(c.has("seed_hex") && c.has("key_state") && c.has("sufficient_keys"));
+                assertFalse(c.has("effective_key"));
             } else {
                 assertTrue(Set.of("WebOfTrust/keria", "WebOfTrust/signify-ts").contains(source.get("repo").asText()));
                 assertEquals(40, source.get("commit").asText().length());
@@ -482,12 +525,19 @@ class KeriVectorsTest {
 
     @TestFactory
     Stream<DynamicTest> eachLegacyOutcomeAgreesWithItsKeyState() throws Exception {
-        // Profile section 8 at version 1.1: the signer is the key state's single effective signer
-        // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
-        // effective_key the case states, and the error follows from it and from who signed.
+        // Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign.
+        // fiki has no legacy verifier, so this checks the data: the key state reduces to the
+        // sufficient_keys the case states, and the error follows from them and from who signed.
+        List<String> codes = strings(load("refusals.json").get("codes"));
         return Counted.each("legacy.json", load("legacy.json").get("cases"), LEGACY_CASES, c -> {
             if (!c.has("key_state")) {
                 return; // pinned from KERIA or signify-ts: accepted under its stated key
+            }
+            String error = c.has("error") ? c.get("error").asText() : null;
+            if (c.get("key_state").isNull()) {
+                assertTrue(c.get("sufficient_keys").isNull());
+                assertEquals("unknown-key", error);
+                return;
             }
             List<String> keys = new ArrayList<>();
             c.get("key_state").get("keys").forEach(k -> keys.add(k.asText()));
@@ -508,27 +558,33 @@ class KeriVectorsTest {
                     }
                 }
             }
-            String error = c.has("error") ? c.get("error").asText() : null;
-            if (alone.size() != 1) {
-                assertTrue(c.get("effective_key").isNull());
+            List<byte[]> raws = alone.stream()
+                .map(key -> Arrays.copyOfRange(URL_DECODER.decode("A" + key.substring(1)), 1, 33)).toList();
+            List<String> stated = strings(c.get("sufficient_keys"));
+            assertEquals(raws.size(), stated.size());
+            for (int i = 0; i < raws.size(); i++) {
+                assertArrayEquals(raws.get(i), URL_DECODER.decode(stated.get(i)));
+            }
+            if (alone.isEmpty()) {
                 assertEquals("unsupported-signer", error);
                 return;
             }
-            String found = alone.get(0);
-            byte[] effective = Arrays.copyOfRange(URL_DECODER.decode("A" + found.substring(1)), 1, 33);
-            assertArrayEquals(effective, URL_DECODER.decode(c.get("effective_key").asText()));
-            if (found.equals(c.get("key").asText())) {
-                assertEquals(null, error);
+            if ("signature-mismatch".equals(error)) {
+                assertFalse(alone.contains(c.get("key").asText()));
+                String signature = c.get("headers").get("Signature").asText().split("signify=\"", 2)[1];
+                signature = signature.substring(0, signature.length() - 1);
+                byte[] rawSignature = Arrays.copyOfRange(URL_DECODER.decode("AA" + signature.substring(2)), 2, 66);
+                for (byte[] raw : raws) {
+                    Signature verifier = Signature.getInstance("Ed25519");
+                    verifier.initVerify(Key.decodePublic(raw));
+                    verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
+                    assertFalse(verifier.verify(rawSignature));
+                }
                 return;
             }
-            assertEquals("signature-mismatch", error);
-            String signature = c.get("headers").get("Signature").asText().split("signify=\"", 2)[1];
-            signature = signature.substring(0, signature.length() - 1);
-            byte[] rawSignature = Arrays.copyOfRange(URL_DECODER.decode("AA" + signature.substring(2)), 2, 66);
-            Signature verifier = Signature.getInstance("Ed25519");
-            verifier.initVerify(Key.decodePublic(effective));
-            verifier.update(c.get("base").asText().getBytes(StandardCharsets.UTF_8));
-            assertFalse(verifier.verify(rawSignature));
+            // Accepted, or a header refused before any key is tried, whose key state would accept.
+            assertTrue(alone.contains(c.get("key").asText()));
+            assertTrue(error == null || codes.contains(error), error);
         });
     }
 }
