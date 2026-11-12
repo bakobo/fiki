@@ -612,7 +612,9 @@ namespace Bakobo.Fiki
         {
             if (expectedAid != null)
             {
-                var expected = Aids.VerifyingKey(expectedAid);
+                // An expected AID names its key as a B keyid does, so as an AID's key it must lie in
+                // the prime-order subgroup too (profile R1, @37rktct3).
+                var expected = Aids.SubgroupKey(Aids.VerifyingKey(expectedAid), expectedAid);
                 aid = Aids.ToAid(expected);
                 return expected;
             }

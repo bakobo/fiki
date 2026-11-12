@@ -205,6 +205,18 @@ func TestAMixedOrderBKeyidIsMalformedUnderAResolver(t *testing.T) {
 	}
 }
 
+// ExpectedAID names its key by an AID as a B keyid does, so the key must lie in the subgroup too.
+func TestAMixedOrderExpectedAIDIsMalformed(t *testing.T) {
+	f := v12Fixture(t)
+	_, err := verifyV12(signV12(t, f.key, f.bMixed, testBody, nil), VerifyOptions{Body: testBody, ExpectedAID: String(f.bMixed)})
+	if kindOf(t, err) != KindMalformedKey {
+		t.Fatalf("expected MalformedKey, got %v", err)
+	}
+	if err.(*Error).Keyid != f.bMixed {
+		t.Errorf("keyid = %q", err.(*Error).Keyid)
+	}
+}
+
 func TestAWeakBKeyidIsMalformedBeforeTheExpectedKeyidIsCompared(t *testing.T) {
 	f := v12Fixture(t)
 	for name, keyid := range map[string]string{"small-order": f.bWeak, "mixed-order": f.bMixed} {

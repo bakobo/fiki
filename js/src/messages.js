@@ -908,9 +908,12 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
     }
   };
   if (expectedAid !== null) {
-    const raw = verifyingKey(expectedAid);
+    // An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+    // prime-order subgroup too (profile R1, @37rktct3); verifyingKey settles its spelling.
+    verifyingKey(expectedAid);
+    const raw = aidKey(expectedAid);
     expect();
-    return { raw, aid: toAid(raw), keyid };
+    return { raw, aid: expectedAid, keyid };
   }
   if (!keyid) {
     throw new MissingKey(

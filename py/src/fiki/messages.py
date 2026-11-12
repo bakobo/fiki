@@ -1015,8 +1015,10 @@ def _local_key(expected_aid: str | None, keyid: str | None, resolve: Resolver | 
     expected keyid is compared and before any resolver sees it (@5zrf8gjk).
     """
     if expected_aid is not None:
-        expected = verifying_key(expected_aid)
-        return expected, to_aid(expected.public_bytes_raw())
+        # An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+        # prime-order subgroup too (profile R1, @37rktct3); verifying_key settles its spelling.
+        verifying_key(expected_aid)
+        return aid_key(expected_aid), expected_aid
     if not keyid:
         raise MissingKey(
             "This signature carries no keyid and no expected_aid was supplied, so there is no "

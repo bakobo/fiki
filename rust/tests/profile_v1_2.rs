@@ -191,6 +191,19 @@ fn a_mixed_order_b_keyid_is_malformed_under_a_resolver() {
     assert_eq!(err.detail.as_deref(), Some(B_MIXED));
 }
 
+/// An expected AID names its key by an AID as a B keyid does, so the key must lie in the subgroup.
+#[test]
+fn a_mixed_order_expected_aid_is_malformed() {
+    let sent = sign(B_MIXED, Some(BODY), &[]);
+    let opts = VerifyOptions {
+        expected_aid: Some(B_MIXED.to_string()),
+        ..policy(None)
+    };
+    let err = sent.verify(opts).unwrap_err();
+    assert_eq!(err.kind, Kind::MalformedKey, "{err}");
+    assert_eq!(err.detail.as_deref(), Some(B_MIXED));
+}
+
 #[test]
 fn a_weak_b_keyid_is_malformed_before_the_expected_keyid_is_compared() {
     for keyid in [b_weak(), B_MIXED.to_string()] {

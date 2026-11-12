@@ -1916,7 +1916,9 @@ public final class Fiki {
      */
     private static Resolved localKey(String expectedAid, String keyid, Resolver resolver) {
         if (expectedAid != null) {
-            byte[] raw = Key.trusted(Key.verifyingKeyBytes(expectedAid), expectedAid);
+            // An expected AID names its key as a B keyid does, so as an AID's key it must lie in
+            // the prime-order subgroup too (profile R1, this.i @37rktct3).
+            byte[] raw = Key.trusted(Key.verifyingKeyBytes(expectedAid), expectedAid, true);
             return new Resolved(raw, Key.toAid(raw));
         }
         // Present and a string by now: checkInput refuses an absent keyid whenever no expected AID

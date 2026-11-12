@@ -116,6 +116,13 @@ describe("a B keyid under a resolver is the prefix's key, never the resolver's (
     );
   });
 
+  it('refuses a mixed-order expected AID as malformed, since it names its key by an AID too', async () => {
+    await assert.rejects(
+      async () => verify(await sign(B_MIXED), { expectedAid: B_MIXED }),
+      (e) => e instanceof errors.MalformedKey && e.keyid === B_MIXED,
+    );
+  });
+
   for (const [id, keyid] of [['small-order', B_WEAK], ['mixed-order', B_MIXED]]) {
     it(`refuses a ${id} B keyid as malformed before the expected keyid is compared`, async () => {
       await assert.rejects(async () => verify(await sign(keyid), { resolve: never, expectedKeyid: E_AID }), errors.MalformedKey);

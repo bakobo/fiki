@@ -237,6 +237,14 @@ class ProfileV12Test {
         assertEquals(B_MIXED, e.detail());
     }
 
+    /** An expected AID names its key by an AID as a B keyid does, so the key must lie in the subgroup. */
+    @Test
+    void aMixedOrderExpectedAidIsMalformed() {
+        FikiException e = thrown(() -> verify(sign(B_MIXED), opts(AT).withExpectedAid(B_MIXED)));
+        assertEquals(FikiException.Kind.MalformedKey, e.kind());
+        assertEquals(B_MIXED, e.detail());
+    }
+
     @Test
     void aSmallOrderBKeyidIsMalformedUnderAResolverWithoutAskingIt() {
         FikiException e = thrown(() -> verify(sign(B_WEAK), opts(AT).withResolver(NEVER)));

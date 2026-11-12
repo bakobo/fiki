@@ -129,6 +129,14 @@ def test_a_mixed_order_b_keyid_is_malformed_under_a_resolver():
     assert caught.value.keyid == B_MIXED
 
 
+def test_a_mixed_order_expected_aid_is_malformed():
+    """expected_aid names its key by an AID too, so the key must lie in the subgroup (profile R1)."""
+    request, headers = sign(B_MIXED)
+    with pytest.raises(MalformedKey) as caught:
+        verify(request, headers, expected_aid=B_MIXED)
+    assert caught.value.keyid == B_MIXED
+
+
 @pytest.mark.parametrize("keyid", [B_WEAK, B_MIXED], ids=["small-order", "mixed-order"])
 def test_a_weak_b_keyid_is_malformed_before_the_expected_keyid_is_compared(keyid):
     request, headers = sign(keyid)

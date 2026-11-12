@@ -1221,8 +1221,22 @@ fn check_input(member: &Member, require_keyid: bool, require_created: bool) -> R
 /// expected keyid is compared and before any resolver sees it (`this.i` @5zrf8gjk).
 fn local_key<'a>(opts: &'a VerifyOptions, keyid: Option<&'a str>) -> Result<Local<'a>> {
     if let Some(aid) = &opts.expected_aid {
-        let public = verifying_key(aid)?;
-        return Ok(Local::Found(public, aid_of(public.as_bytes())));
+        // An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+        // prime-order subgroup too (profile R1, `this.i` @37rktct3); verifying_key settles its
+        // spelling and refuses a small-order key, so what aid_key adds is the mixed-order one.
+        verifying_key(aid)?;
+        let public = aid_key(aid).ok_or_else(|| {
+            Error::detailed(
+                Kind::MalformedKey,
+                format!(
+                    "The expected AID {} names a point of mixed order, outside the prime-order \
+                     subgroup every honest key lies in, so no signature is checked against it.",
+                    shown(aid)
+                ),
+                aid.as_str(),
+            )
+        })?;
+        return Ok(Local::Found(public, aid.clone()));
     }
     let keyid = keyid.filter(|k| !k.is_empty()).ok_or_else(|| {
         Error::new(

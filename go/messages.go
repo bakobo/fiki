@@ -952,7 +952,12 @@ func checkInput(entry member, requireKeyid, requireCreated bool) error {
 // keyid is compared and before any resolver sees it (this.i @5zrf8gjk).
 func localKey(expectedAID *string, keyid string, resolve Resolver) (ed25519.PublicKey, string, error) {
 	if expectedAID != nil {
-		public, err := VerifyingKey(*expectedAID)
+		// An expected AID names its key as a B keyid does, so as an AID's key it must lie in the
+		// prime-order subgroup too (profile R1, this.i @37rktct3); VerifyingKey settles its spelling.
+		if _, err := VerifyingKey(*expectedAID); err != nil {
+			return nil, "", err
+		}
+		public, err := aidKey(*expectedAID)
 		if err != nil {
 			return nil, "", err
 		}

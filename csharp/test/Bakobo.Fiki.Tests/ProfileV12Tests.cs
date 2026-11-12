@@ -170,6 +170,16 @@ namespace Bakobo.Fiki.Tests
             Assert.Contains("mixed order", caught.Message);
         }
 
+        /// <summary>An expected AID names its key by an AID as a B keyid does, so the key must lie in the subgroup.</summary>
+        [Fact]
+        public void AMixedOrderExpectedAidIsMalformed()
+        {
+            var caught = Sign(BMixed).Refused(o => o.WithExpectedAid(BMixed));
+            Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
+            Assert.Equal(BMixed, caught.KeyId);
+            Assert.Contains("mixed order", caught.Message);
+        }
+
         [Theory]
         [InlineData("small-order")]
         [InlineData("mixed-order")]
