@@ -3,8 +3,8 @@
 //
 // The `keyid` is the signer's raw key unless the caller names another, so "the request carries
 // its own verifying key" holds for every fiki-signed request whose caller did not deliberately
-// choose otherwise — and a verifier handed a resolver never falls back to reading a key out of the
-// keyid. A body is always covered or the signature is refused. And a verifier states a freshness
+// choose otherwise — and a verifier handed a resolver never falls back to reading a key out of a
+// transferable keyid; only a non-transferable B keyid is its own key (@37rktct3). A body is always covered or the signature is refused. And a verifier states a freshness
 // policy or explicitly declines one.
 //
 // The bound worth stating plainly: fiki cannot cover a body it was never given. The guarantee is
@@ -54,7 +54,7 @@ import {
   UnknownKey,
   UnsupportedAlgorithm,
 } from './errors.js';
-import { checkKey, toAid, verifyWithRaw, verifyingKey, wellFormedAid } from './keys.js';
+import { OTHER_NON_TRANSFERABLE, aidCode, aidKey, checkKey, toAid, verifyWithRaw, verifyingKey } from './keys.js';
 import { MAX_FIELD_BYTES, parseDictionary, serializeByteSequence, serializeInnerList } from './sfv.js';
 
 export const ALG = 'ed25519';
@@ -372,15 +372,20 @@ export async function signResponse({
  * `expectedAid` is authoritative when supplied, the preregistration case. `resolve` is the other
  * way to be authoritative (@6g9zjsv9): a function from the keyid to the 32 raw bytes of the key it
  * names, or null when it names none, returning either directly or as a promise. Pass one or
- * neither. fiki hands a resolver only a well-formed AID (@7w7nv94j): any other keyid, fiki's own
- * 43-character raw keyid included, is MalformedKey before the resolver is called, so a resolver
- * answers about key state alone.
+ * neither. fiki hands a resolver only a well-formed AID (@7w7nv94j), the canonical qb64 of one of
+ * keripy's prefix derivation codes: any other keyid, fiki's own 43-character raw keyid included, is
+ * MalformedKey before the resolver is called, so a resolver answers about key state alone. A B
+ * keyid's key is its prefix and the resolver is never asked about it; a non-transferable keyid of
+ * another algorithm is UnsupportedAlgorithm without a lookup; and every AID's key, from a prefix or
+ * a resolver, must lie in Ed25519's prime-order subgroup or it is MalformedKey (@37rktct3).
  *
  * `minimum` is the verifier's covered-set policy. Left out, it is DEFAULT_MINIMUM, fiki's own
  * signing default (@524c8qgv); given, it is REQUEST_MINIMUM or a superset of it (a smaller one is a
  * TypeError). A signature covering less is refused even though it verifies, and so is a body —
  * signalled by `Content-Length` above zero, any `Transfer-Encoding`, or simply arriving — without a
- * covered `content-digest` (@7f28p7xk); any minimum also requires `created`, and a `keyid` even
+ * covered `content-digest` (@7f28p7xk). Content that arrives with no header announcing it is
+ * refused after the signature and freshness checks rather than before them, so a verifier holding
+ * the body and one reading it later report the same code (@84nt4je0); any minimum also requires `created`, and a `keyid` even
  * beside `expectedAid`. `null` is the explicit opt-out: no minimum and no body rule.
  *
  * `authorities` has no default and must be given, like `maxAge` (@524c8qgv): an array or Set of the
@@ -582,7 +587,11 @@ async function verify(message, headers, body, options) {
   checkCovered(items, { response });
   if (minimum !== null) {
     checkMinimum(items, minimum, {
-      hasBody: response ? hasContent(body) : requestHasBody(found, body),
+      // A response by its content (@2f227n4r), which a client holds before it verifies. A request
+      // by what its headers announce and only that (@84nt4je0): content they did not announce is
+      // the body stage's to refuse, so a verifier holding the body and one reading it later report
+      // the same code.
+      hasBody: response ? hasContent(body) : requestHasBody(found, null),
       // By the request's content alone, as signResponse decides it (@7p9s3g9k).
       requestHadBody: request !== null && hasContent(request.body),
     });
@@ -624,6 +633,16 @@ async function verify(message, headers, body, options) {
   // acting on them before verifying it would enforce a policy against values an attacker could
   // still have chosen — and would tell that attacker their forgery at least parsed.
   checkFreshness(inner.params, { maxAge, skew, now: at });
+
+  // The body stage (profile section 9, @84nt4je0): request content no header announced, uncovered.
+  // A response's was decided at the covered list.
+  if (minimum !== null && !response && hasContent(body) && !coversBody(items)) {
+    throw new InsufficientCoverage(
+      'The message carries a body its content-digest does not cover, so the body could be replaced ' +
+        'in transit; it is refused even though the signature verifies.',
+      { component: CONTENT_DIGEST },
+    );
+  }
 
   const digests = [];
   if (coversBody(items)) digests.push([found.get(CONTENT_DIGEST), body]);
@@ -895,14 +914,31 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
   if (resolve !== null) {
     // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a well-formed
     // AID, whatever its shape, is refused here and never handed to it.
-    if (!wellFormedAid(keyid)) {
+    const code = aidCode(keyid);
+    if (code === null) {
       throw new MalformedKey(
-        `The keyid ${quoted(keyid)} is not a well-formed AID: 44 characters, B, D or E, then the ` +
-          'canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.',
+        `The keyid ${quoted(keyid)} is not a well-formed AID: the canonical qb64 spelling of a KERI ` +
+          'prefix derivation code and its bytes. A resolver is asked only about an AID.',
         { keyid },
       );
     }
+    // A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key it must
+    // lie in the prime-order subgroup; both are the keyid's own well-formedness, decided before the
+    // expected keyid is compared (profile R1, @37rktct3).
+    if (code === 'B') {
+      const raw = aidKey(keyid);
+      expect();
+      return { raw, aid: keyid, keyid };
+    }
     expect();
+    if (OTHER_NON_TRANSFERABLE.has(code)) {
+      // Non-transferable, so no key state to ask about, and not Ed25519 (profile R1).
+      throw new UnsupportedAlgorithm(
+        `The keyid ${quoted(keyid)} is a non-transferable key of an algorithm other than ${ALG}, and ` +
+          `fiki verifies only ${ALG} signatures.`,
+        { alg: null },
+      );
+    }
     // The resolver is authoritative: fiki never falls back to decoding the keyid, because a
     // transferable prefix that embeds a key embeds its INCEPTION key (@6g9zjsv9).
     const raw = await resolve(keyid);
@@ -914,7 +950,7 @@ async function resolveKey(expectedAid, keyid, resolve, expectedKeyid) {
         keyid,
       });
     }
-    return { raw: checkKey(raw, keyid), aid: keyid, keyid };
+    return { raw: checkKey(raw, keyid, { subgroup: true }), aid: keyid, keyid };
   }
   // Strictly: a lenient decoder discards characters outside the alphabet and ignores trailing
   // bits, so a keyid that is not the key's encoding could verify as whatever key it happened to

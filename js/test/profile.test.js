@@ -238,7 +238,8 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
     });
   }
 
-  for (const code of ['B', 'D', 'E']) {
+  // Not B: a B keyid's key is its prefix, and no resolver is asked about it (@37rktct3).
+  for (const code of ['D', 'E']) {
     it(`resolves a well-formed unknown ${code} AID exactly once`, async () => {
       const keyid = cesr(code, createHash('sha256').update('unknown').digest());
       const calls = [];
@@ -247,7 +248,7 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
     });
   }
 
-  it('resolves a small-order B AID, which is well formed, and refuses the key it returns', async () => {
+  it('refuses a small-order B AID from its prefix, never asking the resolver (@37rktct3)', async () => {
     const keyid = 'BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
     const calls = [];
     const resolve = (k) => {
@@ -255,7 +256,7 @@ describe('a caller-chosen keyid and an authoritative resolver (@6g9zjsv9)', () =
       return Buffer.from('A' + k.slice(1), 'base64url').subarray(1);
     };
     await assert.rejects(async () => verify(await sign({ keyid }), { resolve }), errors.MalformedKey);
-    assert.deepEqual(calls, [keyid]);
+    assert.deepEqual(calls, []);
   });
 
   it('never decodes a D-prefixed keyid as a key when a resolver is supplied', async () => {
