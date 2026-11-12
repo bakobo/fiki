@@ -81,3 +81,57 @@ func canonicalPoint(key []byte) bool {
 	}
 	return new(big.Int).ModSqrt(x2, fieldPrime) != nil
 }
+
+// subgroupOrder is L, the order of Ed25519's prime-order subgroup (RFC 8032 section 5.1), written
+// as that section writes it.
+var subgroupOrder = func() *big.Int {
+	tail, _ := new(big.Int).SetString("27742317777372353535851937790883648493", 10)
+	return tail.Add(tail, new(big.Int).Lsh(bigOne, 252))
+}()
+
+// extended is a point in RFC 8032 section 5.1.4's extended coordinates, X Y Z T with x = X/Z,
+// y = Y/Z and x y = T/Z.
+type extended struct{ x, y, z, t *big.Int }
+
+func fieldMul(a, b *big.Int) *big.Int { return new(big.Int).Mod(new(big.Int).Mul(a, b), fieldPrime) }
+
+// add is RFC 8032 section 5.1.4's addition, complete on the curve, so it doubles too.
+func (a extended) add(b extended) extended {
+	e1 := fieldMul(new(big.Int).Sub(a.y, a.x), new(big.Int).Sub(b.y, b.x))
+	h1 := fieldMul(new(big.Int).Add(a.y, a.x), new(big.Int).Add(b.y, b.x))
+	c := fieldMul(fieldMul(a.t, b.t), new(big.Int).Lsh(edwardsD, 1))
+	d := fieldMul(new(big.Int).Lsh(a.z, 1), b.z)
+	e, f := new(big.Int).Sub(h1, e1), new(big.Int).Sub(d, c)
+	g, h := new(big.Int).Add(d, c), new(big.Int).Add(h1, e1)
+	return extended{fieldMul(e, f), fieldMul(g, h), fieldMul(f, g), fieldMul(e, h)}
+}
+
+// primeOrder reports whether [L]P is the identity for a key canonicalPoint has already accepted, so
+// that P lies in the prime-order subgroup (this.i @37rktct3). A point of small order is not caught
+// here, since the identity is one; smallOrder runs first. What this adds is the mixed-order point, a
+// subgroup point plus a torsion component, which libsodium's crypto_core_ed25519_is_valid_point
+// refuses and keripy follows.
+func primeOrder(key []byte) bool {
+	bigEndian := make([]byte, 32)
+	for i := range bigEndian {
+		bigEndian[31-i] = key[i]
+	}
+	odd := bigEndian[0]&0x80 != 0
+	bigEndian[0] &= 0x7f
+	y := new(big.Int).SetBytes(bigEndian)
+	y2 := fieldMul(y, y)
+	denominator := new(big.Int).Add(fieldMul(edwardsD, y2), bigOne)
+	x := new(big.Int).ModSqrt(fieldMul(new(big.Int).Sub(y2, bigOne), new(big.Int).ModInverse(denominator, fieldPrime)), fieldPrime)
+	if (x.Bit(0) == 1) != odd {
+		x.Sub(fieldPrime, x)
+	}
+	total := extended{big.NewInt(0), big.NewInt(1), big.NewInt(1), big.NewInt(0)}
+	step := extended{x, y, big.NewInt(1), fieldMul(x, y)}
+	for i := 0; i < subgroupOrder.BitLen(); i++ {
+		if subgroupOrder.Bit(i) == 1 {
+			total = total.add(step)
+		}
+		step = step.add(step)
+	}
+	return total.x.Sign() == 0 && total.y.Cmp(total.z) == 0
+}
