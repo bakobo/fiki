@@ -237,8 +237,12 @@ def test_the_keys_table_agrees_with_its_seeds_and_key_states(name):
         if entry.get("weak_key"):
             # A key no seed yields, there to be refused as it is resolved (profile R1).
             assert b64url(entry["effective_key"]) == state[0]
-            with pytest.raises(FikiError):
-                verifying_key("B" + entry["effective_key"])
+            from fiki.errors import MalformedKey
+            from fiki.keys import public_key
+
+            public_key(state[0], entry["keyid"])  # on the curve and not small-order
+            with pytest.raises(MalformedKey):
+                public_key(state[0], entry["keyid"], subgroup=True)
             continue
         if entry["effective_key"] is None:
             assert signer.public_bytes_raw() == state[0]
