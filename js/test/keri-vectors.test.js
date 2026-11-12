@@ -6,13 +6,15 @@
 //
 // The class-to-code table is read out of the generator's own text rather than copied, and the
 // resolver is written here from the files alone. That resolver is authoritative (@6g9zjsv9) and
-// knows key state alone (@7w7nv94j): it hands back a non-transferable B keyid's 32 prefix bytes
-// unexamined, looks every transferable keyid up in the table, answers null for a keyid it has no
-// key state for, and raises UnsupportedSigner for a key state with no single effective signer. It
-// never decodes a D keyid as a key, which is exactly what one of the vectors is there to catch,
-// and it carries no well-formedness check: a keyid that is not an AID, or a weak B key, is fiki's
-// to refuse, so the refusal vectors for them test the library rather than this file. The
-// well-formedness rule below checks the files' own keys tables, never a keyid under test.
+// knows key state alone (@7w7nv94j): it looks every keyid up in the table, answers null for a
+// keyid it has no key state for, and raises UnsupportedSigner for a key state with no single
+// effective signer. It knows nothing of B keyids: since keri_vectors_format 8 the library takes
+// their key from the prefix and never asks (@37rktct3), and the case whose B keyid the table does
+// not list would fail if it did. It never decodes a D keyid as a key, which is exactly what one of
+// the vectors is there to catch, and it carries no well-formedness check: a keyid that is not an
+// AID, or a weak B key, is fiki's to refuse, so the refusal vectors for them test the library
+// rather than this file. The well-formedness rule below checks the files' own keys tables, never a
+// keyid under test.
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -60,7 +62,9 @@ const asRequest = (message) => ({
   body: bodyOf(message),
 });
 
-/** keys_rule's well-formedness test: 44 characters, B, D or E, the canonical spelling of 32 bytes. */
+/** keys_rule's well-formedness test, for the codes the keys tables use: 44 characters, B, D or E,
+ * the canonical spelling of 32 bytes. keys_rule admits every PreDex code (@37rktct3); the tables
+ * use only these three, and the library's own test of the rest is test/profile-v1-2.test.js. */
 function wellFormedAid(keyid) {
   if (keyid.length !== 44 || !'BDE'.includes(keyid[0])) return false;
   if (!/^[A-Za-z0-9_-]{43}$/.test(keyid.slice(1))) return false;
@@ -79,7 +83,6 @@ function resolver(keys) {
   const table = new Map(keys.filter((e) => e.kind === 'transferable').map((e) => [e.keyid, e]));
   // Async on purpose: a real resolver reads key state from storage, and verify awaits it.
   return async (keyid) => {
-    if (keyid.startsWith('B')) return fromB64Url('A' + keyid.slice(1)).slice(1);
     const entry = table.get(keyid);
     if (entry === undefined) return null;
     if (entry.effective_key === null) {
@@ -97,7 +100,8 @@ function run(request, response, { now, policy, keys }) {
   const common = {
     maxAge: policy.max_age,
     skew: policy.skew,
-    now,
+    // fiki's clock is whole seconds, and the profile rounds a fractional one down (section 6).
+    now: Math.floor(now),
     resolve: resolver(keys),
     // Absent from a policy means the explicit decline, which verifyResponse requires be stated.
     expectedKeyid: policy.expected_keyid ?? null,
@@ -123,6 +127,20 @@ function run(request, response, { now, policy, keys }) {
   });
 }
 
+/** The key a signature is checked with when a base is rebuilt: a B prefix's own, else the table's. */
+async function keyFor(keyid, keys) {
+  if (keyid.startsWith('B')) return fromB64Url('A' + keyid.slice(1)).slice(1);
+  const key = await resolver(keys)(keyid);
+  assert.ok(key, `no key resolves for ${keyid}`);
+  return key;
+}
+
+/** Whether `signature`, standard base64, verifies over `base` under the raw key. */
+async function verifies(raw, signature, base) {
+  const key = await crypto.subtle.importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
+  return crypto.subtle.verify({ name: 'Ed25519' }, key, new Uint8Array(Buffer.from(signature, 'base64')), base);
+}
+
 const runCase = (c, data) =>
   run(c.request, c.response, { now: c.now, policy: { ...data.policy, ...(c.policy ?? {}) }, keys: data.keys });
 
@@ -139,10 +157,28 @@ async function expectedBase(request, response, keys) {
   const base = response
     ? responseSignatureBase({ status: response.status, headers: response.headers, request: asRequest(request), ...args })
     : signatureBase({ method: request.method, url: request.url, headers: request.headers, ...args });
-  // Ed25519 is deterministic, so the signer in the keys table reproduces the message's signature.
-  const entry = keys.find((e) => e.keyid === p.keyid);
-  const signature = toBase64(await (await Key.fromSeed(fromHex(entry.seed_hex))).sign(base));
+  const signature = message.headers.Signature.split('=').slice(1).join('=').replace(/^:|:$/g, '');
+  assert.ok(await verifies(await keyFor(p.keyid, keys), signature, base), 'the signature does not verify over the rebuilt base');
   return [new TextDecoder().decode(base), signature];
+}
+
+/** A weak key reaches the signature check as fiki's own raw keyid, and a resolver returning it
+ * for `keyid` is refused as MalformedKey, by the library's subgroup check, before any signature. */
+async function weakKeyIsRefusedAsResolved(keyid, weak) {
+  const signer = await Key.fromSeed(new Uint8Array(32));
+  const signed = async (id) => {
+    const args = { key: signer, method: 'GET', url: 'https://keria.example.com/x', headers: {}, created: 1700000000, keyid: id };
+    return { method: 'GET', url: args.url, body: null, headers: await signRequest(args) };
+  };
+  const common = { maxAge: null, authorities: null, minimum: null };
+  await assert.rejects(
+    async () => verifyRequest({ ...(await signed(Buffer.from(weak).toString('base64url'))), ...common }),
+    errors.SignatureMismatch,
+  );
+  await assert.rejects(
+    async () => verifyRequest({ ...(await signed(keyid)), ...common, resolve: (k) => (k === keyid ? weak : null) }),
+    (e) => e instanceof errors.MalformedKey && e.keyid === keyid,
+  );
 }
 
 // --- the files themselves ---
@@ -153,7 +189,7 @@ describe('the KERI vectors format', () => {
       // The same guard @4fhrre0m gives the shared set, against its own number.
       const data = load(name);
       assert.equal(data.keri_vectors_format, KERI_VECTORS_FORMAT);
-      assert.equal(KERI_VECTORS_FORMAT, 7);
+      assert.equal(KERI_VECTORS_FORMAT, 8);
       assert.ok(!('vectors_format' in data));
       assert.ok(data.cases.length > 0);
     });
@@ -161,10 +197,10 @@ describe('the KERI vectors format', () => {
     it(`${name} names the published profile it pins`, () => {
       // The contract is a document anyone can read, beside these files (@997vxdu7).
       const { profile } = load(name);
-      assert.equal(profile.version, '1.1');
-      assert.equal(profile.where, 'https://github.com/bakobo/fiki/blob/keri-profile-v1.1/docs/keri-profile.md');
+      assert.equal(profile.version, '1.2');
+      assert.equal(profile.where, 'https://github.com/bakobo/fiki/blob/keri-profile-v1.2/docs/keri-profile.md');
       const doc = readFileSync(new URL('../../docs/keri-profile.md', import.meta.url), 'utf8');
-      assert.ok(doc.startsWith(`# ${profile.title}\n\nVersion 1.1, ${profile.date}.`));
+      assert.ok(doc.startsWith(`# ${profile.title}\n\nVersion 1.2, ${profile.date}.`));
     });
   }
 
@@ -193,6 +229,14 @@ describe('the KERI vectors format', () => {
           assert.ok(k.startsWith('D') && k.length === 44);
           return toBase64(fromB64Url('A' + k.slice(1)).slice(1));
         });
+        if (entry.weak_key) {
+          // A key no seed yields, there to be refused as it is resolved (profile R1): the key
+          // state's one key, which fiki's own raw-keyid lens takes as a key (@5r75ff4m) and the
+          // library's subgroup check refuses under a resolver.
+          assert.deepEqual(state, [toBase64(fromB64Url(entry.effective_key))]);
+          await weakKeyIsRefusedAsResolved(entry.keyid, fromB64Url(entry.effective_key));
+          continue;
+        }
         if (entry.effective_key === null) {
           assert.equal(toBase64(raw), state[0]);
         } else {
@@ -268,6 +312,14 @@ describe('KERI requests every implementation must accept', () => {
   for (const c of data.cases) {
     it(c.id, async () => {
       tally('requests.json');
+      if (c.verified_by_fiki === false) {
+        // Carried as data: fiki's own vectors refuse missing padding (@2g4xxev9, @7ve9r2c6). The
+        // base and signature are still the ones the message carries.
+        assert.ok(c.why && data.verify_only.includes(c.id));
+        const signature = c.expected.signature + '='.repeat((4 - (c.expected.signature.length % 4)) % 4);
+        assert.ok(await verifies(await keyFor(c.expected.keyid, data.keys), signature, new TextEncoder().encode(c.expected.base)));
+        return;
+      }
       const verdict = await runCase(c, data);
       assert.equal(verdict.keyid, c.expected.keyid);
       assert.deepEqual(serialized(verdict.covered), c.expected.covered);
@@ -346,7 +398,7 @@ describe('the legacy material', () => {
       if (c.source.repo === 'bakobo/fiki') {
         // Generated, not pinned (keri_vectors_format 7): the seed reproduces the signature.
         assert.equal(c.source.file, 'vectors/keri/generate.py');
-        assert.ok(c.source.generated && c.seed_hex && c.key_state && 'effective_key' in c);
+        assert.ok(c.source.generated && c.seed_hex && 'key_state' in c && 'sufficient_keys' in c);
       } else {
         assert.ok(['WebOfTrust/keria', 'WebOfTrust/signify-ts'].includes(c.source.repo));
         assert.equal(c.source.commit.length, 40);
@@ -373,38 +425,47 @@ describe('the legacy material', () => {
     });
 
     it(`${c.id}'s outcome agrees with its key state`, async () => {
-      // Profile section 8 at version 1.1: the signer is the key state's single effective signer
-      // (R4). fiki has no legacy verifier, so this checks the data: the key state reduces to the
-      // effective_key the case states, and the error follows from it and from who signed.
+      // Profile section 8 at version 1.2: any key that alone satisfies the threshold may sign.
+      // fiki has no legacy verifier, so this checks the data: the key state reduces to the
+      // sufficient_keys the case states, and the error follows from them and from who signed.
       if (!('key_state' in c)) return; // pinned from KERIA or signify-ts: accepted under its key
+      if (c.key_state === null) {
+        assert.equal(c.sufficient_keys, null);
+        assert.equal(c.error, 'unknown-key');
+        return;
+      }
       const { keys, threshold } = c.key_state;
+      // Written out here rather than read from the generator, which made the case with its own.
       const weight = (w) => { const [n, d = '1'] = w.split('/'); return Number(n) / Number(d); };
       const alone = typeof threshold === 'string'
         ? (parseInt(threshold, 16) === 1 ? keys : [])
         : keys.filter((_, i) => weight(threshold[i]) >= 1);
-      const found = alone.length === 1 ? alone[0] : null;
       const raw = (qb64) => Buffer.from(fromB64Url('A' + qb64.slice(1)).slice(1)).toString('base64url');
-      assert.equal(c.effective_key, found === null ? null : raw(found));
-      if (found === null) {
+      assert.deepEqual(c.sufficient_keys, alone.map(raw));
+      const signature = c.headers.Signature.split('signify="')[1].replace(/"$/, '');
+      const rawSignature = fromB64Url('AA' + signature.slice(2)).slice(2);
+      if (alone.length === 0) {
         assert.equal(c.error, 'unsupported-signer');
-      } else if (found === c.key) {
-        assert.ok(!('error' in c));
+      } else if (c.error === 'signature-mismatch') {
+        assert.ok(!alone.includes(c.key));
+        for (const key of c.sufficient_keys) {
+          const imported = await crypto.subtle.importKey('raw', fromB64Url(key), { name: 'Ed25519' }, false, ['verify']);
+          assert.ok(!(await crypto.subtle.verify({ name: 'Ed25519' }, imported, rawSignature, new TextEncoder().encode(c.base))));
+        }
       } else {
-        assert.equal(c.error, 'signature-mismatch');
-        const signature = c.headers.Signature.split('signify="')[1].replace(/"$/, '');
-        const rawSignature = fromB64Url('AA' + signature.slice(2)).slice(2);
-        const key = await crypto.subtle.importKey('raw', fromB64Url(c.effective_key), { name: 'Ed25519' }, false, ['verify']);
-        assert.ok(!(await crypto.subtle.verify({ name: 'Ed25519' }, key, rawSignature, new TextEncoder().encode(c.base))));
+        // Accepted, or a header refused before any key is tried, whose key state would accept.
+        assert.ok(alone.includes(c.key));
+        assert.ok(!('error' in c) || load('refusals.json').codes.includes(c.error), c.error);
       }
     });
   }
 });
 
-// Read once from the files at format 4 (keri_vectors_format 7), never at test time, so a file that loses cases fails.
+// Read once from the files at keri_vectors_format 8, never at test time, so a file that loses cases fails.
 const CASES = {
-  'legacy.json': 8,
-  'refusals.json': 65,
-  'requests.json': 21,
+  'legacy.json': 12,
+  'refusals.json': 78,
+  'requests.json': 25,
   'responses.json': 4,
   'rfc9421.json': 1,
 };
