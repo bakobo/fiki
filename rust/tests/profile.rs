@@ -424,7 +424,8 @@ fn a_keyid_that_is_not_an_aid_is_malformed_and_never_resolved() {
 
 #[test]
 fn a_well_formed_unknown_aid_is_resolved_once() {
-    for code in ['B', 'D', 'E'] {
+    // Not B: a B keyid's key is its prefix, and no resolver is asked about it (@37rktct3).
+    for code in ['D', 'E'] {
         let keyid = cesr(code, &Sha256::digest(b"unknown"));
         let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = calls.clone();

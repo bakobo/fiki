@@ -273,29 +273,88 @@ impl Key {
     }
 }
 
-// The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
-// Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
-const SPELLED_CODES: &[u8] = b"BDE";
+// keripy's PreDex, the prefix derivation codes an AID may carry, with the raw size each encodes
+// (`this.i` @37rktct3). fiki reads none of them but B; it needs the table only to say whether a
+// keyid is a well-formed AID, which the KERI profile's R1 makes the verifier's job before any key
+// store is asked.
+const PREFIX_CODES: [(&str, usize); 18] = [
+    ("B", 32),
+    ("D", 32),
+    ("E", 32),
+    ("F", 32),
+    ("G", 32),
+    ("H", 32),
+    ("I", 32),
+    ("0D", 64),
+    ("0E", 64),
+    ("0F", 64),
+    ("0G", 64),
+    ("1AAA", 33),
+    ("1AAB", 33),
+    ("1AAI", 33),
+    ("1AAJ", 33),
+    ("1AAC", 57),
+    ("1AAD", 57),
+    ("1AAE", 114),
+];
 
-/// True when `keyid` is a well-formed AID under the KERI vectors' keys_rule (`this.i` @7w7nv94j).
+/// The non-transferable codes other than B: secp256k1, Ed448 and secp256r1 keys, whose algorithm
+/// the profile does not support.
+pub(crate) const OTHER_NON_TRANSFERABLE: [&str; 3] = ["1AAA", "1AAC", "1AAI"];
+
+/// The PreDex code of `keyid` when it is a well-formed AID, else `None` (`this.i` @7w7nv94j,
+/// @37rktct3).
 ///
-/// 44 characters, a first character of B, D or E, and 43 base64url characters that decode behind
-/// one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the keyid
-/// exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever answers
-/// about key state.
-pub(crate) fn well_formed_aid(keyid: &str) -> bool {
-    if keyid.len() != QB64_LEN || !SPELLED_CODES.contains(&keyid.as_bytes()[0]) {
-        return false;
+/// The code is one, two or four characters by its first character, as CESR sizes it; the raw bytes
+/// behind it are padded with zero bytes to a multiple of three, base64url-encoded, and the code
+/// written over the characters the padding became. Well formed means exactly that spelling: the
+/// right length, base64url throughout, and zero pad bits, so that re-encoding gives back the keyid.
+/// fiki checks this before any resolver sees a keyid, so a resolver only ever answers about key
+/// state.
+pub(crate) fn aid_code(keyid: &str) -> Option<&'static str> {
+    // Bytes, not characters: a code is ASCII, and slicing a str inside a multibyte character
+    // would panic where a refusal is owed.
+    let bytes = keyid.as_bytes();
+    let size = match bytes.first()? {
+        b if b.is_ascii_alphabetic() => 1,
+        b'0' => 2,
+        _ => 4,
+    };
+    let (code, length) = PREFIX_CODES
+        .iter()
+        .find(|(code, _)| bytes.get(..size) == Some(code.as_bytes()))?;
+    let pad = (3 - length % 3) % 3;
+    if bytes.len() != (pad + length) * 4 / 3 + (size - pad) {
+        return None;
     }
-    // Forty-four base64url characters always decode to 33 bytes. Zeroing the pad byte and
-    // re-encoding gives the one canonical spelling of those key bytes, behind any code.
-    match decode(&format!("A{}", &keyid[1..]), URL_ALPHABET) {
-        Some(mut decoded) => {
-            decoded[0] = 0;
-            b64url(&decoded).get(1..) == keyid.get(1..)
-        }
-        None => false,
-    }
+    // The code matched as ASCII, so `size` is a character boundary, and the length check makes
+    // the decoded bytes `pad + length` long whenever they decode at all.
+    let body = &keyid[size..];
+    let mut decoded = decode(&format!("{}{body}", "A".repeat(pad)), URL_ALPHABET)?;
+    decoded[..pad].fill(0);
+    (b64url(&decoded)[pad..] == *body).then_some(*code)
+}
+
+/// The key a well-formed B keyid carries, read as an AID's key (`this.i` @37rktct3): canonical, on
+/// the curve, of large order, and in the prime-order subgroup, or `None`.
+///
+/// Called only for a keyid [`aid_code`] has found to be a well-formed B, whose 43 characters after
+/// the code decode behind one pad byte to exactly 32.
+pub(crate) fn aid_key(keyid: &str) -> Option<VerifyingKey> {
+    // Fail closed all the same: a keyid that somehow is not one is no key.
+    let decoded = decode(&format!("A{}", keyid.get(1..)?), URL_ALPHABET)?;
+    subgroup_key(decoded.get(1..)?.try_into().ok()?)
+}
+
+/// [`public_key`], and also in Ed25519's prime-order subgroup: [L]P is the identity, which is what
+/// libsodium's crypto_core_ed25519_is_valid_point accepts and keripy follows (`this.i` @37rktct3).
+///
+/// A small-order point is not caught by that test, since the identity is one; `public_key` refuses
+/// it first. What this adds is the mixed-order point, a subgroup point plus a torsion component.
+/// Only a key named by an AID must pass it: fiki's own raw keyid accepts a mixed-order key whose
+/// signature satisfies the cofactorless equation (@5r75ff4m).
+pub(crate) fn subgroup_key(raw: &[u8; RAW_LEN]) -> Option<VerifyingKey> {
+    public_key(raw).filter(|key| key.to_edwards().is_torsion_free())
 }
 
 /// The raw key a keyid names in the RFC 8037 "x" form (@7xrx5evg), decoded strictly: exactly 43
