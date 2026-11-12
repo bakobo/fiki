@@ -152,7 +152,8 @@ namespace Bakobo.Fiki
                 throw Refuse($"A public key is at most {MaxPublicChars} characters in any spelling fiki reads; this one is {text.Length}.");
             }
             // Shape before meaning: only a canonically spelled D or E AID is told what it is.
-            if (Aids.WellFormed(text) && text[0] != 'B')
+            var code = Aids.AidCode(text);
+            if (code == "D" || code == "E")
             {
                 throw Refuse(
                     "The text is a transferable or digest AID, whose current key is not recoverable from " +

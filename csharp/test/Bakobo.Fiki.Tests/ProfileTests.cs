@@ -182,8 +182,7 @@ namespace Bakobo.Fiki.Tests
             Assert.Equal(FikiErrorKind.MalformedKey, Sign(keyId: Aid).Refused(o => o.WithResolver(_ => Bytes.Utf8("short"))).Kind);
 
         // fiki refuses a keyid that is not a well-formed AID before any resolver sees it (@7w7nv94j):
-        // 44 characters, B, D or E, then 43 base64url characters decoding behind one pad character to
-        // 32 bytes with a zero pad byte. N3 of the format-4 plan.
+        // the canonical qb64 of one of keripy's PreDex codes (@37rktct3). N3 of the format-4 plan.
         public static IEnumerable<object[]> NotAids() => new[]
         {
             new object[] { "not-an-aid" },
@@ -216,8 +215,8 @@ namespace Bakobo.Fiki.Tests
             Assert.Empty(calls);
         }
 
+        // Not B: a B keyid's key is its prefix, and no resolver is asked about it (@37rktct3).
         [Theory]
-        [InlineData('B')]
         [InlineData('D')]
         [InlineData('E')]
         public void AWellFormedUnknownAidIsResolvedOnce(char code)
@@ -234,18 +233,20 @@ namespace Bakobo.Fiki.Tests
         }
 
         [Fact]
-        public void ASmallOrderBAidIsWellFormedSoItIsResolvedAndItsKeyRefused()
+        public void ASmallOrderBAidIsMalformedFromItsPrefixAndNeverResolved()
         {
-            // The resolver is asked, since the keyid is an AID, and the key it returns is refused.
+            // A B keyid's key is its prefix (profile R1, @37rktct3): the resolver is not asked, and
+            // the key it carries is refused as the keyid is read.
             var keyId = "BAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
             var calls = new List<string>();
             var caught = Sign(keyId: keyId).Refused(o => o.WithResolver(k =>
             {
                 calls.Add(k);
-                return Bytes.FromB64Url("A" + k.Substring(1)).Skip(1).ToArray();
+                return Raw(TheKey);
             }));
             Assert.Equal(FikiErrorKind.MalformedKey, caught.Kind);
-            Assert.Equal(new[] { keyId }, calls);
+            Assert.Equal(keyId, caught.KeyId);
+            Assert.Empty(calls);
         }
 
         [Fact]

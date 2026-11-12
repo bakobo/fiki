@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Org.BouncyCastle.Math.EC.Rfc8032;
 
 namespace Bakobo.Fiki
@@ -17,9 +18,24 @@ namespace Bakobo.Fiki
         // implementation, which is the safe direction for a differential.
         private const char Code = 'B';
 
-        // The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
-        // Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
-        private const string SpelledCodes = "BDE";
+        // keripy's PreDex, the prefix derivation codes an AID may carry, with the raw size each
+        // encodes (this.i @37rktct3). fiki reads none of them but B; it needs the table only to say
+        // whether a keyid is a well-formed AID, which the KERI profile's R1 makes the verifier's job
+        // before any key store is asked.
+        private static readonly Dictionary<string, int> PrefixCodes = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            { "B", 32 }, { "D", 32 }, { "E", 32 }, { "F", 32 }, { "G", 32 }, { "H", 32 }, { "I", 32 },
+            { "0D", 64 }, { "0E", 64 }, { "0F", 64 }, { "0G", 64 },
+            { "1AAA", 33 }, { "1AAB", 33 }, { "1AAI", 33 }, { "1AAJ", 33 },
+            { "1AAC", 57 }, { "1AAD", 57 },
+            { "1AAE", 114 },
+        };
+
+        // The non-transferable codes other than B: secp256k1, Ed448 and secp256r1 keys, whose
+        // algorithm the profile does not support.
+        private static readonly HashSet<string> OtherNonTransferableCodes = new HashSet<string>(StringComparer.Ordinal) { "1AAA", "1AAC", "1AAI" };
+
+        internal static bool OtherNonTransferable(string code) => OtherNonTransferableCodes.Contains(code);
 
         private const string UrlAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -31,17 +47,49 @@ namespace Bakobo.Fiki
         /// <c>Ed25519.ValidatePublicKeyPartial</c> refuses a y of 0, 1 or p - 1 or either order-8
         /// value (every encoding of the 8 small-order points, whatever the sign bit), any y at or
         /// above p, and a y with no x on the curve, which is the set to refuse. It does not refuse a
-        /// point with a small-order component beside a large one, which OpenSSL accepts too; the
-        /// "Full" variant would, and would refuse more than fiki-py. Against a small-order key a
-        /// signature anyone can write verifies, so such a key is malformed, never attempted.
+        /// point with a small-order component beside a large one, which OpenSSL accepts too, and
+        /// which fiki's own raw keyid accepts (@5r75ff4m); <see cref="IsSubgroupKey"/> refuses it for
+        /// a key an AID names. Against a small-order key a signature anyone can write verifies, so
+        /// such a key is malformed, never attempted.
         /// </summary>
         internal static bool IsUsableKey(byte[] raw) => Ed25519.ValidatePublicKeyPartial(raw, 0);
+
+        /// <summary>
+        /// True when a usable key also lies in the prime-order subgroup, [L]P the identity, which is
+        /// what libsodium's crypto_core_ed25519_is_valid_point accepts and keripy follows (KERI
+        /// profile R1, this.i @37rktct3). BouncyCastle 2.7.0's <c>Ed25519.ValidatePublicKeyFull</c>
+        /// makes exactly that check on top of the partial one: it decodes the point and multiplies it
+        /// by L. Asked only after <see cref="IsUsableKey"/>, so what it adds is the mixed-order point,
+        /// a subgroup point plus a torsion component.
+        /// </summary>
+        internal static bool IsSubgroupKey(byte[] raw) => Ed25519.ValidatePublicKeyFull(raw, 0);
 
         internal static FikiException Unusable(string keyId) => new FikiException(
             FikiErrorKind.MalformedKey,
             $"The key that {PyText.Shown(keyId)} names is not a usable Ed25519 public key: it is a point of small order, against which " +
             "anyone can forge a signature, or no canonical point on the curve at all.",
             keyId: keyId);
+
+        /// <summary>
+        /// The key an AID names, held to the prime-order subgroup: refused as small-order or
+        /// off-curve first, as every key is, and then as mixed-order.
+        /// </summary>
+        internal static byte[] SubgroupKey(byte[] raw, string keyId)
+        {
+            if (!IsUsableKey(raw))
+            {
+                throw Unusable(keyId);
+            }
+            if (!IsSubgroupKey(raw))
+            {
+                throw new FikiException(
+                    FikiErrorKind.MalformedKey,
+                    $"The key that {PyText.Shown(keyId)} names is a point of mixed order, outside the prime-order subgroup every " +
+                    "honest key lies in, so no signature is checked against it.",
+                    keyId: keyId);
+            }
+            return raw;
+        }
 
         /// <summary>A one-character code over 32 raw bytes.</summary>
         internal static string Qb64(char code, byte[] raw)
@@ -78,16 +126,43 @@ namespace Bakobo.Fiki
         }
 
         /// <summary>
-        /// True when <paramref name="keyId"/> is a well-formed AID under the KERI vectors' keys_rule
-        /// (this.i @7w7nv94j): 44 characters, a first character of B, D or E, and 43 base64url
-        /// characters that decode behind one pad character to 32 bytes with a zero pad byte, so that
-        /// re-encoding gives back the keyid exactly. fiki checks this before any resolver sees a
-        /// keyid, so a resolver only ever answers about key state.
+        /// The PreDex code of <paramref name="keyId"/> when it is a well-formed AID, else null (this.i
+        /// @7w7nv94j, @37rktct3). The code is one, two or four characters by its first character, as
+        /// CESR sizes it: a letter, then '0', then any other. The raw bytes behind it are padded with
+        /// zero bytes in front to a multiple of three, base64url-encoded, and the code written over
+        /// the characters the padding became. Well formed means exactly that spelling: the right
+        /// length, base64url throughout, and zero pad bits, so that re-encoding gives back the keyid.
+        /// fiki checks this before any resolver sees a keyid, so a resolver only ever answers about
+        /// key state.
         /// </summary>
-        internal static bool WellFormed(string keyId) =>
-            keyId.Length == Qb64Length
-            && SpelledCodes.IndexOf(keyId[0]) >= 0
-            && Canonical(keyId) != null;
+        internal static string? AidCode(string keyId)
+        {
+            var first = keyId.Length == 0 ? '\0' : keyId[0];
+            var size = (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') ? 1 : first == '0' ? 2 : 4;
+            if (keyId.Length < size || !PrefixCodes.TryGetValue(keyId.Substring(0, size), out var length))
+            {
+                return null;
+            }
+            var pad = (3 - length % 3) % 3;
+            if (keyId.Length != (pad + length) * 4 / 3 + (size - pad))
+            {
+                return null;
+            }
+            var body = keyId.Substring(size);
+            foreach (var c in body)
+            {
+                if (UrlAlphabet.IndexOf(c) < 0)
+                {
+                    return null;
+                }
+            }
+            var decoded = Base64Url.Decode(new string('A', pad) + body);
+            Array.Clear(decoded, 0, pad);
+            return Base64Url.Encode(decoded).Substring(pad) == body ? keyId.Substring(0, size) : null;
+        }
+
+        /// <summary>True when <paramref name="keyId"/> is a well-formed AID under the KERI vectors' keys_rule.</summary>
+        internal static bool WellFormed(string keyId) => AidCode(keyId) != null;
 
         private static FikiException Malformed(string aid, string message) =>
             new FikiException(FikiErrorKind.MalformedKey, message, keyId: aid);
