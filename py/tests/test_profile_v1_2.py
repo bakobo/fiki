@@ -239,6 +239,16 @@ def test_an_uncovered_response_body_is_refused_at_the_covered_list_by_its_conten
                         max_age=300, now=AT, resolve=never, expected_keyid=KEY.aid)
 
 
+def test_a_fractional_clock_is_rounded_down_to_whole_seconds():
+    """Half a second past the stale boundary, max_age plus the profile's skew, is on it once rounded
+    down (profile section 6)."""
+    request, headers = sign(KEY.aid)
+    assert verify(request, headers, resolve=never, skew=60, now=AT + 360.5).keyid == KEY.aid
+    with pytest.raises(SignatureTooOld) as caught:
+        verify(request, headers, resolve=never, skew=60, now=AT + 361.5)
+    assert caught.value.now == AT + 361
+
+
 @pytest.mark.parametrize("clock", [float("nan"), float("inf"), float("-inf"), "not-a-clock", True])
 def test_a_clock_that_is_not_a_finite_number_is_a_caller_error_not_a_pass(clock):
     request, headers = sign(KEY.aid)

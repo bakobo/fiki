@@ -755,6 +755,8 @@ def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None)
             f"now must be a finite number of seconds since the epoch, or None for the system clock; this one "
             f"is {now!r}, against which no freshness check can be decided."
         )
+    # Whole seconds, rounded down, so a fractional clock moves no boundary (profile section 6).
+    stamp = math.floor(stamp)
 
     if max_age is not None:
         created = params.get("created")

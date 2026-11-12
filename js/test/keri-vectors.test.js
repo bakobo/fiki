@@ -100,8 +100,8 @@ function run(request, response, { now, policy, keys }) {
   const common = {
     maxAge: policy.max_age,
     skew: policy.skew,
-    // fiki's clock is whole seconds, and the profile rounds a fractional one down (section 6).
-    now: Math.floor(now),
+    // As the case gives it: the profile has the library round a fractional clock down (section 6).
+    now,
     resolve: resolver(keys),
     // Absent from a policy means the explicit decline, which verifyResponse requires be stated.
     expectedKeyid: policy.expected_keyid ?? null,

@@ -23,7 +23,6 @@ from __future__ import annotations
 import base64
 import importlib.util
 import json
-import math
 from fractions import Fraction
 from pathlib import Path
 
@@ -138,10 +137,10 @@ def as_request(message: dict) -> Request:
 def verify(request: dict, response: dict | None = None, *, now, policy: dict, keys: list):
     """Verify as a KERI verifier would, under a policy object as the files spell one.
 
-    fiki's clock is whole seconds, and the profile rounds a fractional one down (section 6), so a
-    case's fractional now is rounded down here.
+    A case's fractional now goes to fiki as it is, since the profile has the library round it
+    down to whole seconds (section 6).
     """
-    common = {"max_age": policy["max_age"], "skew": policy["skew"], "now": math.floor(now),
+    common = {"max_age": policy["max_age"], "skew": policy["skew"], "now": now,
               "resolve": resolver(keys), "expected_keyid": policy.get("expected_keyid")}
     if response is not None:
         return verify_response(status=response["status"], headers=response["headers"],

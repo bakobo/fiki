@@ -705,14 +705,16 @@ function checkMinimum(items, minimum, { hasBody, requestHadBody }) {
 function checkFreshness(params, { maxAge, skew, now: at }) {
   const expires = params.get('expires');
   if (expires === undefined && maxAge === null) return;
-  const stamp = at === null || at === undefined ? now() : at;
+  const clock = at === null || at === undefined ? now() : at;
   // A NaN or non-number clock makes every comparison below false, which would pass a stale message.
-  if (typeof stamp !== 'number' || !Number.isFinite(stamp)) {
+  if (typeof clock !== 'number' || !Number.isFinite(clock)) {
     throw new TypeError(
       `now must be a finite number of seconds since the epoch, or null for the system clock; this one ` +
         `is ${String(at)}, against which no freshness check can be decided.`,
     );
   }
+  // Whole seconds, rounded down, so a fractional clock moves no boundary (profile section 6).
+  const stamp = Math.floor(clock);
 
   if (maxAge !== null) {
     const created = params.get('created');

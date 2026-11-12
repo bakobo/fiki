@@ -241,6 +241,17 @@ describe('content no header announced, at the body stage (@84nt4je0)', () => {
   });
 });
 
+describe('a fractional clock', () => {
+  it('is rounded down to whole seconds, so half a second past the stale boundary is on it', async () => {
+    const signed = await sign(KEY.aid);
+    assert.equal((await verify(signed, { resolve: never, skew: 60, now: AT + 360.5 })).keyid, KEY.aid);
+    await assert.rejects(
+      async () => verify(signed, { resolve: never, skew: 60, now: AT + 361.5 }),
+      (e) => e instanceof errors.SignatureTooOld && e.now === AT + 361,
+    );
+  });
+});
+
 describe('a clock that is not a finite number', () => {
   for (const clock of [NaN, Infinity, 'not-a-clock']) {
     it(`is a caller error, not a pass: ${String(clock)}`, async () => {
