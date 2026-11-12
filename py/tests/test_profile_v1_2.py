@@ -239,7 +239,7 @@ def test_an_uncovered_response_body_is_refused_at_the_covered_list_by_its_conten
                         max_age=300, now=AT, resolve=never, expected_keyid=KEY.aid)
 
 
-@pytest.mark.parametrize("clock", [float("nan"), float("inf"), "not-a-clock", True])
+@pytest.mark.parametrize("clock", [float("nan"), float("inf"), float("-inf"), "not-a-clock", True])
 def test_a_clock_that_is_not_a_finite_number_is_a_caller_error_not_a_pass(clock):
     request, headers = sign(KEY.aid)
     with pytest.raises(TypeError):

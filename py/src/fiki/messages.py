@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
 import re
 import time
 from collections.abc import Callable, Collection, Mapping, Sequence
@@ -747,7 +748,9 @@ def _check_freshness(params, *, max_age: int | None, skew: int, now: int | None)
         return
     stamp = int(time.time()) if now is None else now
     # A NaN or non-number clock makes every comparison below false, which would pass a stale message.
-    if isinstance(stamp, bool) or not isinstance(stamp, (int, float)) or stamp != stamp or stamp in (float("inf"), float("-inf")):
+    # An int is always finite, and math.isfinite would overflow on one past a float's range.
+    if (isinstance(stamp, bool) or not isinstance(stamp, (int, float))
+            or (isinstance(stamp, float) and not math.isfinite(stamp))):
         raise TypeError(
             f"now must be a finite number of seconds since the epoch, or None for the system clock; this one "
             f"is {now!r}, against which no freshness check can be decided."
