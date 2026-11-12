@@ -1490,7 +1490,11 @@ public final class Fiki {
         checkCovered(items, response);
         if (minimum != null) {
             checkMinimum(items, minimum,
-                response ? hasContent(opts.body()) : requestHasBody(found, opts.body()),
+                // A response by its content (@2f227n4r), which a client holds before it verifies. A
+                // request by what its headers announce and only that (@84nt4je0): content they did
+                // not announce is the body stage's to refuse, so a verifier holding the body and one
+                // reading it later report the same code.
+                response ? hasContent(opts.body()) : requestHasBody(found, null),
                 // By the request's content alone, as signResponse decides it (@7p9s3g9k).
                 request != null && hasContent(request.body()));
         }
@@ -1510,6 +1514,13 @@ public final class Fiki {
                 FikiException.Kind.UnknownKey,
                 "This message is signed by " + shown(keyid) + ", and the one expected is " + shown(expected) + ".",
                 keyid);
+        }
+        if (local == null && Key.OTHER_NON_TRANSFERABLE.contains(Key.aidCode(keyid))) {
+            // Non-transferable, so no key state to ask about, and not Ed25519 (profile R1, @37rktct3).
+            throw new FikiException(
+                FikiException.Kind.UnsupportedAlgorithm,
+                "The keyid " + shown(keyid) + " is a non-transferable key of an algorithm other than " + ALG
+                    + ", and fiki verifies only " + ALG + " signatures.");
         }
         Resolved resolved = local != null ? local : resolved(keyid, opts.resolver());
         Object alg = inner.param("alg");
@@ -1544,6 +1555,16 @@ public final class Fiki {
         // an attacker could still have chosen — and would tell that attacker their forgery at
         // least parsed.
         checkFreshness(inner, opts);
+
+        // The body stage (profile section 9, @84nt4je0): request content no header announced,
+        // uncovered. A response's was decided at the covered list.
+        if (minimum != null && !response && hasContent(opts.body()) && !coversBody(items)) {
+            throw new FikiException(
+                FikiException.Kind.InsufficientCoverage,
+                "The message carries a body its content-digest does not cover, so the body could be "
+                    + "replaced in transit; it is refused even though the signature verifies.",
+                CONTENT_DIGEST);
+        }
 
         List<String> headersToRead = new ArrayList<>();
         List<byte[]> contents = new ArrayList<>();
@@ -1909,14 +1930,18 @@ public final class Fiki {
         if (resolver != null) {
             // A resolver answers only about key state (@7w7nv94j), so a keyid that is not a
             // well-formed AID, whatever its shape, is refused here and never handed to it.
-            if (!Key.wellFormedAid(keyid)) {
+            String code = Key.aidCode(keyid);
+            if (code == null) {
                 throw new FikiException(
                     FikiException.Kind.MalformedKey,
-                    "The keyid " + shown(keyid) + " is not a well-formed AID: 44 characters, B, D or E, then the "
-                        + "canonical base64url spelling of 32 bytes. A resolver is asked only about an AID.",
+                    "The keyid " + shown(keyid) + " is not a well-formed AID: the canonical qb64 spelling of a "
+                        + "KERI prefix derivation code and its bytes. A resolver is asked only about an AID.",
                     keyid);
             }
-            return null;
+            // A B keyid's key is its prefix, so no resolver is asked about it, and as an AID's key it
+            // must lie in the prime-order subgroup; both are the keyid's own well-formedness, decided
+            // before the expected keyid is compared (profile R1, @37rktct3).
+            return code.equals("B") ? new Resolved(Key.aidKey(keyid), keyid) : null;
         }
         // Strictly: a lenient decoder ignores trailing bits, so a keyid that is not the key's
         // encoding could verify as whatever key it happened to decode to. Only the one canonical
@@ -1955,7 +1980,7 @@ public final class Fiki {
                 "The key resolved for " + shown(keyid) + " is not a 32-byte Ed25519 public key.",
                 keyid);
         }
-        return new Resolved(Key.trusted(raw.clone(), keyid), keyid);
+        return new Resolved(Key.trusted(raw.clone(), keyid, true), keyid);
     }
 
     /**

@@ -12,6 +12,8 @@ import java.security.spec.X509EncodedKeySpec;
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * An Ed25519 key pair whose public half is rendered as a non-transferable AID (this.i @07wstqk7).
@@ -244,28 +246,72 @@ public final class Key {
         return trusted(raw, aid);
     }
 
-    // The one-character codes whose 44-character qb64 carries 32 raw bytes behind one pad byte:
-    // Ed25519N (B), Ed25519 transferable (D), and Blake3-256 (E, the usual AID digest).
-    private static final String SPELLED_CODES = "BDE";
+    // keripy's PreDex, the prefix derivation codes an AID may carry, with the raw size each encodes
+    // (this.i @37rktct3). fiki reads none of them but B; it needs the table only to say whether a
+    // keyid is a well-formed AID, which the KERI profile's R1 makes the verifier's job before any
+    // key store is asked.
+    private static final Map<String, Integer> PREFIX_CODES = Map.ofEntries(
+        Map.entry("B", 32), Map.entry("D", 32), Map.entry("E", 32), Map.entry("F", 32),
+        Map.entry("G", 32), Map.entry("H", 32), Map.entry("I", 32),
+        Map.entry("0D", 64), Map.entry("0E", 64), Map.entry("0F", 64), Map.entry("0G", 64),
+        Map.entry("1AAA", 33), Map.entry("1AAB", 33), Map.entry("1AAI", 33), Map.entry("1AAJ", 33),
+        Map.entry("1AAC", 57), Map.entry("1AAD", 57),
+        Map.entry("1AAE", 114));
 
     /**
-     * True when {@code keyid} is a well-formed AID under the KERI vectors' keys_rule (@7w7nv94j):
-     * 44 characters, a first character of B, D or E, and 43 base64url characters that decode
-     * behind one pad character to 32 bytes with a zero pad byte, so that re-encoding gives back the
-     * keyid exactly. fiki checks this before any resolver sees a keyid, so a resolver only ever
-     * answers about key state.
+     * The non-transferable codes other than B: secp256k1, Ed448 and secp256r1 keys, whose
+     * algorithm the profile does not support.
      */
+    static final Set<String> OTHER_NON_TRANSFERABLE = Set.of("1AAA", "1AAC", "1AAI");
+
+    /**
+     * The PreDex code of {@code keyid} when it is a well-formed AID, else null (this.i @7w7nv94j,
+     * {@literal @}37rktct3).
+     *
+     * <p>The code is one, two or four characters by its first character, as CESR sizes it; the raw
+     * bytes behind it are padded with zero bytes to a multiple of three, base64url-encoded, and the
+     * code written over the characters the padding became. Well formed means exactly that spelling:
+     * the right length, base64url throughout, and zero pad bits, so that re-encoding gives back the
+     * keyid. fiki checks this before any resolver sees a keyid, so a resolver only ever answers
+     * about key state.
+     */
+    static String aidCode(String keyid) {
+        if (keyid.isEmpty()) {
+            return null;
+        }
+        char first = keyid.charAt(0);
+        int size = (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') ? 1 : first == '0' ? 2 : 4;
+        if (keyid.length() < size) {
+            return null;
+        }
+        String code = keyid.substring(0, size);
+        Integer length = PREFIX_CODES.get(code);
+        if (length == null) {
+            return null;
+        }
+        int pad = (3 - length % 3) % 3;
+        if (keyid.length() != (pad + length) * 4 / 3 + (size - pad)
+                || !keyid.substring(size).matches("[A-Za-z0-9_-]*")) {
+            return null;
+        }
+        byte[] decoded = URL_DECODER.decode("A".repeat(pad) + keyid.substring(size));
+        byte[] padded = new byte[decoded.length];
+        System.arraycopy(decoded, pad, padded, pad, decoded.length - pad);
+        return (code + URL.encodeToString(padded).substring(pad)).equals(keyid) ? code : null;
+    }
+
+    /** True when {@code keyid} is a well-formed AID under the KERI vectors' keys_rule. */
     static boolean wellFormedAid(String keyid) {
-        if (keyid.length() != QB64_LEN || SPELLED_CODES.indexOf(keyid.charAt(0)) < 0) {
-            return false;
-        }
-        if (!keyid.matches("^[A-Za-z0-9\\-_]{44}$")) {
-            return false;
-        }
+        return aidCode(keyid) != null;
+    }
+
+    /**
+     * The key a well-formed B keyid carries, read as an AID's key: canonical, not small-order, and
+     * in the prime-order subgroup (this.i @37rktct3).
+     */
+    static byte[] aidKey(String keyid) {
         byte[] decoded = URL_DECODER.decode("A" + keyid.substring(1));
-        byte[] padded = new byte[RAW_LEN + 1];
-        System.arraycopy(decoded, 1, padded, 1, RAW_LEN);
-        return (keyid.charAt(0) + URL.encodeToString(padded).substring(1)).equals(keyid);
+        return trusted(Arrays.copyOfRange(decoded, 1, decoded.length), keyid, true);
     }
 
     /* ------------------------------------------- keys a verifier must never trust (@2kc2c4h5) */
@@ -311,6 +357,14 @@ public final class Key {
      * (@3kdzr0zn).
      */
     static boolean canonicalPoint(byte[] raw) {
+        return point(raw) != null;
+    }
+
+    /**
+     * The affine point {x, y} that {@code raw} canonically encodes, or null. The sign bit picks x
+     * only for the canonical-encoding check; nothing here depends on which of the two roots x is.
+     */
+    private static BigInteger[] point(byte[] raw) {
         byte[] bigEndian = new byte[RAW_LEN];
         for (int i = 0; i < RAW_LEN; i++) {
             bigEndian[i] = raw[RAW_LEN - 1 - i];
@@ -319,20 +373,58 @@ public final class Key {
         bigEndian[0] &= 0x7f;
         BigInteger y = new BigInteger(1, bigEndian);
         if (y.compareTo(P) >= 0) {
-            return false;
+            return null;
         }
         BigInteger ySquared = y.multiply(y).mod(P);
         BigInteger u = ySquared.subtract(BigInteger.ONE).mod(P);
         BigInteger v = D.multiply(ySquared).add(BigInteger.ONE).mod(P);
         BigInteger xSquared = u.multiply(v.modInverse(P)).mod(P);
         if (xSquared.signum() == 0) {
-            return !sign;
+            return sign ? null : new BigInteger[] {BigInteger.ZERO, y};
         }
         BigInteger x = xSquared.modPow(P.add(BigInteger.valueOf(3)).shiftRight(3), P);
         if (!x.multiply(x).mod(P).equals(xSquared)) {
             x = x.multiply(SQRT_M1).mod(P);
         }
-        return x.multiply(x).mod(P).equals(xSquared);
+        return x.multiply(x).mod(P).equals(xSquared) ? new BigInteger[] {x, y} : null;
+    }
+
+    // The order of Ed25519's prime-order subgroup, RFC 8032 section 5.1's L.
+    private static final BigInteger L =
+        BigInteger.TWO.pow(252).add(new BigInteger("27742317777372353535851937790883648493"));
+
+    /** RFC 8032 section 5.1.4's addition, on points in extended coordinates (X, Y, Z, T). */
+    private static BigInteger[] add(BigInteger[] a, BigInteger[] b) {
+        BigInteger e1 = a[1].subtract(a[0]).multiply(b[1].subtract(b[0])).mod(P);
+        BigInteger h1 = a[1].add(a[0]).multiply(b[1].add(b[0])).mod(P);
+        BigInteger c = a[3].multiply(BigInteger.TWO).multiply(D).multiply(b[3]).mod(P);
+        BigInteger d = a[2].multiply(BigInteger.TWO).multiply(b[2]).mod(P);
+        BigInteger e = h1.subtract(e1);
+        BigInteger f = d.subtract(c);
+        BigInteger g = d.add(c);
+        BigInteger h = h1.add(e1);
+        return new BigInteger[] {e.multiply(f).mod(P), g.multiply(h).mod(P), f.multiply(g).mod(P), e.multiply(h).mod(P)};
+    }
+
+    /**
+     * True when [L]P is the identity, so P lies in the prime-order subgroup (this.i @37rktct3).
+     *
+     * <p>A point of small order is not caught here, since the identity is one; {@link #smallOrder}
+     * runs first. What this adds is the mixed-order point, a subgroup point plus a torsion
+     * component, which libsodium's crypto_core_ed25519_is_valid_point refuses and keripy follows.
+     * Called only with a canonical point.
+     */
+    static boolean primeOrder(byte[] raw) {
+        BigInteger[] affine = point(raw);
+        BigInteger[] total = {BigInteger.ZERO, BigInteger.ONE, BigInteger.ONE, BigInteger.ZERO};
+        BigInteger[] step = {affine[0], affine[1], BigInteger.ONE, affine[0].multiply(affine[1]).mod(P)};
+        for (int i = 0; i < L.bitLength(); i++) {
+            if (L.testBit(i)) {
+                total = add(total, step);
+            }
+            step = add(step, step);
+        }
+        return total[0].signum() == 0 && total[1].equals(total[2]);
     }
 
     /**
@@ -342,6 +434,15 @@ public final class Key {
      * lens itself.
      */
     static byte[] trusted(byte[] raw, String keyid) {
+        return trusted(raw, keyid, false);
+    }
+
+    /**
+     * {@link #trusted(byte[], String)}, and with {@code subgroup}, which is how a key named by an
+     * AID is read (KERI profile R1, this.i @37rktct3), a point outside the prime-order subgroup is
+     * refused too; fiki's own raw keyid accepts one (@5r75ff4m).
+     */
+    static byte[] trusted(byte[] raw, String keyid, boolean subgroup) {
         // An empty keyid names no one, for a caller that must not echo what it was given (@0mvgkwnl).
         String subject = keyid.isEmpty() ? "The key given" : "The key for " + keyid;
         if (smallOrder(raw)) {
@@ -355,6 +456,13 @@ public final class Key {
             throw new FikiException(
                 FikiException.Kind.MalformedKey,
                 subject + " is not the canonical encoding of a point on the Ed25519 curve.",
+                keyid);
+        }
+        if (subgroup && !primeOrder(raw)) {
+            throw new FikiException(
+                FikiException.Kind.MalformedKey,
+                subject + " is a point of mixed order, outside the prime-order subgroup every honest "
+                    + "key lies in, so no signature is checked against it.",
                 keyid);
         }
         return raw;
